@@ -1,6 +1,9 @@
-import { db, sqlite } from './index.js';
-import { vocabTransitions } from './schema.js';
-import { sql, lt } from 'drizzle-orm';
+import { sqlite } from './index.js';
+
+type VocabRow = {
+    id: number;
+    created_at: number;
+};
 
 async function fix() {
     console.log("Starting timestamp fix: scaling 10-digit (seconds) to 13-digit (milliseconds)...");
@@ -11,14 +14,18 @@ async function fix() {
     const THRESHOLD = 100000000000;
 
     // Use raw better-sqlite3 for precision update if needed, but Drizzle is fine here.
-    const rows = (sqlite as any).prepare('SELECT id, created_at FROM vocab_transitions WHERE created_at > ?').all(THRESHOLD);
+    const rows = sqlite
+        .prepare('SELECT id, created_at FROM vocab_transitions WHERE created_at > ?')
+        .all(THRESHOLD) as VocabRow[];;
 
     console.log(`Found ${rows.length} rows with 13-digit timestamps.`);
 
     let count = 0;
     for (const row of rows) {
         const newTimestamp = row.created_at / 1000;
-        (sqlite as any).prepare('UPDATE vocab_transitions SET created_at = ? WHERE id = ?').run(newTimestamp, row.id);
+        sqlite
+            .prepare('UPDATE vocab_transitions SET created_at = ? WHERE id = ?')
+            .run(newTimestamp, row.id);
         count++;
     }
 

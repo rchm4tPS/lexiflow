@@ -1,6 +1,4 @@
-import { db, sqlite } from './index.js';
-import { vocabTransitions } from './schema.js';
-import { sql, eq } from 'drizzle-orm';
+import { sqlite } from './index.js';
 
 async function migrate() {
     console.log("Starting direct migration of vocab_transitions timestamps using better-sqlite3...");
