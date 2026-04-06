@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
@@ -8,6 +7,15 @@ import VocabToolbar from '../features/vocabulary/components/VocabToolbar';
 import VocabTabs from '../features/vocabulary/components/VocabTabs';
 import VocabTable from '../features/vocabulary/components/VocabTable';
 
+type VocabItem = {
+    id: string;
+    word: string;
+    meaning: string | null;
+    stage: 1 | 2 | 3 | 4 | 5 | 6;
+    word_tags?: string[];
+    related_phrase_occur?: string | null;
+};
+
 export default function VocabularyView() {
     const { languageCode, recalculateStats, syncTokenStage, syncPhraseStage } = useReaderStore();
     
@@ -16,7 +24,7 @@ export default function VocabularyView() {
     const pathParts = location.pathname.split('/');
     const activeTab = pathParts[4] === 'phrases' ? 'Phrases' : 'All';
 
-    const [items, setItems] = useState<any[]>([]);
+    const [items, setItems] = useState<VocabItem[]>([]);
     const [total, setTotal] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -46,7 +54,17 @@ export default function VocabularyView() {
             const endpoint = activeTab === 'All' ? '/vocab/list' : '/phrases/list';
             const url = `${endpoint}?lang=${languageCode}&page=${page}&limit=${limit}&sortBy=${sortBy}&search=${encodeURIComponent(debouncedSearch)}`;
             const result = await apiClient(url);
-            setItems(result.data || []);
+            
+            // Map incoming data to ensure 'meaning' property exists
+            const mappedData = (result.data || []).map((it: { id: string; word?: string; phrase_text?: string; stage: number; meaning?: string; user_meaning?: string; word_tags?: string[]; phrase_tags?: string; notes?: string }) => ({
+                id: it.id,
+                word: it.word || it.phrase_text || '',
+                meaning: it.user_meaning || it.meaning || null,
+                stage: it.stage as 1 | 2 | 3 | 4 | 5 | 6,
+                word_tags: it.word_tags || (it.phrase_tags ? it.phrase_tags.split(',') : [])
+            }));
+
+            setItems(mappedData);
             setTotal(result.total || 0);
         } catch (err) {
             console.error(err);
@@ -91,14 +109,14 @@ export default function VocabularyView() {
         }
     };
 
-    const handleUpdateStage = async (item: any, newStage: number) => {
+    const handleUpdateStage = async (item: VocabItem, newStage: number) => {
         const oldStage = Number(item.stage) || 0;
         let lingqDelta = 0;
         if (oldStage === 0 && (newStage >= 1 && newStage <= 4)) lingqDelta = 1;
         if ((oldStage >= 1 && oldStage <= 4) && newStage === 0) lingqDelta = -1;
         const knownDelta = (oldStage !== 5 && newStage === 5) ? 1 : ((oldStage === 5 && newStage !== 5) ? -1 : 0);
 
-        setItems(prev => prev.map(i => i.id === item.id ? { ...i, stage: newStage } : i));
+        setItems(prev => prev.map(i => i.id === item.id ? { ...i, stage: newStage as 1 | 2 | 3 | 4 | 5 | 6 } : i));
         
         const { updateDailyStats } = useReaderStore.getState();
         updateDailyStats({ created: lingqDelta, learned: knownDelta });
@@ -122,15 +140,16 @@ export default function VocabularyView() {
                     body: JSON.stringify({
                         stage: newStage,
                         user_meaning: item.meaning,
+                        meaning: item.meaning,
                         wordTags: item.word_tags
                     })
                 });
             }
             if (activeTab === 'All') {
                 recalculateStats();
-                syncTokenStage(item.word, newStage, item.meaning);
+                syncTokenStage(item.word, newStage, item.meaning || '');
             } else {
-                syncPhraseStage(item.id, newStage, item.meaning);
+                syncPhraseStage(item.id, newStage, item.meaning || '');
             }
         } catch (err) {
             console.error("Failed to update stage", err);
@@ -138,7 +157,7 @@ export default function VocabularyView() {
         }
     };
 
-    const handleSaveEdit = async (item: any) => {
+    const handleSaveEdit = async (item: VocabItem) => {
         setEditingId(null);
         if (editMeaning === item.meaning) return;
 
@@ -163,6 +182,7 @@ export default function VocabularyView() {
                     body: JSON.stringify({
                         stage: item.stage,
                         user_meaning: editMeaning,
+                        meaning: editMeaning,
                         wordTags: item.word_tags
                     })
                 });
@@ -193,7 +213,7 @@ export default function VocabularyView() {
 
             <VocabTabs 
                 languageCode={languageCode} 
-                activeTab={activeTab as any} 
+                activeTab={activeTab as 'Phrases' | 'All'} 
                 onTabChange={() => setPage(1)} 
             />
 

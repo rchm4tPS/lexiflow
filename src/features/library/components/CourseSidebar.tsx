@@ -93,7 +93,7 @@ export default function CourseSidebar({ course }: CourseSidebarProps) {
                 {/* Lesson count & Duration */}
                 <div className="flex flex-col gap-0.5">
                     <div className="text-sm font-bold text-gray-700">{course.lesson_count} Lessons</div>
-                    <div className="text-[11px] font-bold text-gray-400 tracking-tight">Total Duration: {formatDuration(course.total_duration)}</div>
+                    <div className="text-[11px] font-bold text-gray-400 tracking-tight">Total Duration: {formatDuration(course.total_duration || 0)}</div>
                 </div>
 
                 {/* Completion progress bar */}

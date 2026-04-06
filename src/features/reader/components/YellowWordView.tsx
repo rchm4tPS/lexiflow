@@ -6,41 +6,17 @@ import { speak } from '../../../utils/speech';
 import { openSmallWindow } from '../../../utils/window';
 import { LANGUAGES } from '../../../constants/languages';
 
-type Token = {
-    id: string;
-    text: string;
-};
-
-type PhraseRange = string[];
-
-type Word = {
-    id: string;
-    text: string;
-    stage?: number;
-    meaning?: string;
-    notes?: string;
-    word_tags?: string[];
-    isPhrase?: boolean;
-    range?: PhraseRange;
-};
-
-type UpdatePayload = {
-    id: string;
-    stage: number;
-    meaning?: string;
-    tags?: string[];
-    notes?: string;
-};
+import type { SidebarItem, UpdatePayload, Token } from '../../../types/reader';
 
 interface YellowWordViewProps {
-    word: Word;
+    word: SidebarItem;
     onUpdateStage: (payload: UpdatePayload) => void;
 }
 
 const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
     const stage = word.stage || 1;
     const isIgnored = stage === 6;
-    const isPhrase = word.isPhrase;
+    const isPhrase = !!word.isPhrase;
 
     const { words, isRTL, languageCode, fetchHints, activeWordHints, fetchUserTags, userTags } = useReaderStore(
         useShallow((state) => ({
@@ -59,7 +35,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
     const contextWords = useMemo(() => {
         if (!word || !word.id) return [];
 
-        if (isPhrase && word.range && word.range.length > 0) {
+        if (isPhrase && 'range' in word && word.range && word.range.length > 0) {
             const firstIdx = words.findIndex(w => w.id === word.range![0]);
             const lastIdx = words.findIndex(w => w.id === word.range![word.range!.length - 1]);
 
@@ -86,17 +62,19 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
     const [noteVal, setNoteVal] = useState(word.notes || "");
 
     const handleMeaningChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        onUpdateStage({
-            id: word.id,
-            stage,
-            meaning: e.target.value,
-            tags,
-            notes: noteVal
-        });
+        if (word.id) {
+            onUpdateStage({
+                id: word.id,
+                stage,
+                meaning: e.target.value,
+                tags,
+                notes: noteVal
+            });
+        }
     };
 
 
-    const cleanWord = word.text
+    const cleanWord = (word.text || '')
         .replace(/[.,?!„”":;/]/g, '')
         .replace(/(?<!\p{L})'|'(?!\p{L})/gu, '');
 
@@ -121,7 +99,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
 
     const handleAddTag = (newTag: string) => {
         const formatted = newTag.toLowerCase().replace(/\s+/g, '_');
-        if (formatted && !tags.includes(formatted)) {
+        if (formatted && !tags.includes(formatted) && word.id) {
             const updatedTags = [...tags, formatted];
             setTags(updatedTags);
             setTagInput("");
@@ -138,14 +116,16 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
 
     const handleRemoveTag = (tagToRemove: string) => {
         const updatedTags = tags.filter(t => t !== tagToRemove);
-        setTags(updatedTags);
-        onUpdateStage({
-            id: word.id,
-            stage,
-            meaning: word.meaning,
-            tags: updatedTags,
-            notes: noteVal
-        });
+        if (word.id) {
+            setTags(updatedTags);
+            onUpdateStage({
+                id: word.id,
+                stage,
+                meaning: word.meaning,
+                tags: updatedTags,
+                notes: noteVal
+            });
+        }
     };
 
     return (
@@ -236,7 +216,11 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                     {activeWordHints.slice(0, 3).map((m, idx) => (
                         <div
                             key={idx}
-                            onClick={() => onUpdateStage({ id: word.id, stage, meaning: m.text, tags, notes: noteVal })}
+                            onClick={() => {
+                                if (word.id) {
+                                    onUpdateStage({ id: word.id, stage, meaning: m.text, tags, notes: noteVal });
+                                }
+                            }}
                             className="bg-[#3a92fb] text-white px-3 py-2 rounded-md cursor-pointer flex justify-between gap-2 items-center shadow-sm hover:bg-blue-600 transition"
                         >
                             <span className="font-bold text-sm">{m.text}</span>
@@ -272,7 +256,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                 value={noteVal}
                 onChange={(e) => setNoteVal(e.target.value)}
                 onBlur={() => {
-                    if (noteVal !== (word.notes || "")) {
+                    if (noteVal !== (word.notes || "") && word.id) {
                         onUpdateStage({ id: word.id, stage, meaning: word.meaning, tags, notes: noteVal });
                     }
                 }}
@@ -283,7 +267,11 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                     {[1, 2, 3, 4].map((num) => (
                         <button
                             key={num}
-                            onClick={() => onUpdateStage({ id: word.id, stage: num, meaning: word.meaning, tags, notes: noteVal })}
+                            onClick={() => {
+                                if (word.id) {
+                                    onUpdateStage({ id: word.id, stage: num, meaning: word.meaning, tags, notes: noteVal });
+                                }
+                            }}
                             className={`w-10 h-8 font-bold text-sm flex items-center justify-center border-r border-gray-100 last:border-0 
                                 ${stage === num ? `${highlightTheme} text-white` : 'text-gray-500 hover:bg-gray-50'}`}
                         >
@@ -291,7 +279,11 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                         </button>
                     ))}
                     <button
-                        onClick={() => onUpdateStage({ id: word.id, stage: 5, meaning: word.meaning, tags, notes: noteVal })}
+                        onClick={() => {
+                            if (word.id) {
+                                onUpdateStage({ id: word.id, stage: 5, meaning: word.meaning, tags, notes: noteVal });
+                            }
+                        }}
                         className={`w-10 h-8 flex items-center justify-center border-l border-gray-200 transition-colors
                             ${stage === 5 ? 'bg-[#4ac9c5] text-white' : 'text-[#3a92fb] hover:bg-blue-50'}`}
                     >
@@ -299,7 +291,11 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                     </button>
                     {!isPhrase && (
                         <button
-                            onClick={() => onUpdateStage({ id: word.id, stage: 6, meaning: word.meaning, tags, notes: noteVal })}
+                            onClick={() => {
+                                if (word.id) {
+                                    onUpdateStage({ id: word.id, stage: 6, meaning: word.meaning, tags, notes: noteVal });
+                                }
+                            }}
                             className={`w-10 h-8 flex items-center justify-center transition-colors
                             ${stage === 6 ? 'bg-gray-600 text-white' : 'text-gray-400 hover:bg-red-50 hover:text-red-500'}`}
                         >
@@ -329,7 +325,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
 
                 <p className="text-[15px] text-gray-600 leading-relaxed font-medium italic px-2">
                     ... {contextWords.map((w: Token) => {
-                        const isPhraseToken = isPhrase && word?.range?.includes(w.id);
+                        const isPhraseToken = isPhrase && 'range' in word && word.range && word.range.includes(w.id);
                         const isWordToken = !isPhrase && w.id === word?.id;
                         return (
                             <span key={w.id} className={isPhraseToken || isWordToken ? "font-bold text-gray-900 underline" : ""}>

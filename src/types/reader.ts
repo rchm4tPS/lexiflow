@@ -10,6 +10,8 @@ export interface Token {
   notes?: string;
   word_tags?: string[];
   isIgnoredInitially?: boolean;
+  isDraft?: false;
+  isPhrase?: false;
 }
 
 export interface Phrase {
@@ -18,11 +20,22 @@ export interface Phrase {
   text: string;
   range: string[];
   stage: number;
-  user_meaning?: string;
+  meaning?: string;
   phrase_tags?: string | string[];
   notes?: string;
   word_tags?: string[];
-  isPhrase: boolean;
+  isPhrase: true;
+  isDraft?: false;
+}
+
+export interface DbPhrase {
+  id: string;
+  phrase_text: string;
+  stage: number;
+  meaning?: string;
+  user_meaning?: string;
+  phrase_tags?: string;
+  notes?: string;
 }
 
 export interface Lesson {
@@ -54,6 +67,20 @@ export interface Course {
   language_code: string;
   lesson_count?: number;
   lessons?: Lesson[];
+  // Calculated fields
+  blue_remaining?: number;
+  total_unique_words?: number;
+  completion_pct?: number;
+  total_lingqs_count?: number;
+  blue_remaining_pct?: number;
+  total_lingqs?: number;
+  owner_id?: string;
+  total_duration?: number;
+}
+
+export interface CourseDetail {
+  course: Course;
+  lessons: Lesson[];
 }
 
 export interface WordHint {
@@ -83,3 +110,24 @@ export interface MarkovInsights {
       filtered_proportion: number;
   };
 }
+
+export interface UpdatePayload {
+  id: string;
+  stage: number;
+  meaning?: string;
+  tags?: string[];
+  notes?: string;
+}
+export interface DraftPhrase {
+  text: string;
+  stage: number;
+  range: string[];
+  id?: string; // Optional for draft
+  isDraft: true;
+  isPhrase?: false;
+  meaning?: string;
+  notes?: string;
+  word_tags?: string[];
+}
+
+export type SidebarItem = Token | Phrase | DraftPhrase;

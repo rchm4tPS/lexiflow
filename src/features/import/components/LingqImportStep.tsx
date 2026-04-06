@@ -4,7 +4,6 @@ import Swal from 'sweetalert2';
 interface LingqImportResponse {
     success: boolean;
     count: number;
-    lessonsCount: number;
 }
 
 interface LingqImportStepProps {

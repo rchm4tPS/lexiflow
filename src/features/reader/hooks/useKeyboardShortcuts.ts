@@ -56,17 +56,17 @@ export const useKeyboardShortcuts = () => {
             }
 
             if (/[0]/.test(e.key) && activeItem?.id) {
-                updateStage(activeItem.id, 6);
+                updateStage({ id: activeItem.id, stage: 6 });
             }
 
             // 2. K -> Quick Promote to Stage 1
             if (key === 'k') {
-                if (activeItem && 'isDraft' in activeItem) {
+                if (activeItem && 'isDraft' in activeItem && activeItem.isDraft) {
                     // It's a brand new highlight -> Create it
                     createPhrase(activeItem.range, "");
-                } else if (activeItem?.id) {
+                } else if (activeItem && activeItem.id) {
                     // It's an existing phrase or word -> Promote it
-                    updateStage(activeItem.id, 5);
+                    updateStage({ id: activeItem.id, stage: 5 });
                 }
             }
 
@@ -90,14 +90,14 @@ export const useKeyboardShortcuts = () => {
                 
                 if (e.key === 'ArrowUp') {
                     e.preventDefault();
-                    updateStage(activeItem.id, Math.min(currentStage + 1, 6));
+                    updateStage({ id: activeItem.id, stage: Math.min(currentStage + 1, 6) });
                 }
                 if (e.key === 'ArrowDown') {
                     e.preventDefault();
-                    updateStage(activeItem.id, Math.max(currentStage - 1, 1));
+                    updateStage({ id: activeItem.id, stage: Math.max(currentStage - 1, 1) });
                 }
                 if (/[1-6]/.test(e.key)) {
-                    updateStage(activeItem.id, parseInt(e.key));
+                    updateStage({ id: activeItem.id, stage: parseInt(e.key) });
                 }
             }
 

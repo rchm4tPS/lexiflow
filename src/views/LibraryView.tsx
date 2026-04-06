@@ -50,7 +50,7 @@ export default function LibraryView() {
     // Sync Course Details with path
     useEffect(() => {
         if (currentCourseId) {
-            if (!activeCourseDetails || activeCourseDetails.id !== currentCourseId) {
+            if (!activeCourseDetails || activeCourseDetails.course.id !== currentCourseId) {
                 fetchCourseDetails(currentCourseId);
             }
         } else {

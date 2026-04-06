@@ -5,28 +5,10 @@ import { speak } from '../../../utils/speech';
 import { openSmallWindow } from '../../../utils/window';
 import { LANGUAGES } from '../../../constants/languages';
 
-type Word = {
-  id: string;
-  text: string;
-  meaning?: string;
-  notes?: string;
-  word_tags?: string[];
-  stage?: number;
-  isDraft?: boolean;
-  isPhrase?: boolean;
-  range?: string[];
-};
-
-type UpdatePayload = {
-  id: string;
-  stage: number;
-  meaning?: string;
-  tags?: string[];
-  notes?: string;
-};
+import type { SidebarItem, UpdatePayload } from '../../../types/reader';
 
 interface BlueWordViewProps {
-  word: Word;
+  word: SidebarItem;
   onUpdateStage: (payload: UpdatePayload) => void;
   onCreatePhrase: (range: string[], meaning: string) => void;
 }
@@ -41,7 +23,7 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
             languageCode: state.languageCode
         }));
 
-    const cleanWord = word.text
+    const cleanWord = (word.text || '')
         .replace(/[.,?!„”":;/]/g, '')
         .replace(/(?<!\p{L})'|'(?!\p{L})/gu, '');
 
@@ -62,7 +44,7 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
         if (word.isDraft) {
             if (!word.range) return;
             onCreatePhrase(word.range, meaning);
-        } else {
+        } else if (word.id) {
             onUpdateStage({
                 id: word.id,
                 stage: 1,
@@ -92,7 +74,7 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
                     onClick={() => {
                         if (word.isDraft) {
                             onCreatePhrase(word.range || [], "");
-                        } else {
+                        } else if (word.id) {
                             onUpdateStage({
                                 id: word.id,
                                 stage: 5,
@@ -122,11 +104,15 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
                             activeWordHints.map((m, idx) => (
                                 <div
                                     key={idx}
-                                    onClick={() => onUpdateStage({
-                                        id: word.id,
-                                        stage: 1,
-                                        meaning: m.text
-                                    })}
+                                    onClick={() => {
+                                        if (word.id) {
+                                            onUpdateStage({
+                                                id: word.id,
+                                                stage: 1,
+                                                meaning: m.text
+                                            });
+                                        }
+                                    }}
                                     className="bg-[#3a92fb] text-white px-4 py-3 rounded-md cursor-pointer flex justify-between items-center shadow-sm hover:bg-[#3a92fb] hover:text-white transition group"
                                 >
                                     <span className="font-bold">{m.text}</span>
@@ -191,10 +177,10 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
                 )}
             </div>
 
-            {!word.isDraft && (
+            {!word.isDraft && word.id && (
                 <button
                     onClick={() => onUpdateStage({
-                        id: word.id,
+                        id: word.id!,
                         stage: 6
                     })}
                     className="border cursor-pointer border-gray text-gray-400 hover:text-white ml-auto mr-2 my-2 w-fit px-3 py-1 rounded text-xs font-bold flex items-center gap-2 shadow hover:bg-red-500 hover:border-red-500 transition"

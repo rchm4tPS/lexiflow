@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { apiClient } from '../api/client'; // Your fetch wrapper
 import { buildPhraseInstances } from '../utils/phraseMatcher';
 import { getTier } from '../constants/tiers';
-import type { Token, Phrase, Lesson, Course, WordHint, UserStats } from '../types/reader';
+import type { Token, Phrase, DbPhrase, Lesson, Course, CourseDetail, UpdatePayload, WordHint, UserStats } from '../types/reader';
 
 interface SupportedLanguage {
   code: string;
@@ -21,7 +21,7 @@ interface ReaderState {
   lessonAudio: string | null;
 
   guidedCourses: Course[];
-  activeCourseDetails: Course | null; 
+  activeCourseDetails: CourseDetail | null; 
   activeLessonId: string | null;
 
 
@@ -37,7 +37,7 @@ interface ReaderState {
   isLoadingHints: boolean;
 
   tokens: Token[];
-  dbPhrases: Phrase[]; // Stores raw phrases from DB (could be refined further if needed)
+  dbPhrases: DbPhrase[]; // Stores raw phrases from DB (could be refined further if needed)
   phrases: Phrase[];   // Calculated instances mapping over tokens
   languageCode: string;
   availableLanguages: SupportedLanguage[];
@@ -108,7 +108,7 @@ interface ReaderState {
   fetchLesson: (lessonId: string) => Promise<void>;
 
   fetchUserTags: () => Promise<void>;
-  updateStage: (id: string, newStage: number, meaning?: string, wordTags?: string[], notes?: string) => Promise<void>;
+  updateStage: (payload: UpdatePayload) => Promise<void>;
   deleteLesson: (lessonId: string) => Promise<void>;
   deleteCourse: (courseId: string, confirm?: boolean) => Promise<{ success: boolean; error?: string; message?: string }>;
 
@@ -617,7 +617,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   setModal: (show) => set({ showModal: show }),
   setShowSummary: (show) => set({ showSummary: show }),
 
-  updateStage: async (id: string, newStage: number, meaning?: string, wordTags?: string[], notes?: string) => {
+  updateStage: async (payload: UpdatePayload) => {
+    const { id, stage: newStage, meaning, tags: wordTags, notes } = payload;
     if (!id) return;
 
     const state = get();
@@ -635,7 +636,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       finalTags.forEach((t: string) => newTagsCache.add(t));
 
       const updatedDbPhrases = state.dbPhrases.map(p =>
-        p.id === targetDbId ? { ...p, stage: newStage, user_meaning: meaning !== undefined ? meaning : p.user_meaning, phrase_tags: formattedTagsStr, notes: notes !== undefined ? notes : p.notes } : p
+        p.id === targetDbId ? { ...p, stage: newStage, meaning: meaning !== undefined ? meaning : p.meaning, phrase_tags: formattedTagsStr, notes: notes !== undefined ? notes : p.notes } as DbPhrase : p
       );
 
       set({
@@ -647,7 +648,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       try {
         await apiClient(`/phrases/${targetDbId}`, {
           method: 'PUT',
-          body: JSON.stringify({ stage: newStage, user_meaning: meaning, wordTags: finalTags, notes })
+          body: JSON.stringify({ stage: newStage, user_meaning: meaning, meaning: meaning, wordTags: finalTags, notes })
         });
       } catch (err) {
         console.error("Failed to update phrase", err);
@@ -829,7 +830,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         method: 'POST',
         body: JSON.stringify({
           phrase_text: exactText,
-          user_meaning: meaning,
+          meaning: meaning,
+          user_meaning: meaning, // Keep for API compatibility
           language_code: state.languageCode,
           related_phrase_occur: relatedPhraseOccur,
           notes: meaning ? "" : undefined // Optional: ensure notes field is initialized if needed
@@ -1054,7 +1056,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       if (!state.dbPhrases) return state;
       const updatedDbPhrases = state.dbPhrases.map(p => {
         if (p.id === phraseId) {
-          return { ...p, stage: newStage, user_meaning: meaning !== undefined ? meaning : p.user_meaning, notes: notes !== undefined ? notes : p.notes };
+          return { ...p, stage: newStage, meaning: meaning !== undefined ? meaning : p.meaning, notes: notes !== undefined ? notes : p.notes } as DbPhrase;
         }
         return p;
       });

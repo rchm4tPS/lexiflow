@@ -1,18 +1,10 @@
 import QuickStartGuide from './QuickStartGuide';
 import BlueWordView from './BlueWordView';
 import YellowWordView from './YellowWordView';
-import type { Token, Phrase } from '../../../types/reader';
-
-interface UpdatePayload {
-  id: string;
-  stage: number;
-  meaning?: string;
-  tags?: string[];
-  notes?: string;
-}
+import type { SidebarItem, UpdatePayload } from '../../../types/reader';
 
 interface SidebarProps {
-  word: (Token | Phrase) | null;
+  word: SidebarItem | null;
   onUpdateStage: (payload: UpdatePayload) => void;
   onCreatePhrase: (range: string[], meaning: string) => void;
 }
@@ -28,8 +20,8 @@ export default function Sidebar({ word, onUpdateStage, onCreatePhrase }: Sidebar
             {/* Logic: stage 0 is blue */}
             {word && currentStage === 0 && (
                 <BlueWordView
-                    key={word.id}
-                    word={word as Token} // In stage 0 it's always a Token or Draft Phrase
+                    key={word.id || 'draft'}
+                    word={word}
                     onUpdateStage={onUpdateStage}
                     onCreatePhrase={onCreatePhrase}
                 />

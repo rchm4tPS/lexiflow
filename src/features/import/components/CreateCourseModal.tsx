@@ -8,7 +8,7 @@ import type { Course } from '../../../types/reader';
 interface CreateCourseModalProps {
     onClose: () => void;
     onCreate: (course: Course) => void;
-    createCourse: (title: string, level: string, desc: string, imageUrl: string, isPublic: boolean) => Promise<Course | null>;
+    createCourse: (title: string, level: string, description?: string, imageUrl?: string, isPublic?: boolean) => Promise<Course | undefined>;
 }
 
 export default function CreateCourseModal({ onClose, onCreate, createCourse }: CreateCourseModalProps) {

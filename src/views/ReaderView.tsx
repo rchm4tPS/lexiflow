@@ -6,6 +6,7 @@ import Toolbar from "../features/reader/components/Toolbar";
 import ReaderPane from "../features/reader/components/ReaderPane";
 import Sidebar from "../features/reader/components/Sidebar";
 import CompletionModal from "../features/reader/components/LessonEnd/CompletionModal";
+import type { SidebarItem } from "../types/reader";
 
 export default function ReaderView() {
     const { lessonId } = useParams();
@@ -45,25 +46,25 @@ export default function ReaderView() {
                 p.range.every((id: string, idx: number) => id === draftPhraseRange[idx])
             );
 
-            if (existingPhrase) return { ...existingPhrase, isPhrase: true };
+            if (existingPhrase) return { ...existingPhrase, isPhrase: true as const };
 
             // 2. Otherwise, it's a new Blue Draft
             const phraseTokens = tokens.filter(t => draftPhraseRange.includes(t.id));
             return {
-                isDraft: true,
+                isDraft: true as const,
                 text: phraseTokens.map(t => t.text).join(' '),
                 stage: 0,
-                range: draftPhraseRange
-            };
+                range: draftPhraseRange,
+                isPhrase: false as const
+            } as SidebarItem;
         }
 
         if (selectedId) {
             if (selectedId.includes('_')) {
-                // return phrases.find(p => p.id === selectedId);
                 const p = phrases.find(p => p.id === selectedId);
-                return p ? { ...p, isPhrase: true } : null;
+                return (p ? { ...p, isPhrase: true as const } : null) as SidebarItem | null;
             }
-            return tokens.find(t => t.id === selectedId);
+            return (tokens.find(t => t.id === selectedId) || null) as SidebarItem | null;
         }
         return null;
     }, [selectedId, draftPhraseRange, tokens, phrases]);
