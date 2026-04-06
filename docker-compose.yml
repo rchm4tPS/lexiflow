@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: lingq-clone-app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - JWT_SECRET=change_this_to_something_secure
+      - DATABASE_URL=/app/data/sqlite.db
+    volumes:
+      - ./data:/app/data
+    restart: always
+
+# Persistent Volume for SQLite
+volumes:
+  data:

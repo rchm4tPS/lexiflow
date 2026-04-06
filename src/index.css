@@ -1,0 +1,118 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Parastoo:wght@400..700&display=swap');
+
+@font-face {
+  font-family: 'LingqFont';
+  src: url('/fonts/traditional-farsi.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@theme {
+  --font-nunito: "Nunito", sans-serif;
+  --font-farsi: "Parastoo", "Tahoma", "Courier New", serif;
+  --font-farsi-trad: "LingqFont", serif;
+
+  /* Premium Brand Colors */
+  --color-brand-primary: #3890fc;
+  --color-brand-secondary: #0ea5e9;
+  --color-brand-dark: #1e293b;
+
+  /* Word Stage Colors */
+  --color-stage-1: #3890fc;     /* Learning (Blue) */
+  --color-stage-4: #22c55e;     /* Known (Green) */
+  --color-phrase: #f97316;      /* Phrase (Orange) */
+  --color-new: #3890fc;         /* New words (shared with learning blue) */
+}
+
+#root {
+  transition: font-family 0.3s ease-in-out;
+}
+
+[dir='rtl'] {
+  text-align: right;
+}
+
+/* Base styles to ensure full-screen layout */
+@layer base {
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: #f3f4f6;
+    /* Your light gray background */
+    font-family: var(--font-nunito);
+    overflow-x: hidden;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+}
+
+/* Ensures the orange background bleeds slightly to connect adjacent words */
+span[style*="rgba(255, 165, 0"] {
+  margin-right: -2px;
+  /* Pulls the next word in to close the gap */
+  padding-right: 2px;
+  /* Restores the visual space */
+}
+
+/* For the Gray Outline (Stage 6) */
+/* We want borders on top/bottom for all words, but left/right borders ONLY on the edges */
+.phrase-start {
+  border-left-width: 2px;
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+
+.phrase-end {
+  border-right-width: 2px;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+/* Shimmer animation for Skeleton loaders */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.animate-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.animate-shimmer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.45) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: shimmer 2s infinite;
+}
