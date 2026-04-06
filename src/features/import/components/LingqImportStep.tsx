@@ -1,8 +1,14 @@
 import { useState } from 'react';
 import Swal from 'sweetalert2';
 
+interface LingqImportResponse {
+    success: boolean;
+    count: number;
+    lessonsCount: number;
+}
+
 interface LingqImportStepProps {
-    importFromLingq: (apiKey: string, courseCount: number, lessonsPerCourse: number) => Promise<any>;
+    importFromLingq: (apiKey: string, courseCount: number, lessonsPerCourse: number) => Promise<LingqImportResponse>;
     onSuccess: () => void;
 }
 
@@ -27,11 +33,12 @@ export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImp
                 });
                 onSuccess();
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
+            const error = err as { response?: { data?: { error?: string } }, message?: string };
             Swal.fire({
                 icon: 'error',
                 title: 'Import Failed',
-                text: err.response?.data?.error || err.message,
+                text: error.response?.data?.error || error.message || "Unknown error",
                 confirmButtonColor: '#3890fc',
             });
         } finally {

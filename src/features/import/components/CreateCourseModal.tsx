@@ -3,10 +3,12 @@ import Swal from 'sweetalert2';
 import { uploadFile } from '../../../utils/upload';
 import { LEVELS } from '../../../constants/levels';
 
+import type { Course } from '../../../types/reader';
+
 interface CreateCourseModalProps {
     onClose: () => void;
-    onCreate: (course: any) => void;
-    createCourse: (title: string, level: string, desc: string, imageUrl: string, isPublic: boolean) => Promise<any>;
+    onCreate: (course: Course) => void;
+    createCourse: (title: string, level: string, desc: string, imageUrl: string, isPublic: boolean) => Promise<Course | null>;
 }
 
 export default function CreateCourseModal({ onClose, onCreate, createCourse }: CreateCourseModalProps) {
@@ -41,8 +43,9 @@ export default function CreateCourseModal({ onClose, onCreate, createCourse }: C
             if (course) {
                 onCreate(course);
             }
-        } catch (err: any) {
-            Swal.fire({ icon: 'error', title: 'Error', text: err.message, confirmButtonColor: '#3890fc' });
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Internal Error";
+            Swal.fire({ icon: 'error', title: 'Error', text: message, confirmButtonColor: '#3890fc' });
         } finally {
             setIsCreatingCourse(false);
         }

@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { useReaderStore } from '../../../store/useReaderStore';
 
+import type { Lesson } from '../../../types/reader';
+
 interface LessonCardProps {
-    lesson: any;
+    lesson: Lesson;
     isInsideCourse?: boolean;
     onBookmark?: (id: string) => void;
 }
@@ -55,19 +57,19 @@ export default function LessonCard({ lesson, isInsideCourse = false, onBookmark 
                     timer: 1500,
                     showConfirmButton: false
                 });
-            } catch (err) {
+            } catch {
                 Swal.fire('Error', 'Failed to delete the lesson.', 'error');
             }
         }
     };
 
-    const blueRemaining = lesson.user_new_words !== null && lesson.user_new_words !== undefined
+    const blueRemainingValue = (lesson.user_new_words !== null && lesson.user_new_words !== undefined)
         ? lesson.user_new_words
-        : lesson.unique_words;
+        : (lesson.unique_words || 0);
     const yellowLingQs = lesson.user_lingqs || 0;
 
     const initialUnique = lesson.unique_words || 1;
-    const processedWords = initialUnique - blueRemaining;
+    const processedWords = initialUnique - blueRemainingValue;
     const completionPercentage = Math.max(0, Math.min(100, Math.round((processedWords / initialUnique) * 100)));
     const blueRemainingPct = 100 - completionPercentage;
 
@@ -138,7 +140,7 @@ export default function LessonCard({ lesson, isInsideCourse = false, onBookmark 
                     <div className="flex items-center gap-2 text-xs font-bold text-gray-500 flex-wrap">
                         <span className="flex items-center gap-1 bg-blue-50 text-blue-600 px-2 py-0.5 rounded">
                             <span className="text-blue-400">■</span>
-                            {blueRemaining} <span className="text-blue-400">({blueRemainingPct}%)</span>
+                            {blueRemainingValue} <span className="text-blue-400">({blueRemainingPct}%)</span>
                             <span className="text-blue-300 text-[10px]">●</span>
                         </span>
                         <span className="flex items-center gap-1">

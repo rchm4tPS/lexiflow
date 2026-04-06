@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useParams } from "react-router-dom";
 import { useReaderStore } from "../store/useReaderStore";
 import { useKeyboardShortcuts } from "../features/reader/hooks/useKeyboardShortcuts";
@@ -35,7 +34,7 @@ export default function ReaderView() {
                 syncLessonProgress(lessonId);
             }
         };
-    }, [fetchLesson, lessonId]);
+    }, [fetchLesson, lessonId, syncLessonProgress]);
 
     // Compute activeItem for Sidebar
     const activeItem = useMemo(() => {
@@ -43,7 +42,7 @@ export default function ReaderView() {
             // 1. Check if this highlight matches an existing phrase
             const existingPhrase = phrases.find(p =>
                 p.range.length === draftPhraseRange.length && 
-                p.range.every((id: any, idx: number) => id === draftPhraseRange[idx])
+                p.range.every((id: string, idx: number) => id === draftPhraseRange[idx])
             );
 
             if (existingPhrase) return { ...existingPhrase, isPhrase: true };

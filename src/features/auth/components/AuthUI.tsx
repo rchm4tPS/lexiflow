@@ -11,7 +11,17 @@ export function StepDot({ done, active, num }: { done: boolean; active: boolean;
   );
 }
 
-export function InputField({ label, id, type = 'text', value, onChange, placeholder, autoComplete }: any) {
+interface InputFieldProps {
+  label: string;
+  id: string;
+  type?: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  autoComplete?: string;
+}
+
+export function InputField({ label, id, type = 'text', value, onChange, placeholder, autoComplete }: InputFieldProps) {
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={id} className="text-sm font-semibold text-gray-600">{label}</label>

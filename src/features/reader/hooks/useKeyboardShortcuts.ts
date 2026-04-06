@@ -1,7 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect } from 'react';
 import { useReaderStore } from '../../../store/useReaderStore';
 import { useAuthStore } from '../../../store/useAuthStore';
+import type { Token, Phrase } from '../../../types/reader';
 
 export const useKeyboardShortcuts = () => {
     const { isAuthenticated } = useAuthStore();
@@ -27,22 +27,27 @@ export const useKeyboardShortcuts = () => {
             const key = e.key.toLowerCase();
             
             // Determine what is actively selected
-            let activeItem:any = null;
+            let activeItem: (Token | Phrase | { isDraft: boolean; stage: number; range: string[]; id?: string }) | null = null;
+
             if (draftPhraseRange) {
                 // Check if this highlight matches an existing saved phrase
                 const existingPhrase = phrases.find(p =>
                     p.range.length === draftPhraseRange.length &&
-                    p.range.every(({id, idx}: any) => id === draftPhraseRange[idx])
+                    p.range.every((id: string, idx: number) => id === draftPhraseRange[idx])
                 );
 
                 if (existingPhrase) {
-                    activeItem = { ...existingPhrase, isPhrase: true };
+                    activeItem = { ...existingPhrase };
                 } else {
                     activeItem = { isDraft: true, stage: 0, range: draftPhraseRange };
                 }
             }
-            else if (selectedId?.includes('_')) activeItem = phrases.find(p => p.id === selectedId);
-            else if (selectedId) activeItem = tokens.find(t => t.id === selectedId);
+            else if (selectedId?.includes('_')) {
+                activeItem = phrases.find(p => p.id === selectedId) || null;
+            }
+            else if (selectedId) {
+                activeItem = tokens.find(t => t.id === selectedId) || null;
+            }
 
             // 1. Esc -> Deselect EVERYTHING
             if (e.key === 'Escape') {
@@ -50,13 +55,13 @@ export const useKeyboardShortcuts = () => {
                 clearSelection();
             }
 
-            if (/[0]/.test(e.key)) {
+            if (/[0]/.test(e.key) && activeItem?.id) {
                 updateStage(activeItem.id, 6);
             }
 
             // 2. K -> Quick Promote to Stage 1
             if (key === 'k') {
-                if (activeItem?.isDraft) {
+                if (activeItem && 'isDraft' in activeItem) {
                     // It's a brand new highlight -> Create it
                     createPhrase(activeItem.range, "");
                 } else if (activeItem?.id) {
@@ -80,7 +85,7 @@ export const useKeyboardShortcuts = () => {
             }
 
             // 4. Stage Changes (Up/Down / 1-6)
-            if (activeItem && !activeItem.isDraft && activeItem.id) {
+            if (activeItem && !('isDraft' in activeItem) && activeItem.id) {
                 const currentStage = Number(activeItem.stage) || 0;
                 
                 if (e.key === 'ArrowUp') {

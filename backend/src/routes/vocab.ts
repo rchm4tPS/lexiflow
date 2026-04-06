@@ -91,8 +91,9 @@ router.get('/list', authenticate, async (req: AuthRequest, res) => {
         })),
         total
     });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -224,8 +225,9 @@ router.post('/upsert', authenticate, async (req: AuthRequest, res) => {
     }
 
     res.json({ success: true, coinDelta });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -290,8 +292,9 @@ router.post('/batch-upsert', authenticate, async (req: AuthRequest, res) => {
     });
 
     res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -357,8 +360,9 @@ router.post('/recalculate-stats', authenticate, async (req: AuthRequest, res) =>
       .where(and(eq(userLanguages.user_id, userId), eq(userLanguages.language_code, languageCode)));
 
     res.json({ success: true, trueCoins, trueKnown, trueLingqs });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -406,8 +410,9 @@ router.get('/hints', authenticate, async (req: AuthRequest, res) => {
     });
 
     res.json(hints);
-  } catch (error: any) {
-    console.error("Hints Error:", error.message);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    console.error("Hints Error:", message);
     res.status(500).json({ error: "Failed to fetch hints" });
   }
 });
@@ -451,8 +456,9 @@ router.get('/tags', authenticate, async (req: AuthRequest, res) => {
     });
 
     res.json(Array.from(uniqueTags));
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -474,8 +480,9 @@ router.delete('/', authenticate, async (req: AuthRequest, res) => {
 
     // Stats recalculate handled on frontend action logic or simple inline query
     res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -506,8 +513,9 @@ router.get('/insights', authenticate, async (req: AuthRequest, res) => {
       healthScore: stationary.steady_mastery * 100, // Normalized 0-100 score of long-term retention
       burnoutIndex: stationary.filtered_proportion * 100 // Proportion of "Ignored" in long term
     });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 

@@ -56,8 +56,8 @@ export default function SignUpView() {
     try {
       await register({ fullName, username, email, password, targetLanguage, dailyGoalTier });
       setSuccess(true);
-    } catch (e: any) {
-      setError(e.message || 'Registration failed. Please try again.');
+    } catch (e: unknown) {
+      setError(e instanceof Error && e.message || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
     }

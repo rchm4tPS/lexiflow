@@ -25,8 +25,9 @@ router.post('/courses', authenticate, async (req: AuthRequest, res) => {
     }).returning();
 
     res.json({ success: true, course: newCourse });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -71,8 +72,9 @@ router.delete('/courses/:id', authenticate, async (req: AuthRequest, res) => {
     });
 
     res.json({ success: true, message: 'Course and all associated lessons deleted.' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -91,8 +93,9 @@ router.get('/courses', authenticate, async (req: AuthRequest, res) => {
       ));
 
     res.json(myCourses);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -114,7 +117,7 @@ router.get('/feed/:langCode', authenticate, async (req: AuthRequest, res) => {
     const enrolledCourseIds = enrolledCourses.map(e => e.course_id);
 
     // Build the lesson feed, excluding lessons from enrolled courses
-    let feedQuery = db.select({
+    const feedQuery = db.select({
       id: lessons.id,
       title: lessons.title,
       course_title: courses.title,
@@ -168,8 +171,9 @@ router.get('/feed/:langCode', authenticate, async (req: AuthRequest, res) => {
     });
 
     res.json(normalizedFeed);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -240,8 +244,9 @@ router.get('/my-lessons', authenticate, async (req: AuthRequest, res) => {
     }
 
     res.json(normalized);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -280,8 +285,9 @@ router.post('/check-completions', authenticate, async (req: AuthRequest, res) =>
     }
 
     res.json({ success: true, updatedCount });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -313,8 +319,9 @@ router.get('/continue-studying', authenticate, async (req: AuthRequest, res) => 
     .limit(4);
 
     res.json(recentLessons);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -416,8 +423,9 @@ router.get('/guided-courses', authenticate, async (req: AuthRequest, res) => {
     }));
 
     res.json(courseStats);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -442,7 +450,7 @@ async function initializeMissingProgress(userId: string, languageCode: string, m
     const newProgressRows = [];
     for (const content of contents) {
         let tokens;
-        try { tokens = JSON.parse(content.raw_text); } catch(e) { continue; }
+        try { tokens = JSON.parse(content.raw_text); } catch { continue; }
         
         const uniqueWords = new Set<string>();
         for (const t of tokens) if (t.isLearnable) uniqueWords.add(t.text.toLowerCase());
@@ -566,8 +574,9 @@ router.get('/courses/:id/lessons', authenticate, async (req: AuthRequest, res) =
       },
       lessons: normalizedLessons,
     });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -603,8 +612,9 @@ router.post('/lessons/:id/bookmark', authenticate, async (req: AuthRequest, res)
       });
       res.json({ bookmarked: true });
     }
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -636,9 +646,9 @@ router.post('/lingq-import', authenticate, async (req: AuthRequest, res) => {
 
 
     res.json(result);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("LingQ Import Error:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
   }
 });
 

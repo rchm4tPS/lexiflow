@@ -20,7 +20,7 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
     req.user = decoded;
     next();
-  } catch (error) {
+  } catch {
     res.status(400).json({ error: 'Invalid token.' });
   }
 };

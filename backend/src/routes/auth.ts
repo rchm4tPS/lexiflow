@@ -138,8 +138,9 @@ router.get('/info/:userId', async (req: AuthRequest, res) => {
       stats7d,
       stats30d
     });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(400).json({ error: message });
   }
 })
 
@@ -183,14 +184,15 @@ router.post('/register', async (req, res) => {
     });
 
     res.json({ success: true, message: 'Account created! Please log in.' });
-  } catch (error: any) {
-    if (error.message?.includes('UNIQUE')) {
+  } catch (error: unknown) {
+    const err = error as { message?: string };
+    if (err.message?.includes('UNIQUE')) {
       return res.status(409).json({ error: 'Email or username already taken.' });
     }
-    if (error.message?.includes('FOREIGN KEY')) {
+    if (err.message?.includes('FOREIGN KEY')) {
       return res.status(400).json({ error: `Language "${req.body.targetLanguage}" is not supported. Please choose a different one.` });
     }
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ error: err.message || "Internal Error" });
   }
 });
 
@@ -216,8 +218,8 @@ router.patch('/goal-tier', authenticate, async (req: AuthRequest, res) => {
       ));
 
     res.json({ success: true, tier });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
   }
 });
 
@@ -242,8 +244,8 @@ router.post('/login', async (req, res) => {
       const token = jwt.sign({ id: user?.id }, process.env.JWT_SECRET!, { expiresIn: '7d' });
       res.json({ token, user: { id: user?.id, username: user?.username, email: user?.email, fullName: user?.fullname, preferences: user?.preferences } });
     }
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
   }
 });
 
@@ -252,12 +254,12 @@ router.post('/logout', authenticate, async (req: AuthRequest, res) => {
     // For JWT, logout is handled client-side by discarding the token
     // In a production app, you might want to implement token blacklisting
     res.json({ message: 'Logged out successfully' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
   }
 });
 
-import { LearningAnalyticsService } from '../services/learningAnalytics.service.js';
+import { LearningAnalyticsService, type TransitionMatrix, type StationaryDistribution } from '../services/learningAnalytics.service.js';
 
 router.get('/profile/insights/:userId', authenticate, async (req: AuthRequest, res) => {
   try {
@@ -273,7 +275,15 @@ router.get('/profile/insights/:userId', authenticate, async (req: AuthRequest, r
     const vocabMatrix = await LearningAnalyticsService.calculateUserMatrix(userId, targetLanguage, 'vocab');
     const vocabVelocity = await LearningAnalyticsService.calculateDiscoveryVelocity(userId, targetLanguage, 'vocab');
 
-    let vocabStats: any = { hasInsights: false, discoveryVelocity: vocabVelocity };
+    interface InsightStats {
+      hasInsights: boolean;
+      discoveryVelocity: number;
+      matrix?: TransitionMatrix;
+      stationary?: StationaryDistribution;
+      metrics?: unknown;
+    }
+
+    let vocabStats: InsightStats = { hasInsights: false, discoveryVelocity: vocabVelocity };
     if (vocabMatrix) {
       const stationary = LearningAnalyticsService.computeStationaryDistribution(vocabMatrix);
       vocabStats = {
@@ -289,7 +299,7 @@ router.get('/profile/insights/:userId', authenticate, async (req: AuthRequest, r
     const phraseMatrix = await LearningAnalyticsService.calculateUserMatrix(userId, targetLanguage, 'phrase');
     const phraseVelocity = await LearningAnalyticsService.calculateDiscoveryVelocity(userId, targetLanguage, 'phrase');
 
-    let phraseStats: any = { hasInsights: false, discoveryVelocity: phraseVelocity };
+    let phraseStats: InsightStats = { hasInsights: false, discoveryVelocity: phraseVelocity };
     if (phraseMatrix) {
       const stationary = LearningAnalyticsService.computeStationaryDistribution(phraseMatrix);
       phraseStats = {
@@ -305,8 +315,8 @@ router.get('/profile/insights/:userId', authenticate, async (req: AuthRequest, r
       vocab: vocabStats,
       phrase: phraseStats
     });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
   }
 });
 
@@ -412,8 +422,8 @@ router.post('/profile/reset/:languageCode', authenticate, async (req: AuthReques
     });
 
     res.json({ success: true, message: `Reset all data for ${languageCode}.` });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
   }
 });
 
@@ -425,8 +435,8 @@ router.get('/languages', async (req, res) => {
       isRTL: languages.is_RTL
     }).from(languages);
     res.json(allLanguages);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
   }
 });
 
@@ -442,8 +452,8 @@ router.patch('/preferences', authenticate, async (req: AuthRequest, res) => {
       .where(eq(users.id, userId));
 
     res.json({ success: true, targetLanguage });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
   }
 });
 

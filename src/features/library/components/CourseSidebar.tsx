@@ -4,8 +4,10 @@ import { useReaderStore } from '../../../store/useReaderStore';
 import { useAuthStore } from '../../../store/useAuthStore';
 import { formatDuration } from '../../../utils/time';
 
+import type { Course } from '../../../types/reader';
+
 interface CourseSidebarProps {
-    course: any;
+    course: Course;
 }
 
 export default function CourseSidebar({ course }: CourseSidebarProps) {
@@ -55,8 +57,9 @@ export default function CourseSidebar({ course }: CourseSidebarProps) {
                     Swal.fire('Deleted!', 'Course removed.', 'success');
                     navigate(`/me/${languageCode}/library`);
                 }
-            } catch (err: any) {
-                Swal.fire('Error', 'Failed to delete course: ' + err.message, 'error');
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : "Internal Error";
+                Swal.fire('Error', 'Failed to delete course: ' + message, 'error');
             }
         }
     };

@@ -1,9 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 // frontend/src/store/useReaderStore.ts
 import { create } from 'zustand';
 import { apiClient } from '../api/client'; // Your fetch wrapper
 import { buildPhraseInstances } from '../utils/phraseMatcher';
 import { getTier } from '../constants/tiers';
+import type { Token, Phrase, Lesson, Course, WordHint, UserStats } from '../types/reader';
 
 interface SupportedLanguage {
   code: string;
@@ -20,25 +20,25 @@ interface ReaderState {
   lessonImg: string;
   lessonAudio: string | null;
 
-  guidedCourses: any[];
-  activeCourseDetails: any | null; // Holds data for the specific course being viewed
+  guidedCourses: Course[];
+  activeCourseDetails: Course | null; 
   activeLessonId: string | null;
 
 
-  myCourses: any[];       // Lesson feed
-  myCoursesDropdown: any[]; // Actual courses (for dropdown in Import Lesson)
-  myLessons: any[];         // In-progress lessons (not completed)
-  completedLessons: any[];  // Completed lessons
-  continueStudying: any[];  // Top 4 most recent visits
+  myCourses: Lesson[];       // Lesson feed
+  myCoursesDropdown: Course[]; // Actual courses (for dropdown in Import Lesson)
+  myLessons: Lesson[];         // In-progress lessons (not completed)
+  completedLessons: Lesson[];  // Completed lessons
+  continueStudying: Lesson[];  // Top 4 most recent visits
   myLessonsSubTab: 'continue' | 'completed';
   librarySidebarTab: 'lesson-feed' | 'guided-course';
 
-  activeWordHints: any[];
+  activeWordHints: WordHint[];
   isLoadingHints: boolean;
 
-  tokens: any[];
-  dbPhrases: any[]; // Stores raw phrases from DB
-  phrases: any[];   // Calculated instances mapping over tokens
+  tokens: Token[];
+  dbPhrases: Phrase[]; // Stores raw phrases from DB (could be refined further if needed)
+  phrases: Phrase[];   // Calculated instances mapping over tokens
   languageCode: string;
   availableLanguages: SupportedLanguage[];
 
@@ -55,8 +55,8 @@ interface ReaderState {
   totalDailyLingqsLearned: number;
   totalDailyListeningSec: number;
   totalDailyWordsRead: number;
-  last7DaysStats: { created: number; learned: number; listening: number; words: number };
-  last30DaysStats: { created: number; learned: number; listening: number; words: number };
+  last7DaysStats: UserStats;
+  last30DaysStats: UserStats;
   dailyGoalTier: string;
 
   sessionListeningTicks: number;
@@ -98,7 +98,7 @@ interface ReaderState {
   setLibrarySidebarTab: (tab: 'lesson-feed' | 'guided-course') => void;
 
   fetchMyCoursesDropdown: () => Promise<void>;
-  createCourse: (title: string, level: string, description?: string, imageUrl?: string, isPublic?: boolean) => Promise<any>;
+  createCourse: (title: string, level: string, description?: string, imageUrl?: string, isPublic?: boolean) => Promise<Course | undefined>;
   importLesson: (courseId: string, title: string, rawText: string, imageUrl?: string, description?: string, audioUrl?: string, isPublic?: boolean, audioDuration?: number) => Promise<string | null>;
   importFromLingq: (apiKey: string, courseCount: number, lessonsPerCourse: number) => Promise<{ success: boolean; count: number }>;
 
@@ -401,7 +401,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       const res = await apiClient(`/library/lessons/${lessonId}/bookmark`, { method: 'POST' });
 
       // Optimistically update all lesson arrays
-      const updateList = (list: any[]) => list.map(l =>
+      const updateList = (list: Lesson[]) => list.map(l =>
         l.id === lessonId ? { ...l, is_bookmarked: res.bookmarked } : l
       );
 
@@ -412,7 +412,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         activeCourseDetails: state.activeCourseDetails
           ? {
             ...state.activeCourseDetails,
-            lessons: updateList(state.activeCourseDetails.lessons),
+            lessons: updateList(state.activeCourseDetails.lessons || []),
           }
           : null,
       }));
@@ -629,7 +629,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       const targetDbId = instance.dbId;
 
       const finalTags = wordTags !== undefined ? wordTags : (instance.word_tags || []);
-      const formattedTagsStr = finalTags.length > 0 ? finalTags.join(',') : null;
+      const formattedTagsStr = finalTags.length > 0 ? finalTags.join(',') : undefined;
 
       const newTagsCache = new Set(state.userTags);
       finalTags.forEach((t: string) => newTagsCache.add(t));
@@ -687,7 +687,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       }
 
       const coinDelta = newCoins - oldCoins;
-      const newStatus = newStage === 0 ? 'new' : (newStage === 5 ? 'known' : (newStage === 6 ? 'ignored' : 'learning'));
+      const newStatus = (newStage === 0 ? 'new' : (newStage === 5 ? 'known' : (newStage === 6 ? 'ignored' : 'learning'))) as Token['status'];
       const finalMeaning = meaning !== undefined ? meaning : targetToken.meaning;
 
       // Update daily stats optimistically
@@ -712,7 +712,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       finalTags.forEach((t: string) => newTagsCache.add(t));
 
       set({
-        tokens: updatedTokens, userTags: Array.from(newTagsCache),
+        tokens: updatedTokens as Token[], userTags: Array.from(newTagsCache),
         totalCoins: Math.max(0, state.totalCoins + coinDelta),
         totalKnownWords: state.totalKnownWords + knownDelta,
       });
@@ -765,7 +765,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         activeCourseDetails: state.activeCourseDetails
           ? {
             ...state.activeCourseDetails,
-            lessons: state.activeCourseDetails.lessons.filter((l: any) => l.id !== lessonId)
+            lessons: state.activeCourseDetails.lessons?.filter((l: Lesson) => l.id !== lessonId) || []
           }
           : null
       }));
@@ -880,9 +880,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     if (!targetId) return;
 
     const learnableTokens = tokens.filter(t => t.isLearnable && !t.isNewline);
-    const newWordsCount = new Set(learnableTokens.filter(t => t.stage === 0).map(t => t.text.toLowerCase())).size;
-    const lingqsCount = new Set(learnableTokens.filter(t => t.stage >= 1 && t.stage <= 4).map(w => w.text.toLowerCase())).size;
-    const knownWordsCount = new Set(learnableTokens.filter(t => t.stage === 5).map(w => w.text.toLowerCase())).size;
+    const newWordsCount = new Set(learnableTokens.filter(t => (t.stage ?? 0) === 0).map(t => t.text.toLowerCase())).size;
+    const lingqsCount = new Set(learnableTokens.filter(t => (t.stage ?? 0) >= 1 && (t.stage ?? 0) <= 4).map(w => w.text.toLowerCase())).size;
+    const knownWordsCount = new Set(learnableTokens.filter(t => (t.stage ?? 0) === 5).map(w => w.text.toLowerCase())).size;
 
     try {
       await apiClient(`/lessons/${targetId}/progress`, {
@@ -1083,7 +1083,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         get().fetchLibrary();
       }
       return res;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("LingQ Import Action Error:", err);
       throw err;
     }
@@ -1104,9 +1104,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       }));
 
       return { success: true };
-    } catch (err: any) {
+    } catch (err: unknown) {
       // In this repo, apiClient throws 'Error' with the string from the backend's .error field
-      if (err.message === 'confirm_required') {
+      if (err instanceof Error && err.message === 'confirm_required') {
         return {
           success: false,
           error: 'confirm_required',

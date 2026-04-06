@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useReaderStore } from '../store/useReaderStore';
@@ -9,6 +8,8 @@ import { LANG_MAP } from '../constants/languages';
 
 import LessonForm from '../features/lesson/components/LessonForm';
 import LessonSidebar from '../features/lesson/components/LessonSidebar';
+
+import type { Course } from '../types/reader';
 
 export default function EditLessonView() {
     const { lessonId } = useParams();
@@ -25,7 +26,7 @@ export default function EditLessonView() {
     const [title, setTitle] = useState('');
     const [text, setText] = useState('');
     const [selectedCourseId, setSelectedCourseId] = useState('');
-    const [selectedLevel, setSelectedLevel] = useState('');
+    const [selectedLevel, setSelectedLevel] = useState<string | null>(null);
     const [isPublic, setIsPublic] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -44,18 +45,21 @@ export default function EditLessonView() {
     const [audioFileName, setAudioFileName] = useState('');
     const [existingAudioDuration, setExistingAudioDuration] = useState(0);
 
-    const allCourses = Array.from(
-        new Map((myCoursesDropdown || []).map((c: any) => [c.id, c])).values()
+    const allCourses: Course[] = Array.from(
+        new Map((myCoursesDropdown || []).map((c: Course) => [c.id, c])).values()
     );
 
-    const selectedCourseRecord = allCourses.find((c: any) => c.id === selectedCourseId) as any;
+    const selectedCourseRecord = allCourses.find(
+        (c) => c.id === selectedCourseId
+    );
     const isSelectedCoursePrivate = selectedCourseRecord ? !selectedCourseRecord.is_public : false;
 
-    useEffect(() => {
-        if (isSelectedCoursePrivate && isPublic) {
-            setIsPublic(false);
-        }
-    }, [isSelectedCoursePrivate, isPublic]);
+    const handleSetIsPublic = (value: boolean) => {
+        if (isSelectedCoursePrivate && value) return;
+        setIsPublic(value);
+    };
+
+    const effectiveIsPublic = isSelectedCoursePrivate ? false : isPublic;
 
     useEffect(() => {
         fetchMyCoursesDropdown();
@@ -79,7 +83,7 @@ export default function EditLessonView() {
                     setAudioUrl(data.audio_url);
                 }
                 setIsLoading(false);
-            } catch (err: any) {
+            } catch {
                 Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to load lesson for editing.', confirmButtonColor: '#3890fc' });
                 navigate(`/me/${languageCode}`);
             }
@@ -87,12 +91,14 @@ export default function EditLessonView() {
         fetchLessonData();
     }, [lessonId, navigate, languageCode]);
 
+    const effectiveLevel = selectedLevel ?? selectedCourseRecord?.level ?? '';
+
     // ── Sync level with selected course ───────────────────────────────────────
-    useEffect(() => {
-        if (selectedCourseId && selectedCourseRecord) {
-            setSelectedLevel(selectedCourseRecord.level || '');
-        }
-    }, [selectedCourseId, selectedCourseRecord]);
+    // useEffect(() => {
+    //     if (selectedCourseId && selectedCourseRecord) {
+    //         setSelectedLevel(selectedCourseRecord.level || '');
+    //     }
+    // }, [selectedCourseId, selectedCourseRecord]);
 
     const handleLessonImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -173,9 +179,10 @@ export default function EditLessonView() {
                 }
             });
 
-        } catch (err: any) {
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Error saving lesson!"
             setIsSaving(false);
-            Swal.fire({ icon: 'error', title: 'Error', text: err.message, confirmButtonColor: '#3890fc' });
+            Swal.fire({ icon: 'error', title: 'Error', text: message, confirmButtonColor: '#3890fc' });
         }
     };
 
@@ -200,9 +207,9 @@ export default function EditLessonView() {
                             audioMode={audioMode}
                             setAudioMode={setAudioMode}
                             setAudioUrl={setAudioUrl}
-                            onAudioFileClick={() => { setAudioMode('file'); (document.querySelector('input[type="file"][accept="audio/*"]') as any)?.click(); }}
-                            isPublic={isPublic}
-                            setIsPublic={setIsPublic}
+                            onAudioFileClick={() => { setAudioMode('file'); (document.querySelector('input[type="file"][accept="audio/*"]') as HTMLInputElement | null)?.click(); }}
+                            isPublic={effectiveIsPublic}
+                            setIsPublic={handleSetIsPublic}
                             isSelectedCoursePrivate={isSelectedCoursePrivate}
                         />
                         {/* Hidden input for LessonSidebar trigger */}
@@ -213,7 +220,7 @@ export default function EditLessonView() {
                             text={text} setText={setText}
                             activeTab={activeTab} setActiveTab={setActiveTab}
                             currentLang={currentLang}
-                            selectedLevel={selectedLevel} setSelectedLevel={setSelectedLevel}
+                            selectedLevel={effectiveLevel} setSelectedLevel={setSelectedLevel}
                             selectedCourseId={selectedCourseId} setSelectedCourseId={setSelectedCourseId}
                             allCourses={allCourses}
                             isEditMode={true}

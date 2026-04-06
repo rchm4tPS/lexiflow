@@ -15,8 +15,8 @@ export default function LoginView() {
         setLoading(true);
         try {
             await login(email, password);
-        } catch (err: any) {
-            setError(err?.message || 'Login failed. Check your credentials.');
+        } catch (err: unknown) {
+            setError(err instanceof Error && err?.message || 'Login failed. Check your credentials.');
         } finally {
             setLoading(false);
         }

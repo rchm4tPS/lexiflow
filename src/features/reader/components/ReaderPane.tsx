@@ -8,8 +8,39 @@ import WordToken, { PhraseGroup } from './WordToken';
 import DraftPhraseGroup from './DraftPhraseGroup';
 import { RightArrow, LeftArrow } from '../../../components/common/Icons';
 
-export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any) {
-  const { 
+// --- SKELETON UI ---
+const ReaderSkeleton = () => {
+  const rowWidths = [
+    ['w-3/4', 'w-1/4', 'w-1/6'],
+    ['w-1/2', 'w-1/3', 'w-1/4'],
+    ['w-2/3', 'w-1/4', 'w-1/5'],
+    ['w-3/4', 'w-1/5', 'w-1/4'],
+    ['w-1/2', 'w-1/4', 'w-1/3'],
+    ['w-2/3', 'w-1/3', 'w-1/5'],
+    ['w-3/4', 'w-1/4', 'w-1/6'],
+  ];
+
+  return (
+    <div className="flex flex-col gap-5 animate-fade-in w-full px-2">
+      {rowWidths.map((row, i) => (
+        <div key={i} className="flex flex-wrap gap-2">
+          {row.map((width, j) => (
+            <div key={j} className={`h-7 rounded-sm bg-gray-100 animate-shimmer ${width}`} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+interface ReaderPaneProps {
+  courseTitle: string;
+  lessonTitle: string;
+  lessonImg?: string;
+}
+
+export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: ReaderPaneProps) {
+  const {
     showSummary, setShowSummary, showModal, setModal,
     tokens, phrases, currentPage, selectedId, draftPhraseRange,
     selectItem, setPage, setDraftPhrase, isRTL,
@@ -17,31 +48,6 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
     isLoadingLesson
   } = useReaderStore();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-  // --- SKELETON UI ---
-  const ReaderSkeleton = () => {
-    const rowWidths = [
-      ['w-3/4', 'w-1/4', 'w-1/6'],
-      ['w-1/2', 'w-1/3', 'w-1/4'],
-      ['w-2/3', 'w-1/4', 'w-1/5'],
-      ['w-3/4', 'w-1/5', 'w-1/4'],
-      ['w-1/2', 'w-1/4', 'w-1/3'],
-      ['w-2/3', 'w-1/3', 'w-1/5'],
-      ['w-3/4', 'w-1/4', 'w-1/6'],
-    ];
-
-    return (
-      <div className="flex flex-col gap-5 animate-fade-in w-full px-2">
-        {rowWidths.map((row, i) => (
-          <div key={i} className="flex flex-wrap gap-2">
-            {row.map((width, j) => (
-              <div key={j} className={`h-7 rounded-sm bg-gray-100 animate-shimmer ${width}`} />
-            ))}
-          </div>
-        ))}
-      </div>
-    );
-  };
 
   // Scroll to top when page changes
   React.useEffect(() => {
@@ -89,7 +95,7 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
       if (node1 && node2) {
         const id1 = node1.getAttribute('data-token-id');
         const id2 = node2.getAttribute('data-token-id');
-        
+
         const idx1 = tokens.findIndex(t => t.id === id1);
         const idx2 = tokens.findIndex(t => t.id === id2);
 
@@ -101,13 +107,13 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
           // Limit phrase selection to 2-9 words
           if (rangeCount >= 2 && rangeCount <= 9) {
             const selectedTokenIds = tokens.slice(start, end + 1).map(t => t.id);
-            
+
             // Verify they don't cross page boundaries or newlines
             const isValid = !tokens.slice(start, end + 1).some(t => t.isNewline);
             if (isValid) {
               setDraftPhrase(selectedTokenIds);
               // Delay clearing the browser highlight so onClick can detect the text selection and abort
-              setTimeout(() => selection.removeAllRanges(), 150); 
+              setTimeout(() => selection.removeAllRanges(), 150);
             }
           }
         }
@@ -115,7 +121,7 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
     } else {
       mousePos.current.isDragging = false;
     }
-    
+
   };
 
   // --- RECURSIVE DOM ALGORITHM ---
@@ -133,7 +139,7 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
       const allDraftTokensPresent = draftPhraseRange.every((id: string) =>
         tokensList.some(t => t.id === id)
       );
-      
+
       if (allDraftTokensPresent) {
         hasDraftPhrase = true;
         draftStartIndex = tokensList.findIndex(t => draftPhraseRange.includes(t.id));
@@ -159,23 +165,23 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
     }
 
     // Find the longest saved phrase that fits entirely within the current tokens
-    const validPhrases = availablePhrases.filter(p => 
+    const validPhrases = availablePhrases.filter(p =>
       p.range.length > 0 && p.range.every((id: string) => tokensList.some(t => t.id === id))
     );
-    
+
     if (validPhrases.length === 0) {
       // Base case: No phrases cover these tokens. Render standalone words.
       return tokensList.map(token => {
         return (
-         <WordToken
-           key={token.id}
-           token={token}
-           isSelected={selectedId === token.id || draftPhraseRange?.includes(token.id)} // FIX: Only highlight if this exact word is selected
-           onClick={(e:any) => {
-             e.stopPropagation(); // CRITICAL: Catches click before it hits the Phrase box
-             selectItem(token.id); // FIX: Always select the word itself
-           }}
-         />
+          <WordToken
+            key={token.id}
+            token={token}
+            isSelected={selectedId === token.id || !!draftPhraseRange?.includes(token.id)} // FIX: Only highlight if this exact word is selected
+            onClick={(e: any) => {
+              e.stopPropagation(); // CRITICAL: Catches click before it hits the Phrase box
+              selectItem(token.id); // FIX: Always select the word itself
+            }}
+          />
         )
       });
     }
@@ -201,9 +207,9 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
           phrase={outermostPhrase}
           isSelected={selectedId === outermostPhrase.id}
           onPhraseClick={(e: any) => {
-             e.stopPropagation();
-             if ((window.getSelection()?.toString().trim().length ?? 0) > 0) return;
-             selectItem(outermostPhrase.id);
+            e.stopPropagation();
+            if ((window.getSelection()?.toString().trim().length ?? 0) > 0) return;
+            selectItem(outermostPhrase.id);
           }}
         >
           {/* Recursively render whatever is inside this phrase, passing phrase context */}
@@ -227,14 +233,14 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
   const stillHasBlueWords = tokens.some(w => w.isLearnable && (w.stage ?? 0) === 0)
 
   return (
-    <div 
+    <div
       className={`w-[65%] flex flex-col`} dir={isRTL ? 'rtl' : 'ltr'}
       onClick={(e) => e.stopPropagation()}
     >
-    {/* // The checklist turns green when there are NO learnable tokens with stage 0 */}
-    {
-         showModal && stillHasBlueWords && <CompletionModal /> 
-    }
+      {/* // The checklist turns green when there are NO learnable tokens with stage 0 */}
+      {
+        showModal && stillHasBlueWords && <CompletionModal />
+      }
       {/* Conditional Header Rendering */}
       {currentPage <= 0 ? (
         <div className="flex h-fit gap-5 mt-1.5 pt-2 px-4" onClick={(e) => e.stopPropagation()}>
@@ -253,7 +259,7 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
                 <p className="text-[10px]">Full Text</p>
               </div>
               <div className={`mb-auto -mt-1.5 ${isRTL ? '-mr-2' : '-ml-2'} border-2 border-black rounded-full min-h-4 h-fit w-fit text-center text-xs items-center px-1`}>2</div>
-              <svg className={`h-4 ${isRTL? '-mr-1' : '-ml-1'} items-center`} fill="#000000" viewBox="-2.16 -2.16 28.32 28.32" transform="rotate(180)"><path d="M21,21H3L12,3Z"></path></svg>
+              <svg className={`h-4 ${isRTL ? '-mr-1' : '-ml-1'} items-center`} fill="#000000" viewBox="-2.16 -2.16 28.32 28.32" transform="rotate(180)"><path d="M21,21H3L12,3Z"></path></svg>
             </div>
             <div className="flex items-center">
               <svg width="30px" viewBox="-1.12 -1.12 18.24 18.24" xmlns="http://www.w3.org/2000/svg" fill="#000000" className="bi bi-three-dots" stroke="#000000" strokeWidth="0.44800000000000006"><g id="SVGRepo_bgCarrier" strokeWidth="0"></g><g id="SVGRepo_tracerCarrier" strokeLinecap="round" strokeLinejoin="round"></g><g id="SVGRepo_iconCarrier"> <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"></path> </g></svg>
@@ -286,7 +292,7 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
                 <p className="text-[10px]">Full Text</p>
               </div>
               <div className={`mb-auto -mt-1.5 ${isRTL ? '-mr-2' : '-ml-2'} border-2 border-black rounded-full min-h-4 h-fit w-fit text-center text-xs items-center px-1`}>2</div>
-              <svg className={`h-4 ${isRTL? '-mr-1' : '-ml-1'} items-center`} fill="#000000" viewBox="-2.16 -2.16 28.32 28.32" transform="rotate(180)"><path d="M21,21H3L12,3Z"></path></svg>
+              <svg className={`h-4 ${isRTL ? '-mr-1' : '-ml-1'} items-center`} fill="#000000" viewBox="-2.16 -2.16 28.32 28.32" transform="rotate(180)"><path d="M21,21H3L12,3Z"></path></svg>
             </div>
             <div className="flex items-center">
               <svg width="30px" viewBox="-1.12 -1.12 18.24 18.24" xmlns="http://www.w3.org/2000/svg" fill="#000000" className="bi bi-three-dots" stroke="#000000" strokeWidth="0.44800000000000006"><g id="SVGRepo_bgCarrier" strokeWidth="0"></g><g id="SVGRepo_tracerCarrier" strokeLinecap="round" strokeLinejoin="round"></g><g id="SVGRepo_iconCarrier"> <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"></path> </g></svg>
@@ -300,7 +306,7 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
         <div className="min-w-20 flex items-center justify-center cursor-pointer opacity-60 hover:opacity-100 ">
           {currentPage > 0 && (
             <button onClick={() => setPage(currentPage - 1)} className="text-gray-400 cursor-pointer hover:text-gray-600">
-              {isRTL ? <RightArrow/> : <LeftArrow/>}
+              {isRTL ? <RightArrow /> : <LeftArrow />}
             </button>
           )}
         </div>
@@ -308,9 +314,9 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
         <div className={`flex flex-col mt-2 grow ${isRTL ? 'font-farsi-trad' : 'font-nunito'}`}>
           {currentPage <= 0 && (
             <div className={`flex mb-4 mt-2 ${isRTL ? 'border-b' : ''}`}>
-              <div className={`rounded-lg ${lessonImg ? '': ' bg-gradient-to-tr from-green-200 to-blue-300'}  w-32.5 h-35 content-center text-center`}>
-                { 
-                  !lessonImg 
+              <div className={`rounded-lg ${lessonImg ? '' : ' bg-gradient-to-tr from-green-200 to-blue-300'}  w-32.5 h-35 content-center text-center`}>
+                {
+                  !lessonImg
                     ? <div className="w-full h-full flex items-center justify-center text-blue-400 text-6xl">📖</div>
                     : <img className="object-fill rounded-lg" src={lessonImg} />
                 }
@@ -322,7 +328,7 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
             </div>
           )}
 
-          <div 
+          <div
             ref={scrollContainerRef}
             className={`grow ${isRTL ? 'text-[26px] py-1' : 'text-[21px]'} leading-8 text-gray-800 px-4 my-4 font-medium overflow-y-auto h-[600px] bg-white rounded-md transition-all duration-300`}
             onMouseDown={handleMouseDown}
@@ -341,11 +347,11 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
         <div className="w-20 flex items-center justify-center cursor-pointer opacity-60 hover:opacity-100 ">
           {currentPage < totalPages - 1 && (
             <button onClick={() => handlePageAdvance(currentPage + 1)} className="text-gray-400 text-6xl hover:text-gray-600 transition cursor-pointer">
-              {isRTL ? <LeftArrow /> : <RightArrow/>}
+              {isRTL ? <LeftArrow /> : <RightArrow />}
             </button>
           )}
           {currentPage === totalPages - 1 && (
-            <button 
+            <button
               onClick={() => {
                 if (stillHasBlueWords) {
                   setModal(true);
@@ -354,7 +360,7 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: any)
                   // Signal the backend to bump read_times and flush remaining words
                   if (activeLessonId) syncLessonProgress(activeLessonId, true, true);
                 }
-              }} 
+              }}
               className={`flex flex-col text-center ${isRTL ? 'ml-4' : '-ml-4'} cursor-pointer`}
             >
               <svg className='mx-auto' width="60px" height="60px" viewBox="-1.6 -1.6 19.20 19.20" fill="rgb(93,233,106)" xmlns="http://www.w3.org/2000/svg" stroke="#5DE96A" strokeWidth="0.00016"><g id="SVGRepo_bgCarrier" strokeWidth="0"></g><g id="SVGRepo_tracerCarrier" strokeLinecap="round" strokeLinejoin="round"></g><g id="SVGRepo_iconCarrier"><path clipRule="evenodd" d="M15.4142 4.41421L6 13.8284L0.585785 8.41421L3.41421 5.58578L6 8.17157L12.5858 1.58578L15.4142 4.41421Z" fill="#5DE96A" fillRule="evenodd"></path></g></svg>

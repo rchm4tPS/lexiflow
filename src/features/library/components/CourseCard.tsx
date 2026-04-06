@@ -1,6 +1,7 @@
+import type { Course } from '../../../types/reader';
 
 interface CourseCardProps {
-    course: any;
+    course: Course;
     onOpen: (id: string) => void;
 }
 

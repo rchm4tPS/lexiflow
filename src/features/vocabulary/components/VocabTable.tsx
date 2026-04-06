@@ -1,18 +1,27 @@
 import { VocabRowSkeleton } from '../../../components/ui/Skeletons';
 
+type VocabItem = {
+  id: string;
+  word: string;
+  meaning: string | null;
+  stage: 1 | 2 | 3 | 4 | 5 | 6;
+  word_tags?: string[];
+  related_phrase_occur?: string | null;
+};
+
 interface VocabTableProps {
-    items: any[];
+    items: VocabItem[];
     isLoading: boolean;
     total: number;
     selectedIds: string[];
     onToggleSelectAll: () => void;
     onToggleSelect: (id: string) => void;
-    onUpdateStage: (item: any, stage: number) => void;
+    onUpdateStage: (item: VocabItem, stage: number) => void;
     editingId: string | null;
     editMeaning: string;
-    onStartEditing: (item: any) => void;
+    onStartEditing: (item: VocabItem) => void;
     onSetEditMeaning: (meaning: string) => void;
-    onSaveEdit: (item: any) => void;
+    onSaveEdit: (item: VocabItem) => void;
 }
 
 export default function VocabTable({
@@ -70,7 +79,7 @@ export default function VocabTable({
 }
 
 interface VocabRowProps {
-    item: any;
+    item: VocabItem;
     isEven: boolean;
     isSelected: boolean;
     onToggleSelect: () => void;

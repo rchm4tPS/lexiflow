@@ -5,8 +5,41 @@ import { speak } from '../../../utils/speech';
 import { openSmallWindow } from '../../../utils/window';
 import { LANGUAGES } from '../../../constants/languages';
 
-const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: any) => {
-    const { isRTL, activeWordHints, isLoadingHints, fetchHints, languageCode } = useReaderStore();
+type Word = {
+  id: string;
+  text: string;
+  meaning?: string;
+  notes?: string;
+  word_tags?: string[];
+  stage?: number;
+  isDraft?: boolean;
+  isPhrase?: boolean;
+  range?: string[];
+};
+
+type UpdatePayload = {
+  id: string;
+  stage: number;
+  meaning?: string;
+  tags?: string[];
+  notes?: string;
+};
+
+interface BlueWordViewProps {
+  word: Word;
+  onUpdateStage: (payload: UpdatePayload) => void;
+  onCreatePhrase: (range: string[], meaning: string) => void;
+}
+
+const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps) => {
+    const { isRTL, activeWordHints, isLoadingHints, fetchHints, languageCode } = 
+        useReaderStore((state) => ({
+            isRTL: state.isRTL,
+            activeWordHints: state.activeWordHints,
+            isLoadingHints: state.isLoadingHints,
+            fetchHints: state.fetchHints,
+            languageCode: state.languageCode
+        }));
 
     const cleanWord = word.text
         .replace(/[.,?!„”":;/]/g, '')
@@ -17,7 +50,7 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: any) => {
         if (cleanWord) {
             speak(cleanWord, languageCode);
         }
-    }, [word.id, cleanWord, languageCode]);
+    }, [cleanWord, languageCode]);
 
     // Fetch hints once when the component mounts or the word changes
     useEffect(() => {
@@ -27,9 +60,14 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: any) => {
     // Helper to promote word to learning with a specific meaning
     const handleAddLingQ = (meaning: string) => {
         if (word.isDraft) {
+            if (!word.range) return;
             onCreatePhrase(word.range, meaning);
         } else {
-            onUpdateStage(word.id, 1, meaning);
+            onUpdateStage({
+                id: word.id,
+                stage: 1,
+                meaning
+            });
         }
     };
 
@@ -53,9 +91,15 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: any) => {
                 <button
                     onClick={() => {
                         if (word.isDraft) {
-                            onCreatePhrase(word.range, "");
+                            onCreatePhrase(word.range || [], "");
                         } else {
-                            onUpdateStage(word.id, 5, word.meaning, word.word_tags, word.notes);
+                            onUpdateStage({
+                                id: word.id,
+                                stage: 5,
+                                meaning: word.meaning,
+                                tags: word.word_tags,
+                                notes: word.notes
+                            });
                         }
                     }}
                     className="bg-[#4ac9c5] text-white px-2 py-1 ml-auto w-fit rounded font-bold text-xs flex items-center shadow hover:bg-teal-500 transition cursor-pointer relative bottom-5"
@@ -78,7 +122,11 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: any) => {
                             activeWordHints.map((m, idx) => (
                                 <div
                                     key={idx}
-                                    onClick={() => onUpdateStage(word.id, 1, m.text)}
+                                    onClick={() => onUpdateStage({
+                                        id: word.id,
+                                        stage: 1,
+                                        meaning: m.text
+                                    })}
                                     className="bg-[#3a92fb] text-white px-4 py-3 rounded-md cursor-pointer flex justify-between items-center shadow-sm hover:bg-[#3a92fb] hover:text-white transition group"
                                 >
                                     <span className="font-bold">{m.text}</span>
@@ -145,7 +193,10 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: any) => {
 
             {!word.isDraft && (
                 <button
-                    onClick={() => onUpdateStage(word.id, 6)}
+                    onClick={() => onUpdateStage({
+                        id: word.id,
+                        stage: 6
+                    })}
                     className="border cursor-pointer border-gray text-gray-400 hover:text-white ml-auto mr-2 my-2 w-fit px-3 py-1 rounded text-xs font-bold flex items-center gap-2 shadow hover:bg-red-500 hover:border-red-500 transition"
                 >
                     <Stop /> Ignore this word

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 
@@ -16,7 +15,7 @@ import CourseCard from '../features/library/components/CourseCard';
 import CourseSidebar from '../features/library/components/CourseSidebar';
 import ContinueStudyingWidget from '../features/library/components/ContinueStudyingWidget';
 import DailyGoalWidget from '../features/library/components/DailyGoalWidget';
-import { Icons } from '../components/common/Icons';
+import { Icons } from '../constants/icons';
 
 // ─── Main LibraryView ────────────────────────────────────────────────────────
 export default function LibraryView() {
@@ -44,20 +43,20 @@ export default function LibraryView() {
 
     // Sync store state with URL path
     useEffect(() => {
-        if (currentFeed !== librarySidebarTab) setLibrarySidebarTab(currentFeed as any);
-        if (currentSubTab !== myLessonsSubTab) setMyLessonsSubTab(currentSubTab as any);
+        if (currentFeed !== librarySidebarTab) setLibrarySidebarTab(currentFeed as 'lesson-feed' | 'guided-course');
+        if (currentSubTab !== myLessonsSubTab) setMyLessonsSubTab(currentSubTab as 'continue' | 'completed');
     }, [currentFeed, currentSubTab, librarySidebarTab, myLessonsSubTab, setLibrarySidebarTab, setMyLessonsSubTab]);
 
     // Sync Course Details with path
     useEffect(() => {
         if (currentCourseId) {
-            if (!activeCourseDetails || activeCourseDetails.course.id !== currentCourseId) {
+            if (!activeCourseDetails || activeCourseDetails.id !== currentCourseId) {
                 fetchCourseDetails(currentCourseId);
             }
         } else {
             if (activeCourseDetails) clearActiveCourse();
         }
-    }, [currentCourseId, activeCourseDetails?.course?.id, fetchCourseDetails, clearActiveCourse]);
+    }, [currentCourseId, activeCourseDetails, fetchCourseDetails, clearActiveCourse]);
 
     useEffect(() => {
         const loadView = async () => {
@@ -231,7 +230,7 @@ export default function LibraryView() {
                                         {isLoading ? (
                                             [1, 2, 3, 4].map(i => <LessonCardSkeleton key={i} />)
                                         ) : (
-                                            activeCourseDetails.lessons.map((lesson: any) => (
+                                            (activeCourseDetails.lessons || []).map((lesson) => (
                                                 <LessonCard
                                                     key={lesson.id}
                                                     lesson={lesson}

@@ -1,7 +1,8 @@
+import type { MarkovInsights } from '../../../types/reader';
 
 interface MarkovInsightsCardProps {
     title: string;
-    insights: any;
+    insights: MarkovInsights;
     colorClass: string;
     isPhrase?: boolean;
 }

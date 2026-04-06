@@ -1,15 +1,22 @@
 import { sqlite } from './index.js';
 
+type VocabRow = {
+    id: number;
+    created_at: unknown;
+};
+
 async function migrate() {
     console.log("Starting direct migration of vocab_transitions timestamps using better-sqlite3...");
 
     // 1. Use the raw sqlite instance to bypass Drizzle's type conversion
-    const rows = (sqlite as any).prepare('SELECT id, created_at FROM vocab_transitions').all();
+    const rows = sqlite
+        .prepare('SELECT id, created_at FROM vocab_transitions')
+        .all() as VocabRow[];;
 
     let count = 0;
     for (const row of rows) {
         const rawValue = row.created_at;
-        
+
         // If it's a string date 'YYYY-MM-DD HH:MM:SS'
         if (typeof rawValue === 'string' && rawValue.includes('-')) {
             // SQLite CURRENT_TIMESTAMP is 'YYYY-MM-DD HH:MM:SS' in UTC
@@ -18,7 +25,9 @@ async function migrate() {
 
             if (!isNaN(timestamp)) {
                 // Update using raw SQL to be sure we store it as an integer
-                (sqlite as any).prepare('UPDATE vocab_transitions SET created_at = ? WHERE id = ?').run(timestamp, row.id);
+                sqlite
+                    .prepare('UPDATE vocab_transitions SET created_at = ? WHERE id = ?')
+                    .run(timestamp, row.id);
                 count++;
                 console.log(`Updated Row ID: ${row.id} from [${rawValue}] to [${timestamp}]`);
             } else {
@@ -33,7 +42,11 @@ async function migrate() {
     process.exit(0);
 }
 
-migrate().catch(err => {
-    console.error("Migration failed:", err);
+migrate().catch((err: unknown) => {
+    if (err instanceof Error) {
+        console.error("Migration failed:", err.message);
+    } else {
+        console.error("Migration failed:", err);
+    }
     process.exit(1);
 });

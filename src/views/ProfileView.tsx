@@ -4,14 +4,40 @@ import { useReaderStore } from '../store/useReaderStore';
 import { apiClient } from '../api/client';
 import { useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
+import type { MarkovInsights } from '../types/reader';
 
 import MarkovInsightsCard from '../features/profile/components/MarkovInsightsCard';
 import { StatCard, SmallStat } from '../features/profile/components/StatCards';
 
+type StatsType = {
+    fullName: string;
+    knownWords: number;
+    totalLingQs: number;
+    totalStreaks: number;
+    totalCoins: number;
+    stats7d: {
+        created: number;
+        learned: number;
+        words: number;
+        listening: number;
+    };
+    stats30d: {
+        created: number;
+        learned: number;
+        words: number;
+        listening: number;
+    };
+}
+
+type InsightsType = {
+  vocab: MarkovInsights;
+  phrase: MarkovInsights;
+};
+
 export default function ProfileView() {
     const { user, logout } = useAuthStore();
-    const [stats, setStats] = useState<any>(null);
-    const [insights, setInsights] = useState<any>(null);
+    const [stats, setStats] = useState<StatsType | null>(null);
+    const [insights, setInsights] = useState<InsightsType | null>(null);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
 
@@ -77,8 +103,9 @@ export default function ProfileView() {
                     });
                     
                     window.location.reload(); 
-                } catch (err: any) {
-                    Swal.fire('Error', 'Reset failed: ' + err.message, 'error');
+                } catch (err: unknown) {
+                    const message = err instanceof Error ? err.message : String(err);
+                    Swal.fire('Error', 'Reset failed: ' + message, 'error');
                     setLoading(false);
                 }
             }
@@ -117,19 +144,21 @@ export default function ProfileView() {
                 </div>
 
                 {/* --- MARKOV LEARNING DYNAMICS --- */}
-                <div className="space-y-10 mb-12">
-                    <MarkovInsightsCard 
-                        title="Word Learning Dynamics" 
-                        insights={insights?.vocab} 
-                        colorClass="indigo"
-                    />
-                    <MarkovInsightsCard 
-                        title="Phrase Learning Dynamics" 
-                        insights={insights?.phrase} 
-                        colorClass="teal"
-                        isPhrase
-                    />
-                </div>
+                {insights && (
+                    <div className="space-y-10 mb-12">
+                        <MarkovInsightsCard 
+                            title="Word Learning Dynamics" 
+                            insights={insights.vocab} 
+                            colorClass="indigo"
+                        />
+                        <MarkovInsightsCard 
+                            title="Phrase Learning Dynamics" 
+                            insights={insights.phrase} 
+                            colorClass="teal"
+                            isPhrase
+                        />
+                    </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="bg-gray-50 rounded-xl p-6 border border-gray-100 shadow-inner">

@@ -7,8 +7,8 @@ async function migrate() {
     // SQLite: Add column to user_languages
     await db.run(sql`ALTER TABLE user_languages ADD COLUMN has_imported_from_lingq INTEGER DEFAULT 0`);
     console.log("✅ Success adding to user_languages!");
-  } catch (err: any) {
-    if (err.message.includes("duplicate column name")) {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.includes("duplicate column name")) {
       console.log("⚠️ Column already exists in user_languages, skipping.");
     } else {
       console.error("❌ Error adding to user_languages:", err);
@@ -20,8 +20,8 @@ async function migrate() {
     console.log("Attempting to DROP COLUMN has_imported_from_lingq from users (requires SQLite 3.35+)...");
     await db.run(sql`ALTER TABLE users DROP COLUMN has_imported_from_lingq`);
     console.log("✅ Success dropping from users!");
-  } catch (err: any) {
-     console.log("ℹ️ Could not drop from users (likely old SQLite version). This is safe, the column will just be ignored.");
+  } catch (err: unknown) {
+     console.log("ℹ️ Could not drop from users (likely old SQLite version). This is safe, the column will just be ignored.", err);
   }
 }
 

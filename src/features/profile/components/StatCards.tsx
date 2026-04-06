@@ -1,5 +1,5 @@
 
-export function StatCard({ label, value, color }: { label: string, value: any, color: string }) {
+export function StatCard({ label, value, color }: { label: string, value: React.ReactNode, color: string }) {
     return (
         <div className="bg-gray-50 rounded-xl p-4 text-center border border-gray-100 shadow-sm">
             <div className={`text-2xl font-bold ${color}`}>{value || 0}</div>
@@ -8,7 +8,7 @@ export function StatCard({ label, value, color }: { label: string, value: any, c
     );
 }
 
-export function SmallStat({ label, value }: { label: string, value: any }) {
+export function SmallStat({ label, value }: { label: string, value: React.ReactNode }) {
     return (
         <div className="flex justify-between items-center border-b border-gray-200 pb-2">
             <span className="text-gray-500 font-medium">{label}</span>

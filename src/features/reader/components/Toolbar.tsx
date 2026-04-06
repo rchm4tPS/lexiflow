@@ -25,7 +25,7 @@ export default function Toolbar() {
             }, 1000);
         }
         return () => clearInterval(interval);
-    }, [audioState, incrementListeningTicks]);
+    }, [audioState, incrementListeningTicks, playbackRate]);
 
     const handlePlayPause = () => {
         if (!audioRef.current) return;

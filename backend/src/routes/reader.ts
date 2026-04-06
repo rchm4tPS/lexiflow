@@ -10,11 +10,10 @@ import {
     userPhrases,
     userCourses,
     userLessonProgress,
-    userDailyStats,
     languages
 } from '../db/schema.js';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
-import { eq, and, inArray, desc, sql } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { updateDailyStatsAndStreak } from '../utils/statsEngine.js';
 import { parseAndSaveLessonContent } from '../utils/lessonParser.js';
 
@@ -54,7 +53,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
     }).onConflictDoNothing();
 
     // In our parse route, we saved tokens as a JSON string in raw_text
-    let tokens = JSON.parse(content.raw_text);
+    const tokens = JSON.parse(content.raw_text);
 
     // 1. Fetch ALL of THIS user's vocabulary for THIS language at once
     // This is much faster than querying inside a loop
@@ -73,10 +72,10 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
     const vocabMap = new Map(userVocab.map(v => [v.word.toLowerCase(), v]));
 
     // 2. Decorate tokens
-    const decoratedTokens = tokens.map((t: any) => {
+    const decoratedTokens = tokens.map((t: Record<string, unknown>) => {
         if (!t.isLearnable) return t;
         
-        const userData = vocabMap.get(t.text.toLowerCase());
+        const userData = vocabMap.get(String(t.text).toLowerCase());
         return {
             ...t,
             stage: userData?.stage ?? 0,
@@ -148,8 +147,9 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
         lessonAudio: lesson.audio_url,
         highestPageRead: userProgress?.highest_page_read ?? 0
     });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -182,8 +182,9 @@ router.post('/parse', authenticate, async (req: AuthRequest, res) => {
     const tokens = await parseAndSaveLessonContent(newLesson.id, rawText, languageCode, userId);
 
     res.json({ lessonId: newLesson.id, tokens });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -201,8 +202,9 @@ router.get('/:id/edit', authenticate, async (req: AuthRequest, res) => {
     }
 
     res.json(lesson);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -238,8 +240,9 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
     }
 
     res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -263,8 +266,9 @@ router.delete('/:id', authenticate, async (req: AuthRequest, res) => {
     await db.delete(lessons).where(eq(lessons.id, String(lessonId)));
 
     res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -359,8 +363,9 @@ router.put('/:id/progress', authenticate, async (req: AuthRequest, res) => {
     // but typically they are synced together.
 
     res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 

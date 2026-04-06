@@ -75,7 +75,7 @@ export class LingqImportService {
         // We use \n (newline char) to ensure formatting is preserved without visible escape characters.
         const sentences = Array.isArray(sentencesRes.data) ? sentencesRes.data : (sentencesRes.data.results || []);
         const fullText = Array.isArray(sentences) 
-          ? sentences.map((s: any) => typeof s === 'string' ? s : (s.text || '')).join('\n') 
+          ? sentences.map((s: string | { text: string }) => (typeof s === 'string' ? s : (s as { text: string }).text || '')).join('\n') 
           : '';
 
 

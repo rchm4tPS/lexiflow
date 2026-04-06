@@ -1,12 +1,20 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import {useReaderStore} from '../../../store/useReaderStore';
+import React from 'react';
+import { useReaderStore } from '../../../store/useReaderStore';
+import type { Token, Phrase } from '../../../types/reader';
+
+interface PhraseGroupProps {
+  phrase: Phrase;
+  isSelected: boolean;
+  onPhraseClick: (e: React.MouseEvent) => void;
+  children: React.ReactNode;
+}
 
 // --- THE NEW PHRASE WRAPPER ---
-export function PhraseGroup({ phrase, isSelected, onPhraseClick, children }: any) {
+export function PhraseGroup({ phrase, isSelected, onPhraseClick, children }: PhraseGroupProps) {
   const stage = phrase?.stage || 1;
   
   // Orange gradient logic
-  const opacities =[1, 0.8, 0.6, 0.4, 0.2];
+  const opacities = [1, 0.8, 0.6, 0.4, 0.2];
   const opacity = (stage >= 1 && stage <= 5) ? opacities[stage - 1] : 0;
   const bgStyle: React.CSSProperties = stage <= 5 ? {
     backgroundColor: `rgba(255, 165, 0, ${opacity})`,
@@ -32,7 +40,13 @@ export function PhraseGroup({ phrase, isSelected, onPhraseClick, children }: any
   );
 }
 
-export default function WordToken({ token, isSelected, onClick }: any) {
+interface WordTokenProps {
+  token: Token;
+  isSelected: boolean;
+  onClick: (e: React.MouseEvent) => void;
+}
+
+export default function WordToken({ token, isSelected, onClick }: WordTokenProps) {
   const { isRTL } = useReaderStore();
 
   if (token.isNewline) return <br />;
@@ -47,7 +61,7 @@ export default function WordToken({ token, isSelected, onClick }: any) {
 
   // 1. WORD LEVEL LOGIC (Blue / Yellow / Transparent)
   const wordStage = token.stage ?? 0;
-  let wordBgStyle = {};
+  let wordBgStyle: React.CSSProperties = {};
 
   if (wordStage === 0) {
     wordBgStyle = { backgroundColor: '#AEE0F4' }; // Blue for New
@@ -62,13 +76,13 @@ export default function WordToken({ token, isSelected, onClick }: any) {
   const highlightClass = isSelected ? "ring-2 ring-gray-400/50 outline-none rounded-sm shadow-sm" : "";
 
   return (
-      <span 
-        data-token-id={token.id} // Essential for Drag-to-Select
-        onClick={onClick}
-        style={wordBgStyle}
-        className={`cursor-pointer px-1 rounded ${isRTL ? 'ms-0.75 me-0.75 my-4' : 'mx-0.75 my-3'} transition-all duration-50 inline-block ${highlightClass} hover:ring-1 ring-amber-400`}
-      >
-        {token.text}
-      </span>
+    <span 
+      data-token-id={token.id} // Essential for Drag-to-Select
+      onClick={onClick}
+      style={wordBgStyle}
+      className={`cursor-pointer px-1 rounded ${isRTL ? 'ms-0.75 me-0.75 my-4' : 'mx-0.75 my-3'} transition-all duration-50 inline-block ${highlightClass} hover:ring-1 ring-amber-400`}
+    >
+      {token.text}
+    </span>
   );
 }

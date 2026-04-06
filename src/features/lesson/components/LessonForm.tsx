@@ -1,5 +1,7 @@
 import { LEVELS } from '../../../constants/levels';
 
+import type { Course } from '../../../types/reader';
+
 interface LessonFormProps {
     title: string;
     setTitle: (title: string) => void;
@@ -12,7 +14,7 @@ interface LessonFormProps {
     setSelectedLevel: (level: string) => void;
     selectedCourseId: string;
     setSelectedCourseId: (courseId: string) => void;
-    allCourses: any[];
+    allCourses: Course[];
     onShowCourseModal?: () => void;
     isEditMode?: boolean;
 }
@@ -71,7 +73,7 @@ export default function LessonForm({
                         className="border border-gray-300 rounded px-2 py-1.5 text-xs text-gray-700 bg-gray-50 outline-none flex-grow"
                     >
                         <option value="">Course (None)</option>
-                        {allCourses.map((c: any) => (
+                        {allCourses.map((c: Course) => (
                             <option key={c.id} value={c.id}>{c.title}</option>
                         ))}
                     </select>

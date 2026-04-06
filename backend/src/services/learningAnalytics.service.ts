@@ -1,6 +1,6 @@
 import { db } from '../db/index.js';
 import { vocabTransitions, masterVocab, phraseTransitions, userPhrases, userVocabRelation } from '../db/schema.js';
-import { eq, and, sql, gte, lte } from 'drizzle-orm';
+import { eq, and, sql, gte } from 'drizzle-orm';
 
 const MIN_THRESHOLD = 50;
 
@@ -23,7 +23,7 @@ export class LearningAnalyticsService {
    */
 
   static async calculateUserMatrix(userId: string, languageCode: string, type: 'vocab' | 'phrase' = 'vocab'): Promise<TransitionMatrix | null> {
-    let logs: any[] = [];
+    let logs: { old_stage: number; new_stage: number }[] = [];
 
     if (type === 'vocab') {
       logs = await db.select({

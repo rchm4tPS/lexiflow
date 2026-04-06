@@ -1,6 +1,4 @@
-import { sqliteTable, text, integer, primaryKey, real, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { sql } from "drizzle-orm";
-
+import { sqliteTable, text, integer, primaryKey, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { randomUUID } from "crypto";
 
 // --- CORE REFERENCES ---

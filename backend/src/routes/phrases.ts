@@ -87,8 +87,9 @@ router.get('/list', authenticate, async (req: AuthRequest, res) => {
       })),
       total
     });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 
@@ -102,7 +103,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
     if (!phrase_text || !language_code) return res.status(400).json({ error: 'Missing phrase_text or language_code' });
 
     // Insert the phrase, update user coins, and bump language stats sequentially
-    const [newPhrase] = await db.insert(userPhrases).values({
+    await db.insert(userPhrases).values({
       id: newId,
       user_id: userId,
       language_code,
@@ -112,7 +113,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
       notes: notes || null,
       related_phrase_occur: related_phrase_occur || null,
       created_at: new Date()
-    }).returning();
+    });
 
     await db.update(users)
       .set({ total_coins: sql`MAX(0, ${users.total_coins} + 5)` })
@@ -145,8 +146,8 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
     const [newP] = await db.select().from(userPhrases).where(eq(userPhrases.id, newId));
     res.json({ success: true, phrase: newP });
     
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    res.status(500).json({ error: (err as { message?: string }).message || "Internal Error" });
   }
 });
 
@@ -159,13 +160,13 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
     if (typeof phraseIdRaw !== 'string') return res.status(400).json({ error: 'Invalid phrase id' });
     const phraseId = phraseIdRaw;
 
-    const updatePayload: any = { stage, last_reviewed: new Date() };
+    const updatePayload: Record<string, unknown> = { stage, last_reviewed: new Date() };
     if (user_meaning !== undefined) updatePayload.user_meaning = user_meaning;
     if (notes !== undefined) updatePayload.notes = notes;
     
     if (wordTags !== undefined) {
       const formattedTags = Array.isArray(wordTags) && wordTags.length > 0 
-        ? wordTags.map((t: any) => String(t).toLowerCase().replace(/\s+/g, '_')).join(',') 
+        ? wordTags.map((t: unknown) => String(t).toLowerCase().replace(/\s+/g, '_')).join(',') 
         : null;
       updatePayload.phrase_tags = formattedTags;
     }
@@ -209,8 +210,9 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
     await VocabHistoryService.logPhraseTransition(userId, phraseId, oldStage, newStage);
 
     res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    const error = err as { message?: string };
+    res.status(500).json({ error: error.message || "Internal Error" });
   }
 });
 
@@ -231,8 +233,9 @@ router.delete('/', authenticate, async (req: AuthRequest, res) => {
        ));
 
     res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
   }
 });
 

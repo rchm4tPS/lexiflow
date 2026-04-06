@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { uploadFile } from '../../../utils/upload';
@@ -6,9 +6,11 @@ import { LANG_MAP } from '../../../constants/languages';
 import LessonForm from '../../lesson/components/LessonForm';
 import LessonSidebar from '../../lesson/components/LessonSidebar';
 
+import type { Course } from '../../../types/reader';
+
 interface ManualImportFormProps {
     languageCode: string;
-    allCourses: any[];
+    allCourses: Course[];
     onShowCourseModal: () => void;
     importLesson: (courseId: string, title: string, text: string, imageUrl: string, tags: string, audioUrl: string, isPublic: boolean, duration: number) => Promise<string | null>;
 }
@@ -36,20 +38,12 @@ export default function ManualImportForm({ languageCode, allCourses, onShowCours
     const [audioFile, setAudioFile] = useState<File | null>(null);
     const [audioFileName, setAudioFileName] = useState('');
 
-    const selectedCourseRecord = allCourses.find((c: any) => c.id === selectedCourseId);
+    const selectedCourseRecord = allCourses.find((c: Course) => c.id === selectedCourseId);
     const isSelectedCoursePrivate = selectedCourseRecord ? !selectedCourseRecord.is_public : false;
 
-    useEffect(() => {
-        if (isSelectedCoursePrivate && isPublic) {
-            setIsPublic(false);
-        }
-    }, [isSelectedCoursePrivate, isPublic]);
-
-    useEffect(() => {
-        if (selectedCourseId && selectedCourseRecord) {
-            setSelectedLevel(selectedCourseRecord.level || '');
-        }
-    }, [selectedCourseId, selectedCourseRecord]);
+    // Derived values for form display and submission
+    const effectiveIsPublic = isSelectedCoursePrivate ? false : isPublic;
+    const effectiveLevel = selectedCourseRecord?.level || selectedLevel;
 
     const handleLessonImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -99,7 +93,7 @@ export default function ManualImportForm({ languageCode, allCourses, onShowCours
                 if (audioMode === 'file' && audioFile) URL.revokeObjectURL(durationObjUrl);
             }
 
-            const lessonId = await importLesson(selectedCourseId, title, text, finalImageUrl, '', finalAudioUrl, isPublic, parsedAudioDuration);
+            const lessonId = await importLesson(selectedCourseId, title, text, finalImageUrl, '', finalAudioUrl, effectiveIsPublic, parsedAudioDuration);
             setIsSaving(false);
 
             if (lessonId) {
@@ -140,9 +134,10 @@ export default function ManualImportForm({ languageCode, allCourses, onShowCours
                     });
                 }
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Internal Error";
             setIsSaving(false);
-            Swal.fire({ icon: 'error', title: 'Error', text: err.message, confirmButtonColor: '#3890fc' });
+            Swal.fire({ icon: 'error', title: 'Error', text: message, confirmButtonColor: '#3890fc' });
         }
     };
 
@@ -157,8 +152,8 @@ export default function ManualImportForm({ languageCode, allCourses, onShowCours
                 audioMode={audioMode}
                 setAudioMode={setAudioMode}
                 setAudioUrl={setAudioUrl}
-                onAudioFileClick={() => { setAudioMode('file'); (document.querySelector('input[type="file"][accept="audio/*"]') as any)?.click(); }}
-                isPublic={isPublic}
+                onAudioFileClick={() => { setAudioMode('file'); (document.querySelector('input[type="file"][accept="audio/*"]') as HTMLInputElement | null)?.click(); }}
+                isPublic={effectiveIsPublic}
                 setIsPublic={setIsPublic}
                 isSelectedCoursePrivate={isSelectedCoursePrivate}
             />
@@ -171,7 +166,7 @@ export default function ManualImportForm({ languageCode, allCourses, onShowCours
                     text={text} setText={setText}
                     activeTab={activeTab} setActiveTab={setActiveTab}
                     currentLang={currentLang}
-                    selectedLevel={selectedLevel} setSelectedLevel={setSelectedLevel}
+                    selectedLevel={effectiveLevel} setSelectedLevel={setSelectedLevel}
                     selectedCourseId={selectedCourseId} setSelectedCourseId={setSelectedCourseId}
                     allCourses={allCourses}
                     onShowCourseModal={onShowCourseModal}

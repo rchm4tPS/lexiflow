@@ -1,0 +1,85 @@
+export interface Token {
+  id: string;
+  text: string;
+  pageIndex: number;
+  isLearnable: boolean;
+  isNewline?: boolean;
+  status?: 'new' | 'learning' | 'known' | 'ignored';
+  stage?: number;
+  meaning?: string;
+  notes?: string;
+  word_tags?: string[];
+  isIgnoredInitially?: boolean;
+}
+
+export interface Phrase {
+  id: string;
+  dbId: string;
+  text: string;
+  range: string[];
+  stage: number;
+  user_meaning?: string;
+  phrase_tags?: string | string[];
+  notes?: string;
+  word_tags?: string[];
+  isPhrase: boolean;
+}
+
+export interface Lesson {
+  id: string;
+  title: string;
+  course_id: string;
+  course_title?: string;
+  image_url?: string;
+  audio_url?: string;
+  audio_duration?: number;
+  is_completed: boolean;
+  is_bookmarked: boolean;
+  new_words_count: number;
+  total_words_count: number;
+  highest_page_read?: number;
+  user_new_words?: number | null;
+  unique_words?: number;
+  user_lingqs?: number;
+  course_level?: string;
+}
+
+export interface Course {
+  id: string;
+  title: string;
+  level: string;
+  description?: string;
+  image_url?: string;
+  is_public: boolean;
+  language_code: string;
+  lesson_count?: number;
+  lessons?: Lesson[];
+}
+
+export interface WordHint {
+  text: string;
+  popularity: number;
+}
+
+export interface UserStats {
+  created: number;
+  learned: number;
+  listening: number;
+  words: number;
+}
+
+export interface MarkovInsights {
+  hasInsights: boolean;
+  discoveryVelocity: number;
+  metrics: {
+      steady_mastery: number;
+      learning_success_rate: number;
+      forgetting_rate: number;
+      learning_friction: number;
+  };
+  stationary: {
+      learning_load: number;
+      steady_mastery: number;
+      filtered_proportion: number;
+  };
+}

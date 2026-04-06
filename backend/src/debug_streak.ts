@@ -1,5 +1,5 @@
 import { db } from './db/index.js';
-import { streaks, userDailyStats, userLanguages, users } from './db/schema.js';
+import { streaks, userLanguages, users } from './db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { updateDailyStatsAndStreak } from './utils/statsEngine.js';
 
@@ -40,13 +40,13 @@ async function runDebug() {
   console.log("\nTriggering today's fulfillment (First half: LingQs)...");
   await updateDailyStatsAndStreak(testUserId, lang, { lingqsCreated: 10 });
   
-  let [check1] = await db.select().from(streaks).where(and(eq(streaks.user_id, testUserId), eq(streaks.language_code, lang)));
+  const [check1] = await db.select().from(streaks).where(and(eq(streaks.user_id, testUserId), eq(streaks.language_code, lang)));
   console.log(`Current Streak After LingQs: ${check1?.current_streak} (Expected: 1, because listening is missing)`);
 
   console.log("\nTriggering today's fulfillment (Second half: Listening)...");
   await updateDailyStatsAndStreak(testUserId, lang, { listeningSec: 700 });
 
-  let [check2] = await db.select().from(streaks).where(and(eq(streaks.user_id, testUserId), eq(streaks.language_code, lang)));
+  const [check2] = await db.select().from(streaks).where(and(eq(streaks.user_id, testUserId), eq(streaks.language_code, lang)));
   console.log(`Current Streak After Listening: ${check2?.current_streak} (Expected: 2)`);
 
   if (check2?.current_streak === 2) {
