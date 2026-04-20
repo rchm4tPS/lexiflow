@@ -11,12 +11,11 @@ interface LingqImportStepProps {
     onSuccess: () => void;
 }
 
-export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImportStepProps) {
+    export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImportStepProps) {
     const [lingqApiKey, setLingqApiKey] = useState('');
     const [lingqCourseCount, setLingqCourseCount] = useState(3);
     const [lingqLessonsPerCourse, setLingqLessonsPerCourse] = useState(3);
     const [isLingqImporting, setIsLingqImporting] = useState(false);
-    const [_, setLingqImportStatus] = useState('');
     const [logs, setLogs] = useState<string[]>([]);
 
     const handleLingqImport = async () => {
@@ -45,7 +44,6 @@ export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImp
             });
         } finally {
             setIsLingqImporting(false);
-            setLingqImportStatus('');
         }
     };
 

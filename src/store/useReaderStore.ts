@@ -1162,7 +1162,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
            if (line.trim().startsWith('{') && line.includes('"success":')) {
               try {
                   streamResult = JSON.parse(line);
-              } catch (e) {}
+              } catch {
+                  // Ignore parse errors on stream data
+              }
            } else if (line.startsWith('[ERROR]')) {
               throw new Error(line);
            } else {
