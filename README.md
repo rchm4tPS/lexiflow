@@ -15,15 +15,19 @@ A full-stack language-learning web app inspired by [LingQ](https://www.lingq.com
 
 ```
 lingq-clone/
-├── src/                    # React app (views, features, stores, API client)
+├── .env                    # The root enviro used for production-sync secrets, especially when using Docker.
+├── src/                    # React app/Front end (assets, components, views, features, stores, types, utils, API client)
 ├── backend/
+│   ├── .env                # Use this enviro for offline local development.
+│   ├── sqlite.db           # The SQLite database file (if not using Turso)
+│   ├── drizzle-config.ts   # Drizzle configuration
 │   ├── src/
-│   │   ├── routes/         # Express routers (auth, library, lessons, vocab, phrases, upload)
+│   │   ├── constants/      # For saving constant value that is reusable
+│   │   ├── routes/         # Express routers (auth, library, reader, vocab, phrases, upload)
 │   │   ├── db/             # Drizzle schema, migrations, seed
 │   │   ├── middleware/     # JWT authentication
 │   │   ├── services/       # LingQ import, analytics, vocab history
-│   │   └── utils/          # Lesson parsing, stats engine
-│   └── uploads/            # Local image/audio storage (created at runtime)
+│   │   └── utils/          # Lesson parsing, stats engine, and timezone
 ├── docs/
 │   ├── openapi.yaml        # OpenAPI 3 specification (Swagger)
 │   ├── API.md              # API overview and links
@@ -32,6 +36,7 @@ lingq-clone/
 │   └── CONTRIBUTING.md     # Contribution guidelines
 ├── Dockerfile              # Multi-stage: Vite build + API + static SPA in production
 ├── docker-compose.yml      # Single service with SQLite on a volume
+├── vercel.json
 └── package.json            # Root scripts and frontend dependencies
 ```
 
@@ -116,10 +121,10 @@ docker compose up
 | `PORT` | HTTP port (default `3000`) |
 | `JWT_SECRET` | Signing key for JWTs (**required** for login) |
 | `DATABASE_URL` | SQLite file path (default `sqlite.db`) |
-| `LINGQ_TOKEN` / `LINGQ_API_KEY` | Optional; server-side hints and LingQ import helpers |
+| `LINGQ_TOKEN` | Optional; server-side hints and LingQ import helpers |
 | `NODE_ENV` | `production` enables static SPA + stricter deployment assumptions |
 
-Copy `backend/.env.example` to `backend/.env`.
+Copy `backend/.env.example` to `backend/.env`, so does the root `.env.example` to `/.env`.
 
 ## Contributing
 
