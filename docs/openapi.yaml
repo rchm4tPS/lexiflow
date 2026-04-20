@@ -14,7 +14,9 @@ info:
 
 servers:
   - url: http://localhost:3000/api/v1
-    description: Local or Docker (default port 3000)
+    description: Local development (default port 3000)
+  - url: https://lexiflow-backend-gsp5.onrender.com/api/v1
+    description: Production (Render)
 
 tags:
   - name: Health
@@ -39,6 +41,19 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: JWT from POST /auth/login (`token` field)
+
+  parameters:
+    TimezoneOffset:
+      name: x-timezone-offset
+      in: header
+      required: false
+      description: |
+        Client's UTC offset in minutes (from `new Date().getTimezoneOffset()`).
+        Used by the server to calculate the user's local midnight for daily stats and streak boundaries.
+        Example: Jakarta (WIB, +07:00) sends `-420`.
+      schema:
+        type: integer
+        example: -420
 
   schemas:
     Error:
@@ -81,6 +96,23 @@ components:
           properties:
             targetLanguage:
               type: string
+
+    InsightStats:
+      type: object
+      properties:
+        hasInsights:
+          type: boolean
+        discoveryVelocity:
+          type: number
+        matrix:
+          type: object
+          description: Markov transition matrix (6x6)
+        stationary:
+          type: object
+          description: Stationary distribution and derived values
+        metrics:
+          type: object
+          description: UX focused metrics derived from the matrix
 
 paths:
   /health:
@@ -227,6 +259,7 @@ paths:
       description: |
         Public route (no JWT). Supports optional `lang` query to override target language.
         Returns streaks, daily totals, 7d/30d charts, RTL flag, etc.
+        Respects `x-timezone-offset` header for accurate local-midnight daily stat boundaries.
       operationId: getUserInfo
       parameters:
         - name: userId
@@ -238,6 +271,7 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: '#/components/parameters/TimezoneOffset'
       responses:
         '200':
           description: Profile snapshot
@@ -269,7 +303,18 @@ paths:
                   type: string
       responses:
         '200':
-          description: Updated
+          description: Updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  tier:
+                    type: string
+                  languageCode:
+                    type: string
         '400':
           description: Missing fields
         '401':
@@ -295,6 +340,17 @@ paths:
       responses:
         '200':
           description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  targetLanguage:
+                    type: string
+        '400':
+          description: targetLanguage is required
         '401':
           description: Unauthorized
 
@@ -329,6 +385,15 @@ paths:
       responses:
         '200':
           description: Vocab and phrase insight payloads
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vocab:
+                    $ref: '#/components/schemas/InsightStats'
+                  phrase:
+                    $ref: '#/components/schemas/InsightStats'
         '401':
           description: Unauthorized
 
@@ -396,6 +461,16 @@ paths:
       responses:
         '200':
           description: Created course
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  course:
+                    type: object
+                    description: The newly created course row
         '401':
           description: Unauthorized
 
@@ -441,7 +516,12 @@ paths:
             type: string
       responses:
         '200':
-          description: Object with `course` and `lessons`
+          description: |
+            Object with `course` (metadata + aggregate stats) and `lessons` (array).
+            Course stats fields include: `lesson_count`, `total_unique_words`, `completed_lessons`,
+            `completion_pct`, `blue_remaining`, `blue_remaining_pct`, `total_lingqs`, `total_duration`.
+        '400':
+          description: Invalid course ID
         '404':
           description: Course not found
 
@@ -511,7 +591,16 @@ paths:
                   type: string
       responses:
         '200':
-          description: Result with updatedCount
+          description: Count of newly completed lessons
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  count:
+                    type: integer
 
   /library/continue-studying:
     get:
@@ -568,6 +657,10 @@ paths:
     post:
       tags: [Library]
       summary: One-time import from LingQ API (per user language)
+      description: |
+        Streams progress logs via chunked transfer encoding (`text/plain`).
+        Each line is either a human-readable log message or the final JSON result object
+        `{ success: boolean, count: number }`. The client should read the stream line-by-line.
       operationId: lingqImport
       security:
         - bearerAuth: []
@@ -587,7 +680,12 @@ paths:
                   type: integer
       responses:
         '200':
-          description: Import result
+          description: Streamed import progress + final JSON result
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Newline-delimited stream of log lines, ending with a JSON result object.
         '403':
           description: Already imported for this language
         '500':
@@ -732,6 +830,7 @@ paths:
     put:
       tags: [Lessons]
       summary: Sync lesson progress and daily stats / streak
+      description: Updates listening time and words read. Respects `x-timezone-offset` header for accurate local-midnight daily stat boundaries.
       operationId: putLessonProgress
       security:
         - bearerAuth: []
@@ -741,6 +840,7 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: '#/components/parameters/TimezoneOffset'
       requestBody:
         content:
           application/json:
@@ -765,8 +865,41 @@ paths:
                   type: boolean
       responses:
         '200':
-          description: Success
+          description: Progress synced successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
 
+  /lessons/{id}/reset:
+    post:
+      tags: [Lessons]
+      summary: Reset lesson progress (highest page read back to 0)
+      description: Used for sequential navigation — allows a user to restart a lesson from the beginning.
+      operationId: resetLessonProgress
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Progress reset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '400':
+          description: Invalid lesson id
   /vocab/list:
     get:
       tags: [Vocabulary]
@@ -807,9 +940,12 @@ paths:
     post:
       tags: [Vocabulary]
       summary: Create or update a word (stage, meaning, tags, coins)
+      description: Respects `x-timezone-offset` header for accurate local-midnight daily stat boundaries.
       operationId: upsertVocab
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TimezoneOffset'
       requestBody:
         content:
           application/json:
@@ -886,7 +1022,20 @@ paths:
                   type: string
       responses:
         '200':
-          description: Includes success, trueCoins, trueKnown, and trueLingqs.
+          description: Stats recalculated and updated in the database
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  trueCoins:
+                    type: integer
+                  trueKnown:
+                    type: integer
+                  trueLingqs:
+                    type: integer
 
   /vocab/hints:
     get:
@@ -946,7 +1095,33 @@ paths:
             type: string
       responses:
         '200':
-          description: Matrix, stationary distribution, or not-enough-data message
+          description: |
+            Markov matrix, stationary distribution, and velocity metrics.
+            Includes `healthScore` (0–100, long-term retention estimate) and
+            `burnoutIndex` (0–100, proportion of ignored words in long-term equilibrium).
+            Returns `{ message, discoveryVelocity }` if not enough data for Markov analysis yet.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  matrix:
+                    type: object
+                  stationary:
+                    type: object
+                  discoveryVelocity:
+                    type: number
+                  healthScore:
+                    type: number
+                    description: Normalized 0-100 score of long-term retention
+                  burnoutIndex:
+                    type: number
+                    description: Proportion of Ignored words in long-term equilibrium
+                  message:
+                    type: string
+                    description: Present only when there is insufficient data for Markov analysis
+        '400':
+          description: Missing lang parameter
 
   /vocab:
     delete:
@@ -1010,9 +1185,12 @@ paths:
     post:
       tags: [Phrases]
       summary: Create a phrase LingQ
+      description: Respects `x-timezone-offset` header for accurate local-midnight daily stat boundaries.
       operationId: createPhrase
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TimezoneOffset'
       requestBody:
         required: true
         content:
@@ -1062,6 +1240,7 @@ paths:
     put:
       tags: [Phrases]
       summary: Update phrase stage, meaning, tags
+      description: Respects `x-timezone-offset` header for accurate local-midnight daily stat boundaries.
       operationId: updatePhrase
       security:
         - bearerAuth: []
@@ -1071,6 +1250,7 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: '#/components/parameters/TimezoneOffset'
       requestBody:
         content:
           application/json:
@@ -1115,9 +1295,13 @@ paths:
                   format: binary
       responses:
         '200':
-          description: Returns a url string (relative path under /uploads/images/).
+          description: |
+            Returns `{ url }` where `url` is an absolute Cloudinary CDN URL
+            (e.g. `https://res.cloudinary.com/your-cloud/image/upload/v.../lexiflow/images/xyz.jpg`).
         '400':
           description: Validation error
+        '500':
+          description: Cloudinary upload failed
 
   /upload/audio:
     post:
@@ -1139,4 +1323,10 @@ paths:
                   format: binary
       responses:
         '200':
-          description: Returns a url string (relative path under /uploads/audio/).
+          description: |
+            Returns `{ url }` where `url` is an absolute Cloudinary CDN URL
+            (e.g. `https://res.cloudinary.com/your-cloud/video/upload/v.../lexiflow/audio/xyz.mp3`).
+        '400':
+          description: Validation error
+        '500':
+          description: Cloudinary upload failed
