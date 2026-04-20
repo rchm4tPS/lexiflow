@@ -7,8 +7,25 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
   globalIgnores(['dist/**', 'node_modules/**', 'backend/dist/**', 'backend/node_modules/**']),
+
+  // 1. Backend Configuration (Node.js)
   {
-    files: ['**/*.{ts,tsx}'],
+    files: ['backend/src/**/*.ts'],
+    extends: [
+      js.configs.recommended,
+      tseslint.configs.recommended,
+    ],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+
+  // 2. Frontend Configuration (React + Browser)
+  {
+    files: ['src/**/*.{ts,tsx}'],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,
