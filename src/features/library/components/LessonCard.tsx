@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { useReaderStore } from '../../../store/useReaderStore';
@@ -14,12 +15,18 @@ interface LessonCardProps {
 export default function LessonCard({ lesson, isInsideCourse = false, onBookmark }: LessonCardProps) {
     const { languageCode, deleteLesson } = useReaderStore();
     const [showMenu, setShowMenu] = useState(false);
+    const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
     const menuRef = useRef<HTMLDivElement>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const dropdownRef = useRef<HTMLDivElement>(null);
 
-    // Close menu when clicking outside
+    // Close menu when clicking outside — must exclude both the trigger button and the portalled dropdown
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
-            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+            const target = event.target as Node;
+            const clickedInsideButton = menuRef.current?.contains(target);
+            const clickedInsideDropdown = dropdownRef.current?.contains(target);
+            if (!clickedInsideButton && !clickedInsideDropdown) {
                 setShowMenu(false);
             }
         }
@@ -32,7 +39,14 @@ export default function LessonCard({ lesson, isInsideCourse = false, onBookmark 
     const toggleMenu = (e: React.MouseEvent) => {
         e.stopPropagation();
         e.preventDefault();
-        setShowMenu(!showMenu);
+        if (!showMenu && buttonRef.current) {
+            const rect = buttonRef.current.getBoundingClientRect();
+            setMenuPos({
+                top: rect.bottom + window.scrollY + 4,
+                right: window.innerWidth - rect.right,
+            });
+        }
+        setShowMenu(prev => !prev);
     };
 
     const handleDelete = async (e: React.MouseEvent) => {
@@ -74,7 +88,7 @@ export default function LessonCard({ lesson, isInsideCourse = false, onBookmark 
     const blueRemainingPct = 100 - completionPercentage;
 
     return (
-        <div className="flex gap-0 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow relative group">
+        <div className="flex gap-0 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow relative group overflow-visible">
             {/* Thumbnail */}
             <div className="w-40 h-40 shrink-0 bg-gradient-to-br from-blue-100 to-blue-200 overflow-hidden rounded-l-lg border-r border-gray-100">
                 {lesson.image_url
@@ -84,7 +98,7 @@ export default function LessonCard({ lesson, isInsideCourse = false, onBookmark 
             </div>
 
             {/* Content */}
-            <div className="flex flex-col flex-grow px-4 py-3 min-w-0 gap-2">
+            <div className="flex flex-col flex-grow px-4 py-3 min-w-0 gap-2 overflow-visible">
                 {/* Bookmark button */}
                 {onBookmark && (
                     <button
@@ -106,17 +120,27 @@ export default function LessonCard({ lesson, isInsideCourse = false, onBookmark 
                 <div className="flex justify-between items-start mb-auto">
                     <h3 className="font-black text-gray-800 text-lg leading-tight truncate pr-2">{lesson.title}</h3>
                     
-                    {/* Ellipsis Menu */}
+                    {/* Ellipsis Menu — button stays in-card, dropdown portalled to body */}
                     <div className="relative" ref={menuRef}>
-                        <button 
+                        <button
+                            ref={buttonRef}
                             onClick={toggleMenu}
                             className={`text-gray-400 hover:text-[#3890fc] font-black text-xl p-1 leading-none transition-colors rounded-full w-8 h-8 flex items-center justify-center hover:bg-blue-50 ${showMenu ? 'text-[#3890fc] bg-blue-50' : ''}`}
                         >
                             ⋮
                         </button>
-                        {showMenu && (
-                            <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-md shadow-xl z-[100] min-w-[140px] py-1 animate-in fade-in zoom-in duration-100 origin-top-right">
-                                <Link 
+                        {showMenu && createPortal(
+                            <div
+                                ref={dropdownRef}
+                                style={{
+                                    position: 'absolute',
+                                    top: menuPos.top,
+                                    right: menuPos.right,
+                                    zIndex: 9999,
+                                }}
+                                className="bg-white border border-gray-200 rounded-md shadow-xl min-w-[140px] py-1 animate-in fade-in zoom-in duration-100 origin-top-right"
+                            >
+                                <Link
                                     to={`/me/${languageCode}/import/edit/${lesson.id}`}
                                     className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-gray-600 hover:bg-gray-50 hover:text-[#3890fc] transition-colors"
                                     onClick={() => setShowMenu(false)}
@@ -124,13 +148,14 @@ export default function LessonCard({ lesson, isInsideCourse = false, onBookmark 
                                     <span className="text-sm opacity-70">✏️</span> Edit Lesson
                                 </Link>
                                 <hr className="border-gray-50 my-1" />
-                                <button 
+                                <button
                                     onClick={(e) => { setShowMenu(false); handleDelete(e); }}
                                     className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-xs font-bold text-red-500 hover:bg-red-50 transition-colors"
                                 >
                                     <span className="text-sm opacity-70">🗑️</span> Delete Lesson
                                 </button>
-                            </div>
+                            </div>,
+                            document.body
                         )}
                     </div>
                 </div>

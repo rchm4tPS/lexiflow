@@ -100,7 +100,7 @@ export default function SummaryView() {
                             </div>
                         );
                     })}
-                    <p className="absolute -left-20 top-20 -rotate-90 text-[10px] text-gray-400 font-black uppercase tracking-widest leading-none">LingQs Created</p>
+                    <p className="absolute -left-18 top-30 -rotate-90 text-[10px] text-gray-400 font-black uppercase tracking-widest leading-none">LingQs Created</p>
                     <p className="absolute left-1/2 -translate-x-1/2 -bottom-10 text-xs text-gray-400 font-bold">Activity (Last 7 Days)</p>
                 </div>
 

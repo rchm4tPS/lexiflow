@@ -15,6 +15,6 @@ export async function uploadFile(file: File, type: 'image' | 'audio'): Promise<s
         body: formData,
     });
 
-    // TODO: In production, this should likely be a relative path or an environment variable
-    return `http://localhost:3000${data.url}`;
+    // The backend returns an absolute Cloudinary CDN URL (https://res.cloudinary.com/...)
+    return data.url;
 }

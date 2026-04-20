@@ -53,9 +53,6 @@ if (openApiPath) {
   }
 }
 
-// Serve uploaded files as static
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-
 // --- API Versioning (v1) ---
 const apiV1 = express.Router();
 
