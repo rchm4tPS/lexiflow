@@ -27,7 +27,7 @@ export default function LoginView() {
             {/* ── Left branding ── */}
             <div className="hidden lg:flex flex-col justify-center items-start px-16 w-[42%] text-white gap-8">
                 <div>
-                    <div className="text-5xl font-black tracking-tight mb-2">LingQ</div>
+                    <div className="text-5xl font-black tracking-tight mb-2">Lexiflow</div>
                     <p className="text-blue-300 text-lg font-medium">Master a language through content you love.</p>
                 </div>
                 <ul className="flex flex-col gap-4 text-blue-200 text-sm font-medium">

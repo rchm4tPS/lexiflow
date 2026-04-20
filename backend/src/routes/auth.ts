@@ -20,8 +20,30 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const router = Router();
-router.get('/verify', authenticate, (req: AuthRequest, res) => {
-  res.json({ user: req.user });
+router.get('/verify', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    const [row] = await db.select().from(users).where(eq(users.id, userId));
+    if (!row) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    res.json({
+      user: {
+        id: row.id,
+        username: row.username,
+        email: row.email,
+        fullName: row.fullname,
+        preferences: row.preferences,
+      },
+    });
+  } catch (error: unknown) {
+    res.status(500).json({ error: (error as { message?: string }).message || 'Internal Error' });
+  }
 });
 
 router.get('/info/:userId', async (req: AuthRequest, res) => {
@@ -69,38 +91,42 @@ router.get('/info/:userId', async (req: AuthRequest, res) => {
         eq(userDailyStats.log_date, today)
       ));
 
-    // Aggregate stats for 7d and 30d
-    const sevenDaysAgo = new Date(today);
-    sevenDaysAgo.setDate(today.getDate() - 6);
+    // Aggregate stats for 7d and 30d (Daily breakdown)
+    const getStatsArray = async (days: number) => {
+      const startDate = new Date(today);
+      startDate.setDate(today.getDate() - (days - 1));
 
-    const thirtyDaysAgo = new Date(today);
-    thirtyDaysAgo.setDate(today.getDate() - 29);
+      const dailyRecords = await db.select().from(userDailyStats)
+        .where(and(
+          eq(userDailyStats.user_id, userId),
+          eq(userDailyStats.language_code, targetLanguage),
+          gte(userDailyStats.log_date, startDate)
+        ));
 
-    // Aggregates for stats need to be scoped by language too for consistency
-    const aggregate = async (since: Date) => {
-      const result = await db.select({
-        created: sum(userDailyStats.lingqs_created),
-        learned: sum(userDailyStats.lingqs_learned),
-        listening: sum(userDailyStats.listening_sec),
-        words: sum(userDailyStats.words_read),
-      }).from(userDailyStats).where(and(
-        eq(userDailyStats.user_id, userId),
-        eq(userDailyStats.language_code, targetLanguage),
-        gte(userDailyStats.log_date, since)
-      ));
+      const results = [];
+      for (let i = 0; i < days; i++) {
+        const d = new Date(startDate);
+        d.setDate(startDate.getDate() + i);
+        
+        // Find matching record by date string comparison
+        const record = dailyRecords.find(r => 
+          new Date(r.log_date).toDateString() === d.toDateString()
+        );
 
-      const stats = result[0];
-      return {
-        created: Number(stats?.created || 0),
-        learned: Number(stats?.learned || 0),
-        listening: Number(stats?.listening || 0),
-        words: Number(stats?.words || 0),
-      };
+        results.push({
+          date: d.toISOString(),
+          created: Number(record?.lingqs_created || 0),
+          learned: Number(record?.lingqs_learned || 0),
+          listening: Number(record?.listening_sec || 0),
+          words: Number(record?.words_read || 0),
+        });
+      }
+      return results;
     };
 
     const [stats7d, stats30d] = await Promise.all([
-      aggregate(sevenDaysAgo),
-      aggregate(thirtyDaysAgo)
+      getStatsArray(7),
+      getStatsArray(30)
     ]);
 
     const rawStreak = userStreakInfo[0]?.current_streak || 0;

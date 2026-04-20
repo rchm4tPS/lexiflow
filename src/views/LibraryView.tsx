@@ -24,7 +24,8 @@ export default function LibraryView() {
         fetchLibrary, fetchMyLessons, fetchGuidedCourses, fetchCourseDetails, fetchContinueStudying,
         clearActiveCourse, toggleLessonBookmark, checkAndUpdateCompletions,
         setMyLessonsSubTab, setLibrarySidebarTab, recalculateStats,
-        guidedCourses, activeCourseDetails, librarySidebarTab, myLessonsSubTab
+        guidedCourses, activeCourseDetails, librarySidebarTab, myLessonsSubTab,
+        librarySearch, setLibrarySearch
     } = useReaderStore();
 
     const navigate = useNavigate();
@@ -41,11 +42,21 @@ export default function LibraryView() {
     const currentSubTab = (view === 'my-lessons' && subPath === 'completed') ? 'completed' : 'continue';
     const currentCourseId = view === 'course' ? subPath : null;
 
+    const [searchTerm, setSearchTerm] = useState(librarySearch);
+
+    // Debounce search update to store
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setLibrarySearch(searchTerm);
+        }, 500);
+        return () => clearTimeout(handler);
+    }, [searchTerm, setLibrarySearch]);
+
     // Sync store state with URL path
     useEffect(() => {
         if (currentFeed !== librarySidebarTab) setLibrarySidebarTab(currentFeed as 'lesson-feed' | 'guided-course');
         if (currentSubTab !== myLessonsSubTab) setMyLessonsSubTab(currentSubTab as 'continue' | 'completed');
-    }, [currentFeed, currentSubTab, librarySidebarTab, myLessonsSubTab, setLibrarySidebarTab, setMyLessonsSubTab]);
+    }, [currentFeed, currentSubTab, librarySidebarTab, myLessonsSubTab, setLibrarySidebarTab, setMyLessonsSubTab, activeTab]);
 
     // Sync Course Details with path
     useEffect(() => {
@@ -76,7 +87,7 @@ export default function LibraryView() {
             }
         };
         loadView();
-    }, [activeTab, currentFeed, languageCode, fetchGuidedCourses, fetchLibrary, fetchMyLessons, checkAndUpdateCompletions, fetchContinueStudying]);
+    }, [activeTab, currentFeed, languageCode, librarySearch, fetchGuidedCourses, fetchLibrary, fetchMyLessons, checkAndUpdateCompletions, fetchContinueStudying]);
 
     useEffect(() => {
         recalculateStats();
@@ -111,6 +122,8 @@ export default function LibraryView() {
                                         <input
                                             type="text"
                                             placeholder="Search Entire Library"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
                                             className="border border-gray-300 rounded px-4 py-1.5 text-sm font-medium outline-none focus:border-[#3890fc] w-64"
                                         />
                                         <span className="absolute right-3 top-2 text-gray-400">

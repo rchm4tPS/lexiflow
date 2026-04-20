@@ -1,9 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState } from 'react';
 import { useReaderStore } from '../store/useReaderStore';
 import CreateCourseModal from '../features/import/components/CreateCourseModal';
 import LingqImportStep from '../features/import/components/LingqImportStep';
 import ManualImportForm from '../features/import/components/ManualImportForm';
+import type { Course } from '../types/reader';
 
 export default function ImportLessonView() {
     const {
@@ -18,7 +18,7 @@ export default function ImportLessonView() {
 
     // Filter duplicates just in case
     const allCourses = Array.from(
-        new Map((myCoursesDropdown || []).map((c: any) => [c.id, c])).values()
+        new Map((myCoursesDropdown || []).map((c: Course) => [c.id, c])).values()
     );
 
     useEffect(() => {

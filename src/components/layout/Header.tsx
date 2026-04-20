@@ -48,7 +48,7 @@ export default function Header() {
                 <div className="flex items-center space-x-8">
                     <Link to={`/me/${languageCode || 'en'}/library`} className="text-4xl font-extrabold flex items-center cursor-pointer tracking-tight">
                         <svg className="w-8 h-8 mr-1" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z" /></svg>
-                        <p>LingQ <span className='text-yellow-300'></span></p>
+                        <p>Lexiflow <span className='text-yellow-300'></span></p>
                     </Link>
                     <nav className="flex space-x-8 text-[20px] font-bold">
                         <Link to={`/me/${languageCode || 'en'}/library`} className="border border-white/40 rounded-full px-4 py-1 bg-white/10">Lessons</Link>

@@ -26,6 +26,9 @@ COPY --from=backend-builder /app/backend/node_modules ./node_modules
 # Copy Frontend artifacts to be served by Express static
 COPY --from=frontend-builder /app/dist ./public
 
+# OpenAPI spec for Swagger UI (served from /api-docs)
+COPY docs/openapi.yaml ./openapi.yaml
+
 # Final Env setup
 ENV NODE_ENV=production
 ENV PORT=3000

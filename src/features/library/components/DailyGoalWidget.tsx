@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useReaderStore } from '../../../store/useReaderStore';
 import { TIERS, getTier } from '../../../constants/tiers';
+import type { UserStats } from '../../../types/reader';
 
 export default function DailyGoalWidget() {
     const {
@@ -33,11 +34,19 @@ export default function DailyGoalWidget() {
         return () => clearInterval(interval);
     }, []);
 
+    // Helper to sum up arrays for 7d/30d views
+    const aggregate = (stats: UserStats[]) => stats.reduce((acc, curr) => ({
+        created: acc.created + (curr.created || 0),
+        learned: acc.learned + (curr.learned || 0),
+        listening: acc.listening + (curr.listening || 0),
+        words: acc.words + (curr.words || 0),
+    }), { created: 0, learned: 0, listening: 0, words: 0 });
+
     // Determine current stats based on timeframe
     const currentStats = timeframe === '7d' 
-        ? last7DaysStats 
+        ? aggregate(last7DaysStats) 
         : timeframe === '30d' 
-            ? last30DaysStats 
+            ? aggregate(last30DaysStats) 
             : { 
                 created: totalDailyLingqs, 
                 learned: totalDailyLingqsLearned, 

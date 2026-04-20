@@ -83,7 +83,7 @@ export default function SignUpView() {
     <div className="min-h-screen flex font-nunito bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-900 overflow-x-hidden">
       <div className="hidden lg:flex flex-col justify-center items-start px-20 w-[42%] text-white gap-8 bg-black/10 backdrop-blur-3xl border-r border-white/5">
         <div className="animate-in fade-in slide-in-from-left duration-700">
-          <div className="text-6xl font-black tracking-tighter mb-2">LingQ</div>
+          <div className="text-6xl font-black tracking-tighter mb-2">Lexiflow</div>
           <p className="text-blue-300 text-xl font-bold opacity-80 italic">Master a language through content you love.</p>
         </div>
         <ul className="flex flex-col gap-5 text-blue-100/70 text-sm font-bold">

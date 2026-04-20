@@ -4,29 +4,34 @@ import { useReaderStore } from '../store/useReaderStore';
 import { apiClient } from '../api/client';
 import { useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
-import type { MarkovInsights } from '../types/reader';
+import type { MarkovInsights, UserStats } from '../types/reader';
 
 import MarkovInsightsCard from '../features/profile/components/MarkovInsightsCard';
 import { StatCard, SmallStat } from '../features/profile/components/StatCards';
 
+/** API returns daily rows; profile cards need period totals (same shape as DailyGoalWidget). */
+function aggregatePeriodStats(rows: UserStats[] | undefined) {
+    if (!rows?.length) return { created: 0, learned: 0, words: 0, listening: 0 };
+    return rows.reduce(
+        (acc, curr) => ({
+            created: acc.created + (Number(curr.created) || 0),
+            learned: acc.learned + (Number(curr.learned) || 0),
+            words: acc.words + (Number(curr.words) || 0),
+            listening: acc.listening + (Number(curr.listening) || 0),
+        }),
+        { created: 0, learned: 0, words: 0, listening: 0 }
+    );
+}
+
 type StatsType = {
     fullName: string;
+    username?: string;
     knownWords: number;
     totalLingQs: number;
     totalStreaks: number;
     totalCoins: number;
-    stats7d: {
-        created: number;
-        learned: number;
-        words: number;
-        listening: number;
-    };
-    stats30d: {
-        created: number;
-        learned: number;
-        words: number;
-        listening: number;
-    };
+    stats7d: UserStats[];
+    stats30d: UserStats[];
 }
 
 type InsightsType = {
@@ -41,30 +46,30 @@ export default function ProfileView() {
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
 
-    useEffect(() => {
-        if (user?.id) {
-            Promise.all([
-              apiClient(`/auth/info/${user.id}`),
-              apiClient(`/auth/profile/insights/${user.id}`)
-            ])
-                .then(([data, insightData]) => {
-                    setStats(data);
-                    setInsights(insightData);
-                    setLoading(false);
-                })
-                .catch(err => {
-                    console.error("Failed to fetch profile info", err);
-                    setLoading(false);
-                });
-        }
-    }, [user?.id]);
-
     const handleLogout = () => {
         logout();
         navigate('/login');
     };
 
     const { languageCode } = useReaderStore();
+
+    useEffect(() => {
+        if (!user?.id) return;
+        setLoading(true);
+        const langQ = languageCode ? `?lang=${encodeURIComponent(languageCode)}` : '';
+        Promise.all([
+            apiClient(`/auth/info/${user.id}${langQ}`),
+            apiClient(`/auth/profile/insights/${user.id}`),
+        ])
+            .then(([data, insightData]) => {
+                setStats(data);
+                setInsights(insightData);
+            })
+            .catch((err) => {
+                console.error('Failed to fetch profile info', err);
+            })
+            .finally(() => setLoading(false));
+    }, [user?.id, languageCode]);
 
     const handleResetLanguageData = async () => {
         const lang = languageCode || 'en';
@@ -114,17 +119,29 @@ export default function ProfileView() {
 
     if (loading) return <div className="flex justify-center items-center h-full font-nunito text-gray-500 font-bold">Loading Profile...</div>;
 
+    const totals7d = aggregatePeriodStats(stats?.stats7d);
+    const totals30d = aggregatePeriodStats(stats?.stats30d);
+
+    const displayName =
+        stats?.fullName || user?.fullName || stats?.username || user?.username || 'Member';
+    const displayUsername = stats?.username || user?.username;
+    const initial = (displayName || '?').trim().charAt(0).toUpperCase() || '?';
+
     return (
         <div className="max-w-4xl mx-auto p-8 font-nunito">
             <div className="bg-white rounded-xl shadow-lg p-8 mb-8 border border-gray-100">
                 <div className="flex items-center gap-6 mb-8">
                     <span className="w-24 h-24 bg-blue-500 rounded-full flex items-center justify-center text-white text-4xl font-bold shadow-md">
-                        {(stats?.fullName || user?.fullName || user?.username || '?').charAt(0).toUpperCase()}
+                        {initial}
                     </span>
                     <div className=''>
-                        <span className="text-3xl font-black text-gray-800">{stats?.fullName || user?.fullName || user?.username}</span>
-                        <span className='text-sm font-bold text-gray-400'>{` (@${user!.username})`}</span>
-                        <p className="text-gray-500 font-medium">{user?.email}</p>
+                        <span className="text-3xl font-black text-gray-800">{displayName}</span>
+                        {displayUsername ? (
+                            <span className="text-sm font-bold text-gray-400">{` (@${displayUsername})`}</span>
+                        ) : null}
+                        {user?.email ? (
+                            <p className="text-gray-500 font-medium">{user.email}</p>
+                        ) : null}
                     </div>
                     <div className="ml-auto">
                         <button 
@@ -164,20 +181,20 @@ export default function ProfileView() {
                     <div className="bg-gray-50 rounded-xl p-6 border border-gray-100 shadow-inner">
                         <h2 className="text-xl font-black mb-4 text-gray-700">Last 7 Days</h2>
                         <div className="space-y-3">
-                            <SmallStat label="New LingQs" value={stats?.stats7d?.created} />
-                            <SmallStat label="Known Words" value={stats?.stats7d?.learned} />
-                            <SmallStat label="Words Read" value={stats?.stats7d?.words} />
-                            <SmallStat label="Listening" value={`${((stats?.stats7d?.listening || 0) / 60).toFixed(2)} min`} />
+                            <SmallStat label="New LingQs" value={totals7d.created} />
+                            <SmallStat label="Known Words" value={totals7d.learned} />
+                            <SmallStat label="Words Read" value={totals7d.words} />
+                            <SmallStat label="Listening" value={`${(totals7d.listening / 60).toFixed(2)} min`} />
                         </div>
                     </div>
 
                     <div className="bg-gray-50 rounded-xl p-6 border border-gray-100 shadow-inner">
                         <h2 className="text-xl font-black mb-4 text-gray-700">Last 30 Days</h2>
                         <div className="space-y-3">
-                            <SmallStat label="New LingQs" value={stats?.stats30d?.created} />
-                            <SmallStat label="Known Words" value={stats?.stats30d?.learned} />
-                            <SmallStat label="Words Read" value={stats?.stats30d?.words} />
-                            <SmallStat label="Listening" value={`${((stats?.stats30d?.listening || 0) / 60).toFixed(2)} min`} />
+                            <SmallStat label="New LingQs" value={totals30d.created} />
+                            <SmallStat label="Known Words" value={totals30d.learned} />
+                            <SmallStat label="Words Read" value={totals30d.words} />
+                            <SmallStat label="Listening" value={`${(totals30d.listening / 60).toFixed(2)} min`} />
                         </div>
                     </div>
                 </div>

@@ -55,13 +55,26 @@ export default function VocabularyView() {
             const url = `${endpoint}?lang=${languageCode}&page=${page}&limit=${limit}&sortBy=${sortBy}&search=${encodeURIComponent(debouncedSearch)}`;
             const result = await apiClient(url);
             
-            // Map incoming data to ensure 'meaning' property exists
-            const mappedData = (result.data || []).map((it: { id: string; word?: string; phrase_text?: string; stage: number; meaning?: string; user_meaning?: string; word_tags?: string[]; phrase_tags?: string; notes?: string }) => ({
+            // Map incoming data to ensure 'meaning' property exists and include context phrases
+            const mappedData = (result.data || []).map((it: { 
+                id: string; 
+                word?: string; 
+                phrase_text?: string; 
+                stage: number; 
+                meaning?: string; 
+                user_meaning?: string; 
+                word_tags?: string[]; 
+                phrase_tags?: string; 
+                notes?: string;
+                related_phrase_occur?: string | null;
+            }) => ({
                 id: it.id,
                 word: it.word || it.phrase_text || '',
                 meaning: it.user_meaning || it.meaning || null,
                 stage: it.stage as 1 | 2 | 3 | 4 | 5 | 6,
-                word_tags: it.word_tags || (it.phrase_tags ? it.phrase_tags.split(',') : [])
+                word_tags: it.word_tags || (it.phrase_tags ? it.phrase_tags.split(',') : []),
+                related_phrase_occur: it.related_phrase_occur || null,
+                notes: it.notes || ''
             }));
 
             setItems(mappedData);

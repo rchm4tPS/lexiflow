@@ -86,9 +86,21 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
         };
     });
 
-    // Fetch User's Global Coins
     const [userRecord] = await db.select().from(users).where(eq(users.id, userId));
     const totalCoins = userRecord?.total_coins || 0;
+
+    // --- SIBLING NAVIGATION LOGIC ---
+    // Fetch all siblings in this course to find prev/next
+    const courseLessons = await db.select({ id: lessons.id })
+      .from(lessons)
+      .where(eq(lessons.course_id, course.id))
+      .orderBy(sql`${lessons.order} ASC`, sql`${lessons.id} ASC`);
+
+    const currentIndex = courseLessons.findIndex(l => l.id === lessonId);
+    const prevLessonId = currentIndex > 0 ? courseLessons[currentIndex - 1]?.id : null;
+    const nextLessonId = currentIndex !== -1 && currentIndex < courseLessons.length - 1 
+      ? courseLessons[currentIndex + 1]?.id 
+      : null;
 
     // Fetch or Initialize User Language Stats
     let [langRecord] = await db.select().from(userLanguages)
@@ -145,7 +157,9 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
         lessonTitle: lesson.title, 
         lessonImg: lesson.image_url,
         lessonAudio: lesson.audio_url,
-        highestPageRead: userProgress?.highest_page_read ?? 0
+        highestPageRead: userProgress?.highest_page_read ?? 0,
+        prevLessonId,
+        nextLessonId
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal Error";

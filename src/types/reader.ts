@@ -2,6 +2,7 @@ export interface Token {
   id: string;
   text: string;
   pageIndex: number;
+  sentencePageIndex?: number; // NEW: for Sentence View
   isLearnable: boolean;
   isNewline?: boolean;
   status?: 'new' | 'learning' | 'known' | 'ignored';
@@ -89,6 +90,7 @@ export interface WordHint {
 }
 
 export interface UserStats {
+  date?: string; // Optional for daily breakdown
   created: number;
   learned: number;
   listening: number;

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/index.js';
 import { courses, lessons, userCourses, userLessonProgress, lessonContent, userVocabRelation, masterVocab, userLanguages } from '../db/schema.js';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
-import { eq, and, sql, notInArray, inArray } from 'drizzle-orm';
+import { eq, and, sql, notInArray, inArray, like } from 'drizzle-orm';
 import { LingqImportService } from '../services/lingq.service.js';
 
 
@@ -116,6 +116,9 @@ router.get('/feed/:langCode', authenticate, async (req: AuthRequest, res) => {
 
     const enrolledCourseIds = enrolledCourses.map(e => e.course_id);
 
+    const { search } = req.query;
+    const searchPattern = search ? `%${String(search).toLowerCase()}%` : null;
+
     // Build the lesson feed, excluding lessons from enrolled courses
     const feedQuery = db.select({
       id: lessons.id,
@@ -136,11 +139,11 @@ router.get('/feed/:langCode', authenticate, async (req: AuthRequest, res) => {
       eq(userLessonProgress.lesson_id, lessons.id),
       eq(userLessonProgress.user_id, userId)
     ))
-    .where(
-      enrolledCourseIds.length > 0
-        ? and(eq(courses.language_code, lang), notInArray(lessons.course_id, enrolledCourseIds))
-        : eq(courses.language_code, lang)
-    );
+    .where(and(
+      eq(courses.language_code, lang),
+      enrolledCourseIds.length > 0 ? notInArray(lessons.course_id, enrolledCourseIds) : sql`1=1`,
+      searchPattern ? like(sql`lower(${lessons.title})`, searchPattern) : sql`1=1`
+    ));
 
     const feed = await feedQuery;
 
@@ -181,7 +184,8 @@ router.get('/feed/:langCode', authenticate, async (req: AuthRequest, res) => {
 router.get('/my-lessons', authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
-    const { lang, completed } = req.query;
+    const { lang, completed, search } = req.query;
+    const searchPattern = search ? `%${String(search).toLowerCase()}%` : null;
 
     const myFeed = await db.select({
       id: lessons.id,
@@ -206,7 +210,8 @@ router.get('/my-lessons', authenticate, async (req: AuthRequest, res) => {
     ))
     .where(and(
       eq(courses.language_code, String(lang)),
-      eq(userCourses.user_id, userId)
+      eq(userCourses.user_id, userId),
+      searchPattern ? like(sql`lower(${lessons.title})`, searchPattern) : sql`1=1`
     ));
 
     const missingLessonIds = myFeed.filter(item => item.user_new_words === null).map(l => l.id);

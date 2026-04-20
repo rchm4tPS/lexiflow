@@ -1,0 +1,1142 @@
+openapi: 3.0.3
+info:
+  title: Lexiflow API
+  description: |
+    REST API for the LingQ Clone language-learning app: authentication, library/courses,
+    lesson reader, vocabulary, phrases, uploads, and optional LingQ integration.
+
+    **Authentication:** Most routes require a JWT in the `Authorization` header as `Bearer <token>`.
+    Obtain a token from `POST /auth/login` or `POST /auth/register` (register does not return a token; log in after sign-up).
+  version: 1.0.0
+  license:
+    name: ISC
+    identifier: ISC
+
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local or Docker (default port 3000)
+
+tags:
+  - name: Health
+    description: Service status
+  - name: Auth
+    description: Registration, login, profile, preferences, insights
+  - name: Library
+    description: Courses, feeds, lesson discovery, LingQ import
+  - name: Lessons
+    description: Lesson content, parsing, progress, editing
+  - name: Vocabulary
+    description: Word list, upsert, hints, analytics
+  - name: Phrases
+    description: User phrase LingQs
+  - name: Upload
+    description: Image and audio uploads for lessons
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT from POST /auth/login (`token` field)
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+          example: v1
+        message:
+          type: string
+
+    UserSession:
+      type: object
+      description: |
+        Authenticated user profile fields returned from the database.
+        Same shape from `POST /auth/login` and `GET /auth/verify`.
+      required: [id, username, email]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        fullName:
+          type: string
+          description: Display name; may be an empty string if omitted at registration.
+        preferences:
+          type: object
+          nullable: true
+          properties:
+            targetLanguage:
+              type: string
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: getHealth
+      responses:
+        '200':
+          description: API is running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, username, password, targetLanguage]
+              properties:
+                email:
+                  type: string
+                  format: email
+                username:
+                  type: string
+                fullName:
+                  type: string
+                password:
+                  type: string
+                  format: password
+                targetLanguage:
+                  type: string
+                  description: Language code (must exist in `languages` table)
+                dailyGoalTier:
+                  type: string
+                  description: e.g. calm (default)
+      responses:
+        '200':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '400':
+          description: Validation or unsupported language
+        '409':
+          description: Email or username already taken
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: JWT and user payload
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, user]
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/UserSession'
+        '400':
+          description: Invalid password
+        '404':
+          description: User not found
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Log out (client should discard token)
+      operationId: logout
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Acknowledged
+        '401':
+          description: Missing or invalid token
+
+  /auth/verify:
+    get:
+      tags: [Auth]
+      summary: Verify JWT and load current user from the database
+      description: |
+        Validates the bearer token, then returns the same `user` object shape as `POST /auth/login`
+        (`id`, `username`, `email`, `fullName`, `preferences`). Use this on app load to refresh
+        the client session (not only the JWT subject `id`).
+      operationId: verifyToken
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/UserSession'
+        '401':
+          description: Access denied or unauthorized
+        '404':
+          description: User id in token no longer exists in the database
+        '500':
+          description: Server error
+
+  /auth/info/{userId}:
+    get:
+      tags: [Auth]
+      summary: Aggregated profile and stats for a user
+      description: |
+        Public route (no JWT). Supports optional `lang` query to override target language.
+        Returns streaks, daily totals, 7d/30d charts, RTL flag, etc.
+      operationId: getUserInfo
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: lang
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Profile snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Invalid user id or error
+
+  /auth/goal-tier:
+    patch:
+      tags: [Auth]
+      summary: Update daily goal tier for a language
+      operationId: patchGoalTier
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tier, languageCode]
+              properties:
+                tier:
+                  type: string
+                languageCode:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+        '400':
+          description: Missing fields
+        '401':
+          description: Unauthorized
+
+  /auth/preferences:
+    patch:
+      tags: [Auth]
+      summary: Set user target language preference
+      operationId: patchPreferences
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetLanguage]
+              properties:
+                targetLanguage:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+        '401':
+          description: Unauthorized
+
+  /auth/languages:
+    get:
+      tags: [Auth]
+      summary: List supported languages
+      operationId: listLanguages
+      responses:
+        '200':
+          description: Array of { code, name, isRTL }
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /auth/profile/insights/{userId}:
+    get:
+      tags: [Auth]
+      summary: Markov / learning analytics for profile (vocab + phrases)
+      operationId: getProfileInsights
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Vocab and phrase insight payloads
+        '401':
+          description: Unauthorized
+
+  /auth/profile/reset/{languageCode}:
+    post:
+      tags: [Auth]
+      summary: Reset all user data for a language (destructive)
+      operationId: resetProfileLanguage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: languageCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Reset complete
+        '401':
+          description: Unauthorized
+
+  /library/courses:
+    get:
+      tags: [Library]
+      summary: List courses owned by the current user
+      operationId: listMyCourses
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lang
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Course rows
+        '401':
+          description: Unauthorized
+    post:
+      tags: [Library]
+      summary: Create a course
+      operationId: createCourse
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                languageCode:
+                  type: string
+                level:
+                  type: string
+                imageUrl:
+                  type: string
+                isPublic:
+                  type: boolean
+      responses:
+        '200':
+          description: Created course
+        '401':
+          description: Unauthorized
+
+  /library/courses/{id}:
+    delete:
+      tags: [Library]
+      summary: Delete a course (optionally require confirm for courses with lessons)
+      operationId: deleteCourse
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: confirm
+          in: query
+          description: Set to `true` to delete a course that still has lessons
+          schema:
+            type: string
+            enum: ['true']
+      responses:
+        '200':
+          description: Deleted
+        '400':
+          description: confirm_required with lesson count
+        '404':
+          description: Not found or not owner
+
+  /library/courses/{id}/lessons:
+    get:
+      tags: [Library]
+      summary: Lessons in a course with progress and course-level stats
+      operationId: getCourseLessons
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Object with `course` and `lessons`
+        '404':
+          description: Course not found
+
+  /library/feed/{langCode}:
+    get:
+      tags: [Library]
+      summary: Lesson feed (excludes courses user is enrolled in)
+      operationId: getLessonFeed
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: langCode
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Feed items with progress fields
+        '400':
+          description: Invalid language
+
+  /library/my-lessons:
+    get:
+      tags: [Library]
+      summary: Lessons from enrolled courses
+      operationId: getMyLessons
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lang
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: completed
+          in: query
+          description: Filter by `"true"` or `"false"`
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lesson list
+
+  /library/check-completions:
+    post:
+      tags: [Library]
+      summary: Batch completion check (currently disabled in implementation)
+      operationId: checkCompletions
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lang:
+                  type: string
+      responses:
+        '200':
+          description: Result with updatedCount
+
+  /library/continue-studying:
+    get:
+      tags: [Library]
+      summary: Recently read lessons (up to 4)
+      operationId: continueStudying
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lang
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Recent lessons
+
+  /library/guided-courses:
+    get:
+      tags: [Library]
+      summary: Courses with enrollment and progress aggregates
+      operationId: getGuidedCourses
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lang
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Course stats array
+
+  /library/lessons/{id}/bookmark:
+    post:
+      tags: [Library]
+      summary: Toggle lesson bookmark
+      operationId: toggleLessonBookmark
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'JSON body with a `bookmarked` boolean property.'
+
+  /library/lingq-import:
+    post:
+      tags: [Library]
+      summary: One-time import from LingQ API (per user language)
+      operationId: lingqImport
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                apiKey:
+                  type: string
+                languageCode:
+                  type: string
+                courseCount:
+                  type: integer
+                lessonsPerCourse:
+                  type: integer
+      responses:
+        '200':
+          description: Import result
+        '403':
+          description: Already imported for this language
+        '500':
+          description: Import failed
+
+  /lessons/parse:
+    post:
+      tags: [Lessons]
+      summary: Create lesson from raw text and tokenize content
+      operationId: parseLesson
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                imageUrl:
+                  type: string
+                audioUrl:
+                  type: string
+                audioDuration:
+                  type: number
+                isPublic:
+                  type: boolean
+                rawText:
+                  type: string
+                courseId:
+                  type: string
+                languageCode:
+                  type: string
+      responses:
+        '200':
+          description: Response includes lessonId and tokens.
+
+  /lessons/{id}:
+    get:
+      tags: [Lessons]
+      summary: Reader payload (tokens, phrases, navigation, progress hints)
+      operationId: getLessonReader
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Reader bundle
+        '404':
+          description: Not found
+    put:
+      tags: [Lessons]
+      summary: Update lesson metadata and optionally re-parse text
+      operationId: updateLesson
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                imageUrl:
+                  type: string
+                audioUrl:
+                  type: string
+                audioDuration:
+                  type: number
+                isPublic:
+                  type: boolean
+                rawText:
+                  type: string
+                courseId:
+                  type: string
+                languageCode:
+                  type: string
+      responses:
+        '200':
+          description: Success
+        '403':
+          description: Not owner
+        '404':
+          description: Not found
+    delete:
+      tags: [Lessons]
+      summary: Delete lesson (owner only)
+      operationId: deleteLesson
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '403':
+          description: Access denied
+
+  /lessons/{id}/edit:
+    get:
+      tags: [Lessons]
+      summary: Lesson row for edit form (owner only)
+      operationId: getLessonForEdit
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lesson
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+
+  /lessons/{id}/progress:
+    put:
+      tags: [Lessons]
+      summary: Sync lesson progress and daily stats / streak
+      operationId: putLessonProgress
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                newWordsCount:
+                  type: integer
+                lingqsCount:
+                  type: integer
+                knownWordsCount:
+                  type: integer
+                highestPageRead:
+                  type: integer
+                isCompleted:
+                  type: boolean
+                listeningSec:
+                  type: integer
+                wordsRead:
+                  type: integer
+                incrementReadTime:
+                  type: boolean
+      responses:
+        '200':
+          description: Success
+
+  /vocab/list:
+    get:
+      tags: [Vocabulary]
+      summary: Paginated vocabulary for a language
+      operationId: listVocab
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lang
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: string
+            default: '1'
+        - name: limit
+          in: query
+          schema:
+            type: string
+            default: '25'
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: sortBy
+          in: query
+          description: desc, asc, stage_asc, last_reviewed_desc, etc.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated payload with data and total count.
+
+  /vocab/upsert:
+    post:
+      tags: [Vocabulary]
+      summary: Create or update a word (stage, meaning, tags, coins)
+      operationId: upsertVocab
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                wordText:
+                  type: string
+                stage:
+                  type: integer
+                meaning:
+                  type: string
+                languageCode:
+                  type: string
+                isIgnoredInitially:
+                  type: boolean
+                wordTags:
+                  type: array
+                  items:
+                    type: string
+                related_phrase_occur:
+                  type: string
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Includes success and coinDelta fields.
+
+  /vocab/batch-upsert:
+    post:
+      tags: [Vocabulary]
+      summary: Batch set stage for many words
+      operationId: batchUpsertVocab
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                words:
+                  type: array
+                  items:
+                    oneOf:
+                      - type: string
+                      - type: object
+                stage:
+                  type: integer
+                languageCode:
+                  type: string
+                coinDeltaTotal:
+                  type: integer
+                knownDeltaTotal:
+                  type: integer
+      responses:
+        '200':
+          description: Success
+
+  /vocab/recalculate-stats:
+    post:
+      tags: [Vocabulary]
+      summary: Recompute coins, known words, and LingQ counts from DB truth
+      operationId: recalculateVocabStats
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                languageCode:
+                  type: string
+      responses:
+        '200':
+          description: Includes success, trueCoins, trueKnown, and trueLingqs.
+
+  /vocab/hints:
+    get:
+      tags: [Vocabulary]
+      summary: Dictionary hints (cached; uses server LingQ token if configured)
+      operationId: getVocabHints
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: word
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: lang
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Hints array
+        '400':
+          description: Missing params
+        '500':
+          description: Missing LingQ token or fetch error
+
+  /vocab/tags:
+    get:
+      tags: [Vocabulary]
+      summary: Distinct tags for autocomplete (words + phrases)
+      operationId: listVocabTags
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lang
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Array of tag strings
+
+  /vocab/insights:
+    get:
+      tags: [Vocabulary]
+      summary: Markov matrix and discovery velocity for vocabulary
+      operationId: getVocabInsights
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lang
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Matrix, stationary distribution, or not-enough-data message
+
+  /vocab:
+    delete:
+      tags: [Vocabulary]
+      summary: Batch delete vocabulary relations by id
+      operationId: batchDeleteVocab
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Success
+        '400':
+          description: Invalid body
+
+  /phrases/list:
+    get:
+      tags: [Phrases]
+      summary: Paginated phrase list
+      operationId: listPhrases
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lang
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated payload with data and total count.
+
+  /phrases:
+    post:
+      tags: [Phrases]
+      summary: Create a phrase LingQ
+      operationId: createPhrase
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phrase_text, language_code]
+              properties:
+                phrase_text:
+                  type: string
+                user_meaning:
+                  type: string
+                language_code:
+                  type: string
+                related_phrase_occur:
+                  type: string
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Created phrase
+        '400':
+          description: Missing fields
+    delete:
+      tags: [Phrases]
+      summary: Batch delete phrases by id
+      operationId: batchDeletePhrases
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Success
+
+  /phrases/{id}:
+    put:
+      tags: [Phrases]
+      summary: Update phrase stage, meaning, tags
+      operationId: updatePhrase
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stage:
+                  type: integer
+                user_meaning:
+                  type: string
+                wordTags:
+                  type: array
+                  items:
+                    type: string
+                related_phrase_occur:
+                  type: string
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Success
+        '404':
+          description: Not found
+
+  /upload/image:
+    post:
+      tags: [Upload]
+      summary: Upload an image (multipart field name `file`)
+      operationId: uploadImage
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Returns a url string (relative path under /uploads/images/).
+        '400':
+          description: Validation error
+
+  /upload/audio:
+    post:
+      tags: [Upload]
+      summary: Upload audio (multipart field name `file`)
+      operationId: uploadAudio
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Returns a url string (relative path under /uploads/audio/).

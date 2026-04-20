@@ -86,6 +86,7 @@ export const lessons = sqliteTable("lessons", {
   original_text: text("original_text"),
   is_archived: integer("is_archived", { mode: "boolean" }).default(false),
   is_public: integer("is_public", { mode: "boolean" }).default(false),
+  order: integer("order").default(0),
   last_update_date: integer("last_update_date", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 

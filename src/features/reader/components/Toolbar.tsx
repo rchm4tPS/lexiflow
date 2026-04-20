@@ -3,7 +3,7 @@ import { useReaderStore } from '../../../store/useReaderStore';
 import { Play, Pause, Square } from 'lucide-react';
 
 export default function Toolbar() {
-    const { tokens, setPage, currentPage, showSummary, isRTL, lessonAudio, incrementListeningTicks } = useReaderStore();
+    const { tokens, setPage, currentPage, showSummary, isRTL, lessonAudio, incrementListeningTicks, readerMode } = useReaderStore();
 
     const audioRef = useRef<HTMLAudioElement>(null);
     const [audioState, setAudioState] = useState<'stopped' | 'playing' | 'paused'>('stopped');
@@ -90,11 +90,11 @@ export default function Toolbar() {
 
 
     // Find how many pages are in the current dataset
-    const totalPages = Math.max(...tokens.map(w => w.pageIndex)) + 1;
+    const totalPages = Math.max(...tokens.map(w => (readerMode === 'sentence' ? w.sentencePageIndex : w.pageIndex) || 0)) + 1;
 
     // A page is now "Complete" if it contains ZERO stage 0 (blue) words.
     const isPageComplete = (pageIdx: number) => {
-        const pageWords = tokens.filter(w => w.pageIndex === pageIdx);
+        const pageWords = tokens.filter(w => (readerMode === 'sentence' ? w.sentencePageIndex : w.pageIndex) === pageIdx);
         // Only count tokens that are meant to be learned
         const learnableOnPage = pageWords.filter(t => t.isLearnable === true);
 

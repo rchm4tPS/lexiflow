@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
 import { Sound, Coin, Check, Stop, UKFlag } from '../../../components/common/Icons';
 import { speak } from '../../../utils/speech';
@@ -15,13 +16,13 @@ interface BlueWordViewProps {
 
 const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps) => {
     const { isRTL, activeWordHints, isLoadingHints, fetchHints, languageCode } = 
-        useReaderStore((state) => ({
+        useReaderStore(useShallow((state) => ({
             isRTL: state.isRTL,
             activeWordHints: state.activeWordHints,
             isLoadingHints: state.isLoadingHints,
             fetchHints: state.fetchHints,
             languageCode: state.languageCode
-        }));
+        })));
 
     const cleanWord = (word.text || '')
         .replace(/[.,?!„”":;/]/g, '')

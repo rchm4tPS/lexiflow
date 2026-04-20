@@ -23,6 +23,8 @@ interface ReaderState {
   guidedCourses: Course[];
   activeCourseDetails: CourseDetail | null; 
   activeLessonId: string | null;
+  prevLessonId: string | null;
+  nextLessonId: string | null;
 
 
   myCourses: Lesson[];       // Lesson feed
@@ -55,8 +57,8 @@ interface ReaderState {
   totalDailyLingqsLearned: number;
   totalDailyListeningSec: number;
   totalDailyWordsRead: number;
-  last7DaysStats: UserStats;
-  last30DaysStats: UserStats;
+  last7DaysStats: UserStats[];
+  last30DaysStats: UserStats[];
   dailyGoalTier: string;
 
   sessionListeningTicks: number;
@@ -67,6 +69,8 @@ interface ReaderState {
   hasFulfilledToday: boolean;
   hasImportedFromLingq: boolean;
   isLoadingLesson: boolean;
+  librarySearch: string;
+  readerMode: 'paragraph' | 'sentence';
 
   setRTL: (rtl: boolean) => void;
   incrementListeningTicks: (amount: number) => void;
@@ -91,11 +95,13 @@ interface ReaderState {
 
   fetchLibrary: () => Promise<void>;
   fetchMyLessons: () => Promise<void>;
+  setLibrarySearch: (term: string) => void;
   fetchContinueStudying: () => Promise<void>;
   checkAndUpdateCompletions: () => Promise<void>;
 
   setMyLessonsSubTab: (tab: 'continue' | 'completed') => void;
   setLibrarySidebarTab: (tab: 'lesson-feed' | 'guided-course') => void;
+  toggleReaderMode: () => void;
 
   fetchMyCoursesDropdown: () => Promise<void>;
   createCourse: (title: string, level: string, description?: string, imageUrl?: string, isPublic?: boolean) => Promise<Course | undefined>;
@@ -154,6 +160,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   guidedCourses: [],
   activeCourseDetails: null,
   activeLessonId: null,
+  prevLessonId: null,
+  nextLessonId: null,
 
   myCourses: [],
   myCoursesDropdown: [],
@@ -185,8 +193,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   totalDailyLingqsLearned: 0,
   totalDailyListeningSec: 0,
   totalDailyWordsRead: 0,
-  last7DaysStats: { created: 0, learned: 0, listening: 0, words: 0 },
-  last30DaysStats: { created: 0, learned: 0, listening: 0, words: 0 },
+  last7DaysStats: [],
+  last30DaysStats: [],
   dailyGoalTier: 'calm',
 
   sessionListeningTicks: 0,
@@ -205,6 +213,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   hasFulfilledToday: false,
   hasImportedFromLingq: false,
   isLoadingLesson: false,
+  librarySearch: '',
+  readerMode: 'paragraph',
 
 
   incrementListeningTicks: (amount: number) => {
@@ -284,11 +294,13 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         totalDailyWordsRead: initUserData.totalDailyWordsRead || 0,
         hasImportedFromLingq: initUserData.hasImportedFromLingq ?? false,
         isRTL: initUserData.isRTL ?? false,
-        last7DaysStats: initUserData.stats7d || { created: 0, learned: 0, listening: 0, words: 0 },
-        last30DaysStats: initUserData.stats30d || { created: 0, learned: 0, listening: 0, words: 0 },
+        last7DaysStats: initUserData.stats7d || [],
+        last30DaysStats: initUserData.stats30d || [],
         dailyGoalTier: initUserData.dailyGoalTier || 'calm',
         hasFulfilledToday: (initUserData.totalDailyLingqs >= getTier(initUserData.dailyGoalTier).lingqGoal) &&
-          (initUserData.totalDailyListeningSec >= getTier(initUserData.dailyGoalTier).listenMinGoal * 60)
+          (initUserData.totalDailyListeningSec >= getTier(initUserData.dailyGoalTier).listenMinGoal * 60) &&
+          (initUserData.totalDailyLingqsLearned >= getTier(initUserData.dailyGoalTier).learnedGoal) &&
+          (initUserData.totalDailyWordsRead >= getTier(initUserData.dailyGoalTier).readGoal)
       });
 
     } catch (err) {
@@ -308,18 +320,16 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         sessionDailyLingqsLearned: state.sessionDailyLingqsLearned + learned,
         // sessionWordsRead is updated by setPage, and UI sums it with totalDailyWordsRead
         // We only add other metrics here for live feedback
-        last7DaysStats: {
-          created: state.last7DaysStats.created + created,
-          learned: state.last7DaysStats.learned + learned,
-          listening: state.last7DaysStats.listening + listening,
-          words: state.last7DaysStats.words + words,
-        },
-        last30DaysStats: {
-          created: state.last30DaysStats.created + created,
-          learned: state.last30DaysStats.learned + learned,
-          listening: state.last30DaysStats.listening + listening,
-          words: state.last30DaysStats.words + words,
-        }
+        last7DaysStats: state.last7DaysStats.map((s, i) => 
+          i === state.last7DaysStats.length - 1 
+            ? { ...s, created: s.created + created, learned: s.learned + learned, listening: s.listening + listening, words: s.words + words }
+            : s
+        ),
+        last30DaysStats: state.last30DaysStats.map((s, i) => 
+          i === state.last30DaysStats.length - 1 
+            ? { ...s, created: s.created + created, learned: s.learned + learned, listening: s.listening + listening, words: s.words + words }
+            : s
+        )
       };
     });
 
@@ -328,8 +338,10 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     const tier = getTier(state.dailyGoalTier);
     const fulfilledLingq = state.totalDailyLingqs >= tier.lingqGoal;
     const fulfilledListening = state.totalDailyListeningSec >= (tier.listenMinGoal * 60);
+    const fulfilledLearned = state.totalDailyLingqsLearned >= tier.learnedGoal;
+    const fulfilledReading = state.totalDailyWordsRead >= tier.readGoal;
 
-    if (!state.hasFulfilledToday && fulfilledLingq && fulfilledListening) {
+    if (!state.hasFulfilledToday && fulfilledLingq && fulfilledListening && fulfilledLearned && fulfilledReading) {
       set({
         hasFulfilledToday: true,
         totalStreaks: state.totalStreaks + 1
@@ -423,7 +435,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     try {
       const state = get();
       const lang = state.languageCode || 'de';
-      const data = await apiClient(`/library/feed/${lang}`);
+      const search = state.librarySearch;
+      const data = await apiClient(`/library/feed/${lang}?search=${encodeURIComponent(search)}`);
       if (data) {
         set({ myCourses: data });
       }
@@ -436,10 +449,12 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     try {
       const state = get();
       const lang = state.languageCode || 'de';
+      const search = state.librarySearch;
+      const urlBase = `/library/my-lessons?lang=${lang}&search=${encodeURIComponent(search)}`;
       // Fetch both tabs in parallel
       const [active, completed] = await Promise.all([
-        apiClient(`/library/my-lessons?lang=${lang}&completed=false`),
-        apiClient(`/library/my-lessons?lang=${lang}&completed=true`),
+        apiClient(`${urlBase}&completed=false`),
+        apiClient(`${urlBase}&completed=true`),
       ]);
       set({ myLessons: active, completedLessons: completed });
     } catch (err) {
@@ -477,6 +492,29 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   setMyLessonsSubTab: (tab) => set({ myLessonsSubTab: tab }),
   setLibrarySidebarTab: (tab) => set({ librarySidebarTab: tab }),
+  setLibrarySearch: (term) => set({ librarySearch: term }),
+  toggleReaderMode: () => {
+    const { readerMode, tokens, currentPage, setPage } = get();
+    const newMode = readerMode === 'paragraph' ? 'sentence' : 'paragraph';
+
+    // To maintain context, find the first word index of the current page in the OLD mode,
+    // then find which page that word belongs to in the NEW mode.
+    const currentTokens = tokens.filter(t => (readerMode === 'sentence' ? t.sentencePageIndex : t.pageIndex) === currentPage);
+    if (currentTokens.length > 0) {
+      const firstTokenId = currentTokens[0].id;
+      const firstTokenIndex = tokens.findIndex(t => t.id === firstTokenId);
+      if (firstTokenIndex !== -1) {
+        set({ readerMode: newMode });
+        const newToken = tokens[firstTokenIndex];
+        const newPage = newMode === 'sentence' ? (newToken.sentencePageIndex || 0) : newToken.pageIndex;
+        // Re-set page with new pagination
+        setPage(newPage);
+        return;
+      }
+    }
+
+    set({ readerMode: newMode });
+  },
 
   fetchMyCoursesDropdown: async () => {
     try {
@@ -530,8 +568,20 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     set({ isLoadingLesson: true });
     try {
       const data = await apiClient(`/lessons/${lessonId}`);
+      const { tokens } = data as { tokens: Token[] };
 
-      const instances = buildPhraseInstances(data.tokens, data.phrases || []);
+      // --- CALCULATE SENTENCE PAGINATION ---
+      let sentenceIdx = 0;
+      const tokensWithSentencePaging = (tokens || []).map((t: Token) => {
+        const isSentenceEnd = /[.!?]/.test(t.text);
+        const updated = { ...t, sentencePageIndex: sentenceIdx };
+        if (isSentenceEnd) {
+          sentenceIdx++;
+        }
+        return updated;
+      });
+
+      const instances = buildPhraseInstances(tokensWithSentencePaging, data.phrases || []);
 
       set((state) => {
         // Prevent React 18 StrictMode double-mount leaks by preserving 
@@ -545,7 +595,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           lessonTitle: data.lessonTitle,
           lessonImg: data.lessonImg,
           lessonAudio: data.lessonAudio || null,
-          tokens: data.tokens,
+          tokens: tokensWithSentencePaging,
           dbPhrases: data.phrases || [],
           phrases: instances,
           languageCode: data.languageCode || 'en',
@@ -559,6 +609,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           showModal: false,
           pageEnterTime: Date.now(),
           isLoadingLesson: false,
+          prevLessonId: data.prevLessonId || null,
+          nextLessonId: data.nextLessonId || null,
           // IF IT'S THE SAME LESSON, KEEP THE SESSION STATE. 
           // IF IT'S A NEW LESSON, RESET TO 0.
           sessionReadPages: isSameLesson ? state.sessionReadPages : new Set<number>(),
@@ -587,14 +639,16 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   setPage: (page) => {
-    const { tokens, sessionReadPages, sessionWordsRead, updateDailyStats } = get();
+    const { tokens, sessionReadPages, sessionWordsRead, updateDailyStats, readerMode } = get();
 
     let newSessionWordsRead = sessionWordsRead;
     const newReadPages = new Set(sessionReadPages);
 
-    if (!newReadPages.has(page)) {
+    const isAlreadyRead = newReadPages.has(page);
+
+    if (!isAlreadyRead) {
       const pageLearnableWords = tokens.filter(
-        t => t.pageIndex === page && t.isLearnable && !t.isNewline
+        t => (readerMode === 'sentence' ? t.sentencePageIndex : t.pageIndex) === page && t.isLearnable && !t.isNewline
       );
       newSessionWordsRead += pageLearnableWords.length;
       newReadPages.add(page);
