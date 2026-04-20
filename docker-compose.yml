@@ -10,17 +10,17 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3000
-      - JWT_SECRET=change_this_to_something_secure
+      - JWT_SECRET=${JWT_SECRET}
 
       # --- Database (Turso remote) ---
-      # For local SQLite fallback, set DATABASE_URL=./sqlite.db and omit DATABASE_AUTH_TOKEN
-      - DATABASE_URL=libsql://your-db.turso.io
-      - DATABASE_AUTH_TOKEN=your_turso_auth_token
+      # For local SQLite fallback, set DATABASE_URL=file:../sqlite.db and omit DATABASE_AUTH_TOKEN
+      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_AUTH_TOKEN=${DATABASE_AUTH_TOKEN}
 
       # --- Cloudinary (required for image/audio uploads) ---
-      - CLOUDINARY_CLOUD_NAME=your_cloud_name
-      - CLOUDINARY_API_KEY=your_api_key
-      - CLOUDINARY_API_SECRET=your_api_secret
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
     volumes:
       - .:/app
       - /app/backend/node_modules
