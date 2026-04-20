@@ -1,19 +1,46 @@
 version: '3.8'
 
 services:
-  app:
-    build: .
-    container_name: lingq-clone-app
+  backend:
+    image: node:20-alpine
+    container_name: lexiflow-backend
+    working_dir: /app/backend
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
+      - PORT=3000
       - JWT_SECRET=change_this_to_something_secure
-      - DATABASE_URL=/app/data/sqlite.db
+
+      # --- Database (Turso remote) ---
+      # For local SQLite fallback, set DATABASE_URL=./sqlite.db and omit DATABASE_AUTH_TOKEN
+      - DATABASE_URL=libsql://your-db.turso.io
+      - DATABASE_AUTH_TOKEN=your_turso_auth_token
+
+      # --- Cloudinary (required for image/audio uploads) ---
+      - CLOUDINARY_CLOUD_NAME=your_cloud_name
+      - CLOUDINARY_API_KEY=your_api_key
+      - CLOUDINARY_API_SECRET=your_api_secret
     volumes:
-      - ./data:/app/data
+      - .:/app
+      - /app/backend/node_modules
+      - /app/node_modules # Isolated
+    command: sh -c "npm install && npm run dev"
     restart: always
 
-# Persistent Volume for SQLite
-volumes:
-  data:
+  frontend:
+    image: node:20-alpine
+    container_name: lexiflow-frontend
+    working_dir: /app
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:3000/api/v1
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/backend/node_modules # Isolated
+    depends_on:
+      - backend
+    command: sh -c "npm install && npm run dev -- --host"
+    restart: always
