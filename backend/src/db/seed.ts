@@ -8,6 +8,7 @@ async function seed() {
       { code: 'en', name: 'English' },
       { code: 'de', name: 'German' },
       { code: 'fa', name: 'Persian', is_RTL: true },
+      { code: 'ar', name: 'Arabic', is_RTL: true },
       { code: 'es', name: 'Spanish' }
     ]).onConflictDoNothing(); // Prevent error if they already exist
 

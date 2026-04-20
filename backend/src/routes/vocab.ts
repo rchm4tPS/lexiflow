@@ -124,11 +124,10 @@ router.post('/upsert', authenticate, async (req: AuthRequest, res) => {
 
     // 2. Check if user already has a relation
     const [existing] = await db.select().from(userVocabRelation)
-      // .where(and(eq(userVocabRelation.user_id, userId), eq(userVocabRelation.master_word_id, masterWord!.id)));
       .innerJoin(masterVocab, eq(userVocabRelation.master_word_id, masterVocab.id))
       .where(and(
         eq(userVocabRelation.user_id, userId),
-        eq(masterVocab.original_word, wordText.toLowerCase())
+        eq(userVocabRelation.master_word_id, masterWord!.id)
       ));
 
     // LOGIC: A word is a LingQ only if it moves from 0 to 1, 2, 3, or 4.
@@ -174,7 +173,10 @@ router.post('/upsert', authenticate, async (req: AuthRequest, res) => {
           related_phrase_occur: finalContext,
           last_reviewed: new Date() 
         })
-        .where(eq(userVocabRelation.master_word_id, existing.master_vocab.id));
+        .where(and(
+          eq(userVocabRelation.master_word_id, masterWord!.id),
+          eq(userVocabRelation.user_id, userId)
+        ));
     } else {
       await db.insert(userVocabRelation).values({
         user_id: userId,

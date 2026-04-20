@@ -1,16 +1,16 @@
 import { Router } from 'express';
 import { db } from '../db/index.js';
-import { 
-    userLanguages, users,
-    lessons, 
-    lessonContent, 
-    masterVocab, 
-    userVocabRelation, 
-    courses, 
-    userPhrases,
-    userCourses,
-    userLessonProgress,
-    languages
+import {
+  userLanguages, users,
+  lessons,
+  lessonContent,
+  masterVocab,
+  userVocabRelation,
+  courses,
+  userPhrases,
+  userCourses,
+  userLessonProgress,
+  languages
 } from '../db/schema.js';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
 import { eq, and, sql } from 'drizzle-orm';
@@ -26,7 +26,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 
     const [content] = await db.select().from(lessonContent)
       .where(eq(lessonContent.lesson_id, lessonId));
-    
+
     if (!content) return res.status(404).json({ error: "Lesson content not found" });
 
     // 2. Get lesson details along with course and language RTL status
@@ -47,9 +47,9 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 
     // Auto-Enroll the user in this course (Ignored if already exists)
     await db.insert(userCourses).values({
-        user_id: userId,
-        course_id: course.id,
-        added_at: new Date()
+      user_id: userId,
+      course_id: course.id,
+      added_at: new Date()
     }).onConflictDoNothing();
 
     // In our parse route, we saved tokens as a JSON string in raw_text
@@ -58,32 +58,35 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
     // 1. Fetch ALL of THIS user's vocabulary for THIS language at once
     // This is much faster than querying inside a loop
     const userVocab = await db.select({
-        word: masterVocab.original_word,
-        stage: userVocabRelation.stage,
-        meaning: userVocabRelation.user_meaning,
-        word_tag: userVocabRelation.word_tag,
-        notes: userVocabRelation.notes
+      word: masterVocab.original_word,
+      stage: userVocabRelation.stage,
+      meaning: userVocabRelation.user_meaning,
+      word_tag: userVocabRelation.word_tag,
+      notes: userVocabRelation.notes
     })
-    .from(userVocabRelation)
-    .innerJoin(masterVocab, eq(userVocabRelation.master_word_id, masterVocab.id))
-    .where(eq(userVocabRelation.user_id, userId));
+      .from(userVocabRelation)
+      .innerJoin(masterVocab, eq(userVocabRelation.master_word_id, masterVocab.id))
+      .where(and(
+        eq(userVocabRelation.user_id, userId),
+        eq(masterVocab.language_code, course.language_code)
+      ));
 
     // Convert to a Map for O(1) lookup
     const vocabMap = new Map(userVocab.map(v => [v.word.toLowerCase(), v]));
 
     // 2. Decorate tokens
     const decoratedTokens = tokens.map((t: Record<string, unknown>) => {
-        if (!t.isLearnable) return t;
-        
-        const userData = vocabMap.get(String(t.text).toLowerCase());
-        return {
-            ...t,
-            stage: userData?.stage ?? 0,
-            meaning: userData?.meaning ?? "",
-            notes: userData?.notes ?? "",
-            status: userData?.stage === 5 ? 'known' : (userData ? 'learning' : 'new'),
-            word_tags: userData?.word_tag ? userData.word_tag.split(',') :[] // NEW: Array of tags
-        };
+      if (!t.isLearnable) return t;
+
+      const userData = vocabMap.get(String(t.text).toLowerCase());
+      return {
+        ...t,
+        stage: userData?.stage ?? 0,
+        meaning: userData?.meaning ?? "",
+        notes: userData?.notes ?? "",
+        status: userData?.stage === 5 ? 'known' : (userData ? 'learning' : 'new'),
+        word_tags: userData?.word_tag ? userData.word_tag.split(',') : [] // NEW: Array of tags
+      };
     });
 
     const [userRecord] = await db.select().from(users).where(eq(users.id, userId));
@@ -98,8 +101,8 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 
     const currentIndex = courseLessons.findIndex(l => l.id === lessonId);
     const prevLessonId = currentIndex > 0 ? courseLessons[currentIndex - 1]?.id : null;
-    const nextLessonId = currentIndex !== -1 && currentIndex < courseLessons.length - 1 
-      ? courseLessons[currentIndex + 1]?.id 
+    const nextLessonId = currentIndex !== -1 && currentIndex < courseLessons.length - 1
+      ? courseLessons[currentIndex + 1]?.id
       : null;
 
     // Fetch or Initialize User Language Stats
@@ -119,7 +122,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
     // NEW: Fetch all user phrases for this language
     const userSavedPhrases = await db.select().from(userPhrases)
       .where(and(
-        eq(userPhrases.user_id, userId), 
+        eq(userPhrases.user_id, userId),
         eq(userPhrases.language_code, course.language_code)
       ));
 
@@ -145,21 +148,21 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       }).returning();
     }
 
-    res.json({ 
-        tokens: decoratedTokens, 
-        phrases: normalizedPhrases,
-        languageCode: course.language_code,
-        isRTL: isRTL || false,
-        totalCoins: totalCoins,
-        totalKnownWords: langRecord!.total_known_words,
-        courseTitle: course.title,
-        courseLevel: course.level,
-        lessonTitle: lesson.title, 
-        lessonImg: lesson.image_url,
-        lessonAudio: lesson.audio_url,
-        highestPageRead: userProgress?.highest_page_read ?? 0,
-        prevLessonId,
-        nextLessonId
+    res.json({
+      tokens: decoratedTokens,
+      phrases: normalizedPhrases,
+      languageCode: course.language_code,
+      isRTL: isRTL || false,
+      totalCoins: totalCoins,
+      totalKnownWords: langRecord!.total_known_words,
+      courseTitle: course.title,
+      courseLevel: course.level,
+      lessonTitle: lesson.title,
+      lessonImg: lesson.image_url,
+      lessonAudio: lesson.audio_url,
+      highestPageRead: userProgress?.highest_page_read ?? 0,
+      prevLessonId,
+      nextLessonId
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal Error";
@@ -169,9 +172,9 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 
 router.post('/parse', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { title, 
-      description, 
-      imageUrl, 
+    const { title,
+      description,
+      imageUrl,
       audioUrl,
       audioDuration,
       isPublic,
@@ -179,6 +182,9 @@ router.post('/parse', authenticate, async (req: AuthRequest, res) => {
     const userId = req.user!.id;
 
     // 1. Create the Lesson Entry
+    const [orderResult] = await db.select({ maxOrder: sql<number>`MAX("order")` }).from(lessons).where(eq(lessons.course_id, courseId));
+    const nextOrder = (orderResult?.maxOrder ?? -1) + 1;
+
     const [newLesson] = await db.insert(lessons).values({
       course_id: courseId,
       title: title,
@@ -188,6 +194,7 @@ router.post('/parse', authenticate, async (req: AuthRequest, res) => {
       duration: Math.round(audioDuration || 0),
       is_public: isPublic === true,
       original_text: rawText,
+      order: nextOrder,
     }).returning();
 
     if (!newLesson?.id) throw new Error('Lesson creation failed');
@@ -208,11 +215,11 @@ router.get('/:id/edit', authenticate, async (req: AuthRequest, res) => {
     const lessonId = req.params.id;
     const [lesson] = await db.select().from(lessons).where(eq(lessons.id, String(lessonId)));
     if (!lesson) return res.status(404).json({ error: "Lesson not found" });
-    
+
     // Check ownership via course
     const [course] = await db.select().from(courses).where(eq(courses.id, lesson.course_id));
     if (course?.owner_id !== req.user!.id) {
-       return res.status(403).json({ error: "You do not have permission to edit this lesson." });
+      return res.status(403).json({ error: "You do not have permission to edit this lesson." });
     }
 
     res.json(lesson);
@@ -313,11 +320,11 @@ router.put('/:id/progress', authenticate, async (req: AuthRequest, res) => {
       const isAutoCompleted = isCompleted || false;
       const preservedCompleted = isAutoCompleted ? true : (existing.is_completed ?? false);
 
-      const isActivity = 
-        (listeningSec && listeningSec > 0) || 
-        (wordsRead && wordsRead > 0) || 
-        incrementReadTime || 
-        isCompleted || 
+      const isActivity =
+        (listeningSec && listeningSec > 0) ||
+        (wordsRead && wordsRead > 0) ||
+        incrementReadTime ||
+        isCompleted ||
         (existing.new_words_count !== (newWordsCount ?? existing.new_words_count)) ||
         (existing.lingqs_count !== (lingqsCount ?? existing.lingqs_count));
 
@@ -341,29 +348,29 @@ router.put('/:id/progress', authenticate, async (req: AuthRequest, res) => {
         known_words_count: knownWordsCount ?? 0,
         total_listened_sec: listeningSec || 0,
         highest_page_read: highestPageRead ?? 0,
-        is_completed: isCompleted || false, 
+        is_completed: isCompleted || false,
         ...(isActivity ? { last_read_at: new Date() } : {})
       });
     }
 
-      // 2. Update daily stats and check streak via central engine
-      const [lessonCourse] = await db.select({ lang: courses.language_code }).from(lessons).innerJoin(courses, eq(lessons.course_id, courses.id)).where(eq(lessons.id, lessonId));
-      if (lessonCourse) {
-        await updateDailyStatsAndStreak(userId, lessonCourse.lang, { 
-          listeningSec: listeningSec || 0,
-          wordsRead: wordsRead || 0
-        });
-      }
-     else if (wordsRead && wordsRead > 0) {
+    // 2. Update daily stats and check streak via central engine
+    const [lessonCourse] = await db.select({ lang: courses.language_code }).from(lessons).innerJoin(courses, eq(lessons.course_id, courses.id)).where(eq(lessons.id, lessonId));
+    if (lessonCourse) {
+      await updateDailyStatsAndStreak(userId, lessonCourse.lang, {
+        listeningSec: listeningSec || 0,
+        wordsRead: wordsRead || 0
+      });
+    }
+    else if (wordsRead && wordsRead > 0) {
       // Handle the case where user has words read but no listening time in this sync
       const [lessonCourse] = await db.select({ lang: courses.language_code }).from(lessons).innerJoin(courses, eq(lessons.course_id, courses.id)).where(eq(lessons.id, lessonId));
       if (lessonCourse) {
-        await updateDailyStatsAndStreak(userId, lessonCourse.lang, { 
+        await updateDailyStatsAndStreak(userId, lessonCourse.lang, {
           listeningSec: 0,
           wordsRead: wordsRead
         });
       }
-     }
+    }
 
     // 3. Update read_times on the user's progress record
     if (incrementReadTime === true) {
@@ -375,6 +382,28 @@ router.put('/:id/progress', authenticate, async (req: AuthRequest, res) => {
     // Note: wordsRead is already handled in the listeningSec check block above if both are provided.
     // If wordsRead was provided without listeningSec (rare in this app), we'd need another block,
     // but typically they are synced together.
+
+    res.json({ success: true });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
+  }
+});
+
+// Reset Lesson Progress (For sequential navigation)
+router.post("/:id/reset", authenticate, async (req: AuthRequest, res) => {
+  const userId = req.user!.id;
+  const lessonId = req.params.id;
+
+  if (!lessonId) return res.status(400).json({ error: "Invalid lesson id" });
+
+  try {
+    await db.update(userLessonProgress)
+      .set({ highest_page_read: 0 })
+      .where(and(
+        eq(userLessonProgress.user_id, userId),
+        eq(userLessonProgress.lesson_id, String(lessonId))
+      ));
 
     res.json({ success: true });
   } catch (error: unknown) {

@@ -12,7 +12,7 @@ import {
   userPhrases, phraseTransitions,
   courses, lessons, lessonContent, userCourses, userLessonProgress
 } from '../db/schema.js';
-import { eq, and, sum, sql, gte, inArray } from 'drizzle-orm';
+import { eq, and, sql, gte, inArray } from 'drizzle-orm';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
 import dotenv from 'dotenv';
 

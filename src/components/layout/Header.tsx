@@ -154,8 +154,8 @@ export default function Header() {
                                 >
                                     Import Lesson
                                 </Link>
-                                <a href="#" className="block px-4 py-2 hover:bg-[#eef9ff] hover:text-[#3890fc]">Import Vocabulary</a>
-                                <a href="#" className="block px-4 py-2 hover:bg-[#eef9ff] hover:text-[#3890fc]">Import Ebook</a>
+                                {/* <a href="#" className="block px-4 py-2 hover:bg-[#eef9ff] hover:text-[#3890fc]">Import Vocabulary</a>
+                                <a href="#" className="block px-4 py-2 hover:bg-[#eef9ff] hover:text-[#3890fc]">Import Ebook</a> */}
                             </div>
                         )}
                     </div>

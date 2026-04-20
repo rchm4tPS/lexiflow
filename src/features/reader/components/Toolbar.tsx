@@ -122,7 +122,7 @@ export default function Toolbar() {
                 {/* Audio Controls Container - fixed widths prevent layout jump */}
                 <div className="flex items-center shrink-0 min-w-[280px]">
                     <audio 
-                        src={lessonAudio || ''} 
+                        src={lessonAudio || '#'} 
                         ref={audioRef} 
                         onTimeUpdate={handleTimeUpdate}
                         onLoadedMetadata={handleLoadedMetadata}

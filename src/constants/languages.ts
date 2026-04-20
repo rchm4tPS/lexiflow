@@ -9,7 +9,8 @@ export const LANGUAGES = [
     { code: 'zh', name: 'Chinese', flag: '🇨🇳' },
     { code: 'pt', name: 'Portuguese', flag: '🇧🇷' },
     { code: 'ru', name: 'Russian', flag: '🇷🇺' },
-    { code: 'fa', name: 'Persian', flag: '🇮🇷'}
+    { code: 'fa', name: 'Persian', flag: '🇮🇷'},
+    { code: 'ar', name: 'Arabic', flag: '🇸🇦' }
 ];
 
 export const LANG_MAP: Record<string, { name: string; flag: string }> = LANGUAGES.reduce((acc, lang) => {

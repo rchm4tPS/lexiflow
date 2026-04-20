@@ -47,7 +47,7 @@ interface ReaderModeToggleProps {
 const ReaderModeToggle = ({ readerMode, toggleReaderMode }: ReaderModeToggleProps) => (
   <div 
       onClick={toggleReaderMode}
-      className="flex h-7 mx-4 mt-2 border border-gray-500 rounded-lg overflow-hidden cursor-pointer hover:border-[#4F8EF8] transition-colors"
+      className="flex h-7 mx-4 mt-2 border border-gray-500 rounded-lg overflow-hidden cursor-pointer hover:border-[#4F8EF8] focus:outline-none transition-colors"
   >
     <div className={`flex px-1 items-center transition-colors ${readerMode === 'sentence' ? 'bg-[#424343]' : 'bg-white'}`}>
       <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
@@ -340,7 +340,7 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
 
           <div
             ref={scrollContainerRef}
-            className={`grow ${isRTL ? 'text-[26px] py-1 pl-8' : 'text-[21px] pl-4'} leading-8 text-gray-800 pr-4 my-4 font-medium overflow-y-auto h-[600px] bg-white rounded-md transition-all duration-300`}
+            className={`grow ${isRTL ? 'text-[26px] py-1 pl-8' : 'text-[21px] pl-4'} leading-8 text-gray-800 pr-4 my-4 font-medium overflow-y-auto h-[600px] bg-white rounded-md focus:outline-none transition-all duration-300`}
             onMouseDown={handleMouseDown}
             onMouseUp={handleMouseUp}
           >
@@ -371,7 +371,7 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
                   if (activeLessonId) syncLessonProgress(activeLessonId, true, true);
                 }
               }}
-              className={`flex flex-col text-center ${isRTL ? 'ml-4' : '-ml-4'} cursor-pointer`}
+              className={`flex flex-col text-center ${isRTL ? 'ml-4' : '-ml-4'} cursor-pointer focus:outline-none`}
             >
               <svg className='mx-auto' width="60px" height="60px" viewBox="-1.6 -1.6 19.20 19.20" fill="rgb(93,233,106)" xmlns="http://www.w3.org/2000/svg" stroke="#5DE96A" strokeWidth="0.00016"><g id="SVGRepo_bgCarrier" strokeWidth="0"></g><g id="SVGRepo_tracerCarrier" strokeLinecap="round" strokeLinejoin="round"></g><g id="SVGRepo_iconCarrier"><path clipRule="evenodd" d="M15.4142 4.41421L6 13.8284L0.585785 8.41421L3.41421 5.58578L6 8.17157L12.5858 1.58578L15.4142 4.41421Z" fill="#5DE96A" fillRule="evenodd"></path></g></svg>
               <span className='font-semibold'>Complete Lesson</span>

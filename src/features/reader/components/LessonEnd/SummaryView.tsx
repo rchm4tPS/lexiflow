@@ -1,11 +1,12 @@
 import { useReaderStore } from '../../../../store/useReaderStore';
+import { apiClient } from '../../../../api/client';
 import { LeftArrow, RightArrow } from '../../../../components/common/Icons';
 import { getTier } from '../../../../constants/tiers';
 
 export default function SummaryView() {
     const { 
         totalKnownWords, totalCoins, setShowSummary, isRTL, languageCode, availableLanguages, 
-        last7DaysStats, dailyGoalTier, nextLessonId, prevLessonId, fetchLesson 
+        last7DaysStats, dailyGoalTier, nextLessonId, prevLessonId 
     } = useReaderStore();
     const currentLanguageName = availableLanguages.find(l => l.code === languageCode)?.name || 'this language';
     const tier = getTier(dailyGoalTier);
@@ -134,7 +135,10 @@ export default function SummaryView() {
                     <div className="flex gap-4">
                         {prevLessonId && (
                             <button
-                                onClick={() => fetchLesson(prevLessonId)}
+                                onClick={async () => {
+                                    await apiClient(`/lessons/${prevLessonId}/reset`, { method: 'POST' });
+                                    window.location.href = `/me/${languageCode}/reader/${prevLessonId}`;
+                                }}
                                 className="bg-gray-200 text-gray-700 px-8 py-4 rounded-full text-lg font-bold shadow-md hover:bg-gray-300 hover:scale-105 active:scale-95 transition transform cursor-pointer flex items-center gap-2"
                             >
                                 ⇦ Previous Lesson
@@ -143,7 +147,12 @@ export default function SummaryView() {
                         
                         <button
                             disabled={!nextLessonId}
-                            onClick={() => nextLessonId && fetchLesson(nextLessonId)}
+                            onClick={async () => {
+                                if (nextLessonId) {
+                                    await apiClient(`/lessons/${nextLessonId}/reset`, { method: 'POST' });
+                                    window.location.href = `/me/${languageCode}/reader/${nextLessonId}`;
+                                }
+                            }}
                             className={`${nextLessonId ? 'bg-[#5DE96A] hover:bg-[#4ad45b] shadow-xl hover:scale-105 active:scale-95' : 'bg-gray-300 cursor-not-allowed opacity-60'} h-fit text-white px-12 py-4 rounded-full text-xl font-bold transition transform cursor-pointer flex items-center gap-2`}
                         >
                             {nextLessonId ? 'Continue to next lesson ➔' : 'End of course reached'}

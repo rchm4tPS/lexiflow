@@ -65,7 +65,8 @@ export class LingqImportService {
       const rawLessons = Array.isArray(lessonsRes.data) ? lessonsRes.data : (lessonsRes.data.results || []);
       const lessonsToImport = rawLessons.slice(0, effectiveLessonsPerCourse);
 
-      for (const lingqLesson of lessonsToImport) {
+      for (let i = 0; i < lessonsToImport.length; i++) {
+        const lingqLesson = lessonsToImport[i];
         console.log(`  - Importing lesson: ${lingqLesson.title}`);
 
         // 4. Fetch Sentences for the lesson to build full text
@@ -88,7 +89,8 @@ export class LingqImportService {
           audio_url: lingqLesson.audio,
           duration: Math.round(lingqLesson.duration || 0),
           is_public: false,
-          original_text: fullText
+          original_text: fullText,
+          order: i
         }).returning();
 
         if (!newLesson) {

@@ -65,7 +65,7 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
                         <Sound />
                     </button>
                     <div className='overflow-auto'>
-                        <h2 className={`${isRTL ? 'font-farsi' : 'font-nunito'} text-3xl text-[#3a92fb] font-bold tracking-tight hyphens-auto wrap-break-word`} lang={isRTL ? 'fa' : 'en'}>{cleanWord}</h2>
+                        <h2 className={`${isRTL ? 'font-farsi' : 'font-nunito'} text-3xl text-[#3a92fb] font-bold tracking-tight hyphens-auto wrap-break-word`} lang={languageCode || 'en'}>{cleanWord}</h2>
                         <div className="flex mt-2">
                             <Coin /><Coin />
                         </div>
