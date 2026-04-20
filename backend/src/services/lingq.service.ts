@@ -17,10 +17,11 @@ export class LingqImportService {
     userId: string,
     languageCode: string,
     courseCount: number,
-    lessonsPerCourse: number
+    lessonsPerCourse: number,
+    onProgress?: (msg: string) => void
   ) {
     // 1. Determine API Key (Provided vs .env)
-    const apiKey = userApiKey || process.env.LINGQ_API_KEY || process.env.LINGQ_TOKEN;
+    const apiKey = userApiKey || process.env.LINGQ_TOKEN;
 
     if (!apiKey) throw new Error('No LingQ API Key provided.');
 
@@ -34,13 +35,17 @@ export class LingqImportService {
     const effectiveCourseCount = Math.min(courseCount, 3);
     const effectiveLessonsPerCourse = Math.min(lessonsPerCourse, 3);
 
-    console.log(`Starting LingQ import for user ${userId} in ${languageCode}...`);
+    const startMsg = `Connecting to LingQ API...`;
+    console.log(startMsg);
+    onProgress?.(startMsg);
 
     const coursesRes = await axios.get(`${this.BASE_URL}/languages/${languageCode}/recommended-courses/`, { headers });
     const recommendedCourses = coursesRes.data.results.slice(0, effectiveCourseCount);
 
     for (const lingqCourse of recommendedCourses) {
-      console.log(`Importing course: ${lingqCourse.title}`);
+      const courseMsg = `Importing course: ${lingqCourse.title}`;
+      console.log(courseMsg);
+      onProgress?.(courseMsg);
 
       // Create Course in our DB
       const [newCourse] = await db.insert(courses).values({
@@ -67,7 +72,9 @@ export class LingqImportService {
 
       for (let i = 0; i < lessonsToImport.length; i++) {
         const lingqLesson = lessonsToImport[i];
-        console.log(`  - Importing lesson: ${lingqLesson.title}`);
+        const lessonMsg = `  - Importing lesson: ${lingqLesson.title}`;
+        console.log(lessonMsg);
+        onProgress?.(lessonMsg);
 
         // 4. Fetch Sentences for the lesson to build full text
         const sentencesRes = await axios.get(`${this.BASE_URL}/languages/${languageCode}/lessons/${lingqLesson.id}/sentences/`, { headers });
@@ -111,7 +118,9 @@ export class LingqImportService {
       ));
 
 
-    console.log(`✅ LingQ import complete for user ${userId}`);
+    const completeMsg = `✅ LingQ import complete for user ${userId}`;
+    console.log(completeMsg);
+    onProgress?.(completeMsg);
     return { success: true, count: recommendedCourses.length };
   }
 }

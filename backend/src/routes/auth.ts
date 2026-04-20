@@ -183,30 +183,29 @@ router.post('/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     // Use Drizzle's db.transaction(tx) so all inserts share the same connection/transaction
-    // context — without tx, Drizzle auto-commits each statement independently even inside
-    // sqlite.transaction(), breaking atomicity. Use sync .all()/.run() (no await needed).
-    db.transaction((tx) => {
-      const [newUser] = tx.insert(users).values({
+    // sqlite transaction works slightly differently under libSQL driver. Use async/await.
+    await db.transaction(async (tx) => {
+      const [newUser] = await tx.insert(users).values({
         email,
         username,
         fullname: fullName || '',
         preferences: { targetLanguage },
         password_hash: hashedPassword,
-      }).returning({ id: users.id }).all();
+      }).returning({ id: users.id });
 
-      tx.insert(userLanguages).values({
+      await tx.insert(userLanguages).values({
         user_id: newUser!.id,
         language_code: targetLanguage,
         daily_goal_tier: dailyGoalTier || 'calm',
         total_known_words: 0,
         total_lingqs: 0,
-      }).run();
+      });
 
-      tx.insert(streaks).values({
+      await tx.insert(streaks).values({
         user_id: newUser!.id,
         language_code: targetLanguage,
         current_streak: 0,
-      }).run();
+      });
     });
 
     res.json({ success: true, message: 'Account created! Please log in.' });
@@ -354,21 +353,21 @@ router.post('/profile/reset/:languageCode', authenticate, async (req: AuthReques
     if (!languageCode) return res.status(400).json({ error: 'Language code is required' });
 
     // --- NUCLEAR RESET TRANSACTION ---
-    db.transaction((tx) => {
+    await db.transaction(async (tx) => {
       // 1. Reset Vocabulary (Filter by language_code in masterVocab)
       const wordIdsInLang = tx.select({ id: masterVocab.id })
         .from(masterVocab)
         .where(eq(masterVocab.language_code, String(languageCode)));
 
-      tx.delete(vocabTransitions).where(and(
+      await tx.delete(vocabTransitions).where(and(
         eq(vocabTransitions.user_id, userId),
         inArray(vocabTransitions.master_word_id, wordIdsInLang)
-      )).run();
+      ));
 
-      tx.delete(userVocabRelation).where(and(
+      await tx.delete(userVocabRelation).where(and(
         eq(userVocabRelation.user_id, userId),
         inArray(userVocabRelation.master_word_id, wordIdsInLang)
-      )).run();
+      ));
 
       // 2. Reset Phrases
       // Cleanup transition logs first (referencing userPhrases in this language)
@@ -399,15 +398,15 @@ router.post('/profile/reset/:languageCode', authenticate, async (req: AuthReques
         .where(inArray(lessons.course_id, allCourseIdsInLang));
 
       // FIRST: Un-enroll user from everything in this language
-      tx.delete(userLessonProgress).where(and(
+      await tx.delete(userLessonProgress).where(and(
         eq(userLessonProgress.user_id, userId),
         inArray(userLessonProgress.lesson_id, allLessonIdsInLang)
-      )).run();
+      ));
 
-      tx.delete(userCourses).where(and(
+      await tx.delete(userCourses).where(and(
         eq(userCourses.user_id, userId),
         inArray(userCourses.course_id, allCourseIdsInLang)
-      )).run();
+      ));
 
       // SECOND: Destroy courses and lessons OWNED by the user in this language
       const ownedCourseIdsInLang = tx.select({ id: courses.id })
@@ -422,29 +421,29 @@ router.post('/profile/reset/:languageCode', authenticate, async (req: AuthReques
         .where(inArray(lessons.course_id, ownedCourseIdsInLang));
 
       // Cascading delete for owned content
-      tx.delete(lessonContent).where(inArray(lessonContent.lesson_id, ownedLessonIdsInLang)).run();
-      tx.delete(lessons).where(inArray(lessons.id, ownedLessonIdsInLang)).run();
-      tx.delete(courses).where(inArray(courses.id, ownedCourseIdsInLang)).run();
+      await tx.delete(lessonContent).where(inArray(lessonContent.lesson_id, ownedLessonIdsInLang));
+      await tx.delete(lessons).where(inArray(lessons.id, ownedLessonIdsInLang));
+      await tx.delete(courses).where(inArray(courses.id, ownedCourseIdsInLang));
 
       // 4. Reset Daily Stats & Streaks
-      tx.delete(userDailyStats).where(and(
+      await tx.delete(userDailyStats).where(and(
         eq(userDailyStats.user_id, userId),
         eq(userDailyStats.language_code, String(languageCode))
-      )).run();
+      ));
 
-      tx.update(streaks).set({ current_streak: 0, last_activity_date: null }).where(and(
+      await tx.update(streaks).set({ current_streak: 0, last_activity_date: null }).where(and(
         eq(streaks.user_id, userId),
         eq(streaks.language_code, String(languageCode))
-      )).run();
+      ));
 
-      tx.update(userLanguages).set({
+      await tx.update(userLanguages).set({
         total_known_words: 0,
         total_lingqs: 0,
         has_imported_from_lingq: false
       }).where(and(
         eq(userLanguages.user_id, userId),
         eq(userLanguages.language_code, String(languageCode))
-      )).run();
+      ));
     });
 
     res.json({ success: true, message: `Reset all data for ${languageCode}.` });

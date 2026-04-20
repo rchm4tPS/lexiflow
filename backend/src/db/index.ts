@@ -1,10 +1,13 @@
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/libsql';
+import { createClient } from '@libsql/client';
+import dotenv from 'dotenv';
+dotenv.config();
 
-const dbPath = process.env.DATABASE_URL || 'sqlite.db';
+const url = process.env.DATABASE_URL || 'file:sqlite.db';
 
-// Creates or opens the local SQLite file
-// typed as `any` to avoid leaking the external BetterSqlite3.Database type
-export const sqlite: ReturnType<typeof Database> = new Database(dbPath);
+export const client = createClient({
+  url,
+  ...(!url.startsWith('file:') && process.env.DATABASE_AUTH_TOKEN ? { authToken: process.env.DATABASE_AUTH_TOKEN as string } : {})
+});
 
-export const db = drizzle(sqlite);
+export const db = drizzle(client);

@@ -1,6 +1,6 @@
 // frontend/src/store/useReaderStore.ts
 import { create } from 'zustand';
-import { apiClient } from '../api/client'; // Your fetch wrapper
+import { apiClient, BASE_URL } from '../api/client'; // Your fetch wrapper
 import { buildPhraseInstances } from '../utils/phraseMatcher';
 import { getTier } from '../constants/tiers';
 import type { Token, Phrase, DbPhrase, Lesson, Course, CourseDetail, UpdatePayload, WordHint, UserStats } from '../types/reader';
@@ -106,7 +106,7 @@ interface ReaderState {
   fetchMyCoursesDropdown: () => Promise<void>;
   createCourse: (title: string, level: string, description?: string, imageUrl?: string, isPublic?: boolean) => Promise<Course | undefined>;
   importLesson: (courseId: string, title: string, rawText: string, imageUrl?: string, description?: string, audioUrl?: string, isPublic?: boolean, audioDuration?: number) => Promise<string | null>;
-  importFromLingq: (apiKey: string, courseCount: number, lessonsPerCourse: number) => Promise<{ success: boolean; count: number }>;
+  importFromLingq: (apiKey: string, courseCount: number, lessonsPerCourse: number, onProgress?: (msg: string) => void) => Promise<{ success: boolean; count: number }>;
 
 
   fetchHints: (word: string) => Promise<void>;
@@ -298,9 +298,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         last30DaysStats: initUserData.stats30d || [],
         dailyGoalTier: initUserData.dailyGoalTier || 'calm',
         hasFulfilledToday: (initUserData.totalDailyLingqs >= getTier(initUserData.dailyGoalTier).lingqGoal) &&
-          (initUserData.totalDailyListeningSec >= getTier(initUserData.dailyGoalTier).listenMinGoal * 60) &&
-          (initUserData.totalDailyLingqsLearned >= getTier(initUserData.dailyGoalTier).learnedGoal) &&
-          (initUserData.totalDailyWordsRead >= getTier(initUserData.dailyGoalTier).readGoal)
+          (initUserData.totalDailyListeningSec >= getTier(initUserData.dailyGoalTier).listenMinGoal * 60)
       });
 
     } catch (err) {
@@ -338,10 +336,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     const tier = getTier(state.dailyGoalTier);
     const fulfilledLingq = state.totalDailyLingqs >= tier.lingqGoal;
     const fulfilledListening = state.totalDailyListeningSec >= (tier.listenMinGoal * 60);
-    const fulfilledLearned = state.totalDailyLingqsLearned >= tier.learnedGoal;
-    const fulfilledReading = state.totalDailyWordsRead >= tier.readGoal;
 
-    if (!state.hasFulfilledToday && fulfilledLingq && fulfilledListening && fulfilledLearned && fulfilledReading) {
+    if (!state.hasFulfilledToday && fulfilledLingq && fulfilledListening) {
       set({
         hasFulfilledToday: true,
         totalStreaks: state.totalStreaks + 1
@@ -957,8 +953,18 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         })
       });
 
-      // Clear session accumulations AFTER successful sync to DB
+      // 1. Session variables are ALREADY optimistically accrued into `totalDaily...` by `updateDailyStats` dynamically!
+      // Therefore, we solely evaluate streaks off the immediate state and zero out the session payload blocks strictly.
+      const currentLoc = get();
+      
+      const tier = getTier(currentLoc.dailyGoalTier);
+      const isFulfilled = (currentLoc.totalDailyLingqs >= tier.lingqGoal) &&
+                          (currentLoc.totalDailyListeningSec >= (tier.listenMinGoal * 60));
+
       set({
+        hasFulfilledToday: currentLoc.hasFulfilledToday || isFulfilled,
+        totalStreaks: (currentLoc.hasFulfilledToday === false && isFulfilled === true) ? currentLoc.totalStreaks + 1 : currentLoc.totalStreaks,
+        
         sessionListeningTicks: 0,
         sessionWordsRead: 0,
         sessionDailyLingqs: 0,
@@ -1121,24 +1127,56 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     });
   },
 
-  importFromLingq: async (apiKey, courseCount, lessonsPerCourse) => {
+  importFromLingq: async (apiKey, courseCount, lessonsPerCourse, onProgress) => {
     try {
       const { languageCode } = get();
-      const res = await apiClient('/library/lingq-import', {
+      const token = localStorage.getItem('lingq_token');
+      
+      const response = await fetch(`${BASE_URL}/library/lingq-import`, {
         method: 'POST',
-        body: JSON.stringify({
-          apiKey,
-          languageCode,
-          courseCount,
-          lessonsPerCourse
-        })
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ apiKey, languageCode, courseCount, lessonsPerCourse })
       });
-      if (res.success) {
+
+      if (!response.ok || !response.body) {
+         throw new Error("Failed to stream import API. " + response.statusText);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let streamResult = { success: false, count: 0 };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+           if (!line.trim()) continue;
+           
+           if (line.trim().startsWith('{') && line.includes('"success":')) {
+              try {
+                  streamResult = JSON.parse(line);
+              } catch (e) {}
+           } else if (line.startsWith('[ERROR]')) {
+              throw new Error(line);
+           } else {
+              if (onProgress) onProgress(line);
+           }
+        }
+      }
+
+      if (streamResult.success) {
         set({ hasImportedFromLingq: true });
         // Refresh library stats/feed
         get().fetchLibrary();
       }
-      return res;
+      return streamResult;
     } catch (err: unknown) {
       console.error("LingQ Import Action Error:", err);
       throw err;

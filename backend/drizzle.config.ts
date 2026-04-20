@@ -1,10 +1,15 @@
 import { defineConfig } from 'drizzle-kit';
+import { config } from 'dotenv';
+config({ path: '.env' });
+
+const url = process.env.DATABASE_URL || 'file:sqlite.db';
 
 export default defineConfig({
   schema: './src/db/schema.ts',
   out: './drizzle/migrations',
-  dialect: 'sqlite', // Changed from postgresql
+  dialect: 'turso', 
   dbCredentials: {
-    url: './sqlite.db', // This will literally create a file called sqlite.db in your folder!
+    url: url,
+    authToken: url.startsWith("file:") ? undefined : process.env.DATABASE_AUTH_TOKEN,
   },
 });

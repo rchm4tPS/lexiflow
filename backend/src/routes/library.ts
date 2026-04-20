@@ -53,22 +53,22 @@ router.delete('/courses/:id', authenticate, async (req: AuthRequest, res) => {
     }
 
     // 3. NUCLEAR DELETE TRANSACTION
-    db.transaction((tx) => {
+    await db.transaction(async (tx) => {
         const lessonIds = courseLessons.map(l => l.id);
 
         if (lessonIds.length > 0) {
             // Delete Lesson Progress
-            tx.delete(userLessonProgress).where(inArray(userLessonProgress.lesson_id, lessonIds)).run();
+            await tx.delete(userLessonProgress).where(inArray(userLessonProgress.lesson_id, lessonIds));
             // Delete Lesson Content
-            tx.delete(lessonContent).where(inArray(lessonContent.lesson_id, lessonIds)).run();
+            await tx.delete(lessonContent).where(inArray(lessonContent.lesson_id, lessonIds));
             // Delete Lessons
-            tx.delete(lessons).where(inArray(lessons.id, lessonIds)).run();
+            await tx.delete(lessons).where(inArray(lessons.id, lessonIds));
         }
 
         // Delete Enrollments
-        tx.delete(userCourses).where(eq(userCourses.course_id, String(courseId))).run();
+        await tx.delete(userCourses).where(eq(userCourses.course_id, String(courseId)));
         // Delete Course
-        tx.delete(courses).where(eq(courses.id, String(courseId))).run();
+        await tx.delete(courses).where(eq(courses.id, String(courseId)));
     });
 
     res.json({ success: true, message: 'Course and all associated lessons deleted.' });
@@ -641,19 +641,29 @@ router.post('/lingq-import', authenticate, async (req: AuthRequest, res) => {
       return res.status(403).json({ error: `LingQ import can only be performed once for ${targetLang}.` });
     }
 
+    // Set streaming headers
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Transfer-Encoding', 'chunked');
+
     const result = await LingqImportService.importRecommended(
       apiKey,
       userId,
       targetLang,
       courseCount || 3,
-      lessonsPerCourse || 3
+      lessonsPerCourse || 3,
+      (msg) => res.write(msg + '\n')
     );
 
-
-    res.json(result);
+    res.write(JSON.stringify(result) + '\n');
+    res.end();
   } catch (error: unknown) {
     console.error("LingQ Import Error:", error);
-    res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
+    if (!res.headersSent) {
+      res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
+    } else {
+      res.write(`[ERROR] ${(error as { message?: string }).message || "Internal Error"}\n`);
+      res.end();
+    }
   }
 });
 

@@ -7,7 +7,7 @@ interface LingqImportResponse {
 }
 
 interface LingqImportStepProps {
-    importFromLingq: (apiKey: string, courseCount: number, lessonsPerCourse: number) => Promise<LingqImportResponse>;
+    importFromLingq: (apiKey: string, courseCount: number, lessonsPerCourse: number, onProgress?: (msg: string) => void) => Promise<LingqImportResponse>;
     onSuccess: () => void;
 }
 
@@ -16,13 +16,16 @@ export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImp
     const [lingqCourseCount, setLingqCourseCount] = useState(3);
     const [lingqLessonsPerCourse, setLingqLessonsPerCourse] = useState(3);
     const [isLingqImporting, setIsLingqImporting] = useState(false);
-    const [lingqImportStatus, setLingqImportStatus] = useState('');
+    const [_, setLingqImportStatus] = useState('');
+    const [logs, setLogs] = useState<string[]>([]);
 
     const handleLingqImport = async () => {
         setIsLingqImporting(true);
-        setLingqImportStatus('Connecting to LingQ API...');
+        setLogs([]);
         try {
-            const res = await importFromLingq(lingqApiKey, lingqCourseCount, lingqLessonsPerCourse);
+            const res = await importFromLingq(lingqApiKey, lingqCourseCount, lingqLessonsPerCourse, (msg) => {
+                setLogs(prev => [...prev, msg]);
+            });
             if (res.success) {
                 Swal.fire({
                     icon: 'success',
@@ -105,11 +108,43 @@ export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImp
                 </button>
 
                 {isLingqImporting && (
-                    <div className="flex flex-col items-center gap-2 mt-4">
-                        <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-orange-500 animate-pulse w-[60%]"></div>
-                        </div>
-                        <p className="text-xs font-bold text-orange-500 italic">{lingqImportStatus}</p>
+                    <div className="w-full mt-4 flex flex-col gap-2">
+                        {(() => {
+                            // const expectedTotal = 1 + (lingqCourseCount * lingqLessonsPerCourse) + 1; // connecting + lessons + finished
+                            let parsedLessons = 0;
+                            let isDone = false;
+                            
+                            logs.forEach(log => {
+                                if (log.includes('Importing lesson:')) parsedLessons++;
+                                if (log.includes('✅')) isDone = true;
+                            });
+
+                            let progress = 5; // Connecting baseline
+                            if (parsedLessons > 0) progress = 5 + Math.round((parsedLessons / (lingqCourseCount * lingqLessonsPerCourse)) * 90);
+                            if (isDone) progress = 100;
+                            if (progress > 100) progress = 100;
+
+                            const activeLog = logs[logs.length - 1] || 'Connecting to LingQ API...';
+
+                            return (
+                                <div className="w-full bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                                    <div className="flex justify-between items-end mb-2">
+                                        <span className="text-xs font-bold text-gray-500 uppercase">Import Progress</span>
+                                        <span className="text-sm font-black text-orange-500">{progress}%</span>
+                                    </div>
+                                    <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden mb-3">
+                                        <div 
+                                            className="h-full bg-orange-500 rounded-full transition-all duration-300 ease-out" 
+                                            style={{ width: `${progress}%` }}
+                                        ></div>
+                                    </div>
+                                    <p className="text-[11px] text-gray-500 font-medium truncate text-center" title={activeLog}>
+                                        {activeLog.replace('  - ', '')}
+                                    </p>
+                                </div>
+                            );
+                        })()}
+                        <p className="text-[10px] text-center text-gray-400 italic">Please do not close this window while the import is processing.</p>
                     </div>
                 )}
             </div>

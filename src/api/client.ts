@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:3000/api/v1';
+export const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
 
 export const apiClient = async (endpoint: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('lingq_token');
