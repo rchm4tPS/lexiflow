@@ -220,10 +220,11 @@ router.post('/upsert', authenticate, async (req: AuthRequest, res) => {
     }
 
     if (!wasIgnored) {
+      const tzOffset = req.headers['x-timezone-offset'] as string | undefined;
       await updateDailyStatsAndStreak(userId, languageCode, {
         lingqsCreated: lingqDelta,
-        lingqsLearned: knownDelta // If I demote 5->4, daily "learned" goes -1.
-      });
+        lingqsLearned: knownDelta
+      }, tzOffset);
     }
 
     res.json({ success: true, coinDelta });
@@ -288,10 +289,11 @@ router.post('/batch-upsert', authenticate, async (req: AuthRequest, res) => {
         set: { total_known_words: sql`MAX(0, ${userLanguages.total_known_words} + ${knownDeltaTotal})` }
       });
 
+    const tzOffset = req.headers['x-timezone-offset'] as string | undefined;
     await updateDailyStatsAndStreak(userId, languageCode, {
-      lingqsCreated: 0, // Batches are usually mass-known actions
+      lingqsCreated: 0,
       lingqsLearned: knownDeltaTotal
-    });
+    }, tzOffset);
 
     res.json({ success: true });
   } catch (error: unknown) {

@@ -141,7 +141,8 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
     }
     
     // Telemetry: Update Daily Stats (LingQs Created)
-    await updateDailyStatsAndStreak(userId, language_code, { lingqsCreated: 1 });
+    const tzOffset = req.headers['x-timezone-offset'] as string | undefined;
+    await updateDailyStatsAndStreak(userId, language_code, { lingqsCreated: 1 }, tzOffset);
 
     const [newP] = await db.select().from(userPhrases).where(eq(userPhrases.id, newId));
     res.json({ success: true, phrase: newP });
@@ -203,7 +204,8 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
         .where(and(eq(userLanguages.user_id, userId), eq(userLanguages.language_code, existing.language_code)));
 
       // Update Daily Stats (LingQs Learned)
-      await updateDailyStatsAndStreak(userId, existing.language_code, { lingqsLearned: knownDelta });
+      const tzOffset = req.headers['x-timezone-offset'] as string | undefined;
+      await updateDailyStatsAndStreak(userId, existing.language_code, { lingqsLearned: knownDelta }, tzOffset);
     }
 
     // NEW: Log phrase transition

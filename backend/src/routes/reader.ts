@@ -355,11 +355,12 @@ router.put('/:id/progress', authenticate, async (req: AuthRequest, res) => {
 
     // 2. Update daily stats and check streak via central engine
     const [lessonCourse] = await db.select({ lang: courses.language_code }).from(lessons).innerJoin(courses, eq(lessons.course_id, courses.id)).where(eq(lessons.id, lessonId));
+    const tzOffset = req.headers['x-timezone-offset'] as string | undefined;
     if (lessonCourse) {
       await updateDailyStatsAndStreak(userId, lessonCourse.lang, {
         listeningSec: listeningSec || 0,
         wordsRead: wordsRead || 0
-      });
+      }, tzOffset);
     }
     else if (wordsRead && wordsRead > 0) {
       // Handle the case where user has words read but no listening time in this sync
@@ -368,7 +369,7 @@ router.put('/:id/progress', authenticate, async (req: AuthRequest, res) => {
         await updateDailyStatsAndStreak(userId, lessonCourse.lang, {
           listeningSec: 0,
           wordsRead: wordsRead
-        });
+        }, tzOffset);
       }
     }
 

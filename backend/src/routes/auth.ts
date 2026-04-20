@@ -15,6 +15,7 @@ import {
 import { eq, and, sql, gte, inArray } from 'drizzle-orm';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
 import dotenv from 'dotenv';
+import { getUserMidnight } from '../utils/timezone.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -81,8 +82,8 @@ router.get('/info/:userId', async (req: AuthRequest, res) => {
     const userStreakInfo = await db.select().from(streaks)
       .where(and(eq(streaks.user_id, userId), eq(streaks.language_code, targetLanguage)));
 
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tzOffset = req.headers['x-timezone-offset'];
+    const today = getUserMidnight(tzOffset as string | undefined);
 
     const userDailyStatsInfo = await db.select().from(userDailyStats)
       .where(and(
@@ -134,7 +135,7 @@ router.get('/info/:userId', async (req: AuthRequest, res) => {
     let displayStreak = rawStreak;
 
     if (lastFulfillment) {
-      const lastFullMidnight = new Date(lastFulfillment.getFullYear(), lastFulfillment.getMonth(), lastFulfillment.getDate());
+      const lastFullMidnight = new Date(Date.UTC(lastFulfillment.getUTCFullYear(), lastFulfillment.getUTCMonth(), lastFulfillment.getUTCDate()) + ((Number(tzOffset) || 0) * 60 * 1000));
       const diffTime = today.getTime() - lastFullMidnight.getTime();
       const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 

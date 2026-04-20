@@ -8,6 +8,7 @@ export const apiClient = async (endpoint: string, options: RequestInit = {}) => 
   const headers = {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
+    'x-timezone-offset': new Date().getTimezoneOffset().toString(),
     ...options.headers,
   };
 

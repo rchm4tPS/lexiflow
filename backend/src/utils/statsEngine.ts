@@ -2,10 +2,10 @@ import { db } from '../db/index.js';
 import { streaks, userDailyStats, userLanguages } from '../db/schema.js';
 import { eq, and, sql } from 'drizzle-orm';
 import { getTier } from '../constants/tiers.js';
+import { getUserMidnight } from './timezone.js';
 
-export async function updateDailyStatsAndStreak(userId: string, languageCode: string, stats: { lingqsCreated?: number, lingqsLearned?: number, wordsRead?: number, listeningSec?: number }) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+export async function updateDailyStatsAndStreak(userId: string, languageCode: string, stats: { lingqsCreated?: number, lingqsLearned?: number, wordsRead?: number, listeningSec?: number }, tzOffset?: string | number | null) {
+  const today = getUserMidnight(tzOffset);
 
   await db.transaction(async (tx) => {
     // 1. UPDATE DAILY STATS
@@ -80,12 +80,15 @@ export async function updateDailyStatsAndStreak(userId: string, languageCode: st
         });
       } else {
         const lastFulfillment = new Date(streakRecord.last_activity_date || 0);
-        const lastFulfillmentMidnight = new Date(lastFulfillment.getFullYear(), lastFulfillment.getMonth(), lastFulfillment.getDate());
+        // Shift last-fulfillment into user's local day, then snap back to that midnight UTC
+        const lastFulfillmentDayMs = lastFulfillment.getTime() - ((Number(tzOffset) || 0) * 60 * 1000);
+        const lf = new Date(lastFulfillmentDayMs);
+        const lastFulfillmentMidnightTz = new Date(Date.UTC(lf.getUTCFullYear(), lf.getUTCMonth(), lf.getUTCDate()) + ((Number(tzOffset) || 0) * 60 * 1000));
         
-        const diffTime = today.getTime() - lastFulfillmentMidnight.getTime();
+        const diffTime = today.getTime() - lastFulfillmentMidnightTz.getTime();
         const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
-        console.log(`[StreakDebug] Existing streak: ${streakRecord.current_streak || 0}, Last Fulfillment: ${lastFulfillmentMidnight.toISOString()}, Diff Days: ${diffDays}`);
+        console.log(`[StreakDebug] Existing streak: ${streakRecord.current_streak || 0}, Last Fulfillment: ${lastFulfillmentMidnightTz.toISOString()}, Diff Days: ${diffDays}`);
 
         if (diffDays === 0 && (streakRecord.current_streak || 0) > 0) {
           console.log(`[StreakDebug] Already incremented today. Updating timestamp only.`);
