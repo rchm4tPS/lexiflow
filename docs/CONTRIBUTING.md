@@ -12,17 +12,20 @@
 Align with CI (`.github/workflows/ci.yml`):
 
 ```bash
+# Option A: Local (Legacy/Direct)
 npm ci
 cd backend && npm ci
-cd ..
 npm run lint
-npm run build
-cd backend && npm run build
+npm run build-all
+
+# Option B: Docker Compose (Recommended)
+docker-compose up --build
 ```
 
 ## Backend
 
-- Run from `backend/` so `DATABASE_URL` / `sqlite.db` paths are predictable.
+- **Docker First:** Use `docker-compose up` to run the backend alongside the frontend and isolated database.
+- **Database:** Defaults to Turso (remote) if `DATABASE_AUTH_TOKEN` is provided; falls back to local SQLite otherwise.
 - Never commit real `.env` files or secrets.
 - New routes should be reflected in **`docs/openapi.yaml`** and, when relevant, in **`docs/API.md`**.
 

@@ -22,7 +22,10 @@ React 19 + TypeScript, Vite 8, Tailwind CSS 4, Zustand, React Router 7.
 
 ## API client
 
-`src/api/client.ts` sends JSON (except `FormData` for uploads) to **`http://localhost:3000/api/v1`**. For deployment behind another host or port, this base URL should be made configurable (environment variable) so the SPA and API stay aligned.
+`src/api/client.ts` interacts with the backend. 
+- **Production:** Uses relative paths (served from the same origin).
+- **Development (Direct):** Defaults to `http://localhost:3000/api/v1`.
+- **Development (Docker):** Vite proxies `/api` requests to the `backend` container via `vite.config.ts`.
 
 ## Feature folders
 
@@ -31,7 +34,13 @@ Code is grouped by domain under `src/features/` (`auth`, `library`, `reader`, `v
 ## Scripts (repository root)
 
 ```bash
+# Local Dev
 npm run dev       # Vite dev server
+
+# Docker Dev (Full Stack)
+docker-compose up
+
+# Production
 npm run build     # Typecheck + production bundle → dist/
 npm run preview   # Preview production build
 npm run lint      # ESLint

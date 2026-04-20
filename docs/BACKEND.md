@@ -1,6 +1,6 @@
 # Backend module
 
-Express 5 + TypeScript, Drizzle ORM, **better-sqlite3**. Entry point: `backend/src/server.ts`.
+Express 5 + TypeScript, Drizzle ORM, **LibSQL / Turso** (or local SQLite). Entry point: `backend/src/server.ts`.
 
 ## Responsibilities
 
@@ -29,9 +29,12 @@ Express 5 + TypeScript, Drizzle ORM, **better-sqlite3**. Entry point: `backend/s
 
 `reader.ts` implements lesson **reader**, **parse**, **edit**, **progress**, and **delete** despite the `/lessons` prefix.
 
-## Uploads
+## Uploads & Cloud Storage
 
-Multer writes to `backend/uploads/images` and `backend/uploads/audio`. The app exposes them via `GET /uploads/...`.
+The application uses **Cloudinary** for persistent media storage. 
+- In development, files are uploaded via `multer.memoryStorage()` and streamed directly to Cloudinary.
+- **Local storage is NOT used** for uploads to ensure compatibility with ephemeral environments like Render.
+- Required Env: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`.
 
 ## Optional LingQ integration
 

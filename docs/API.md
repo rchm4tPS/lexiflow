@@ -6,8 +6,9 @@ All versioned JSON endpoints live under **`/api/v1`**. The OpenAPI description i
 
 | Context | Base |
 |--------|------|
-| Local API (default) | `http://localhost:3000/api/v1` |
-| Docker Compose (default map) | `http://localhost:3000/api/v1` |
+| Backend (Direct) | `http://localhost:3000/api/v1` |
+| Frontend (Vite) | `http://localhost:5173/api` (proxied to backend) |
+| Docker Compose | `http://localhost:5173/api` (Frontend) / `http://localhost:3000/api/v1` (Backend) |
 
 ## Authentication
 
@@ -39,9 +40,15 @@ Obtain `<jwt>` from **`POST /auth/login`** (`token` in the JSON body). Registrat
 | Phrases | `/phrases` | list, create, update, batch delete |
 | Upload | `/upload` | `POST /image`, `POST /audio` (multipart field `file`) |
 
-## Static files
+## Stats & Timezones
 
-Uploaded assets are served at **`/uploads/...`** (not under `/api/v1`). URLs returned by upload endpoints are relative to the server origin.
+Endpoints that write to daily stats or streaks (e.g., `PUT /lessons/{id}/progress`, `POST /vocab/upsert`, `POST /phrases`) respect the **`x-timezone-offset`** header. This should be the client's UTC offset in minutes (e.g., `-420` for Jakarta). If omitted, UTC midnight is used.
+
+## Static files & Uploads
+
+Uploaded assets (images/audio) are stored on **Cloudinary CDN**. 
+- The upload endpoints (**`POST /upload/image`**, **`POST /upload/audio`**) return an absolute Cloudinary URL.
+- Local storage (`/uploads/...`) is **deprecated** and no longer served by the application.
 
 ## Swagger UI
 
