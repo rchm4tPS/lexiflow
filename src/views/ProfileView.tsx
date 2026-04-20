@@ -55,20 +55,34 @@ export default function ProfileView() {
 
     useEffect(() => {
         if (!user?.id) return;
-        setLoading(true);
-        const langQ = languageCode ? `?lang=${encodeURIComponent(languageCode)}` : '';
-        Promise.all([
-            apiClient(`/auth/info/${user.id}${langQ}`),
-            apiClient(`/auth/profile/insights/${user.id}`),
-        ])
-            .then(([data, insightData]) => {
-                setStats(data);
-                setInsights(insightData);
-            })
-            .catch((err) => {
+        
+        let isMounted = true;
+        
+        const fetchProfileData = async () => {
+            setLoading(true);
+            try {
+                const langQ = languageCode ? `?lang=${encodeURIComponent(languageCode)}` : '';
+                const [data, insightData] = await Promise.all([
+                    apiClient(`/auth/info/${user.id}${langQ}`),
+                    apiClient(`/auth/profile/insights/${user.id}`),
+                ]);
+                
+                if (isMounted) {
+                    setStats(data);
+                    setInsights(insightData);
+                }
+            } catch (err) {
                 console.error('Failed to fetch profile info', err);
-            })
-            .finally(() => setLoading(false));
+            } finally {
+                if (isMounted) setLoading(false);
+            }
+        };
+
+        fetchProfileData();
+        
+        return () => {
+            isMounted = false;
+        };
     }, [user?.id, languageCode]);
 
     const handleResetLanguageData = async () => {
