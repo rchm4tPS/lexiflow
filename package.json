@@ -10,7 +10,8 @@
     "build-all": "npm run build && npm run build-backend",
     "install-all": "npm install && cd backend && npm install",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "playwright test"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.2.2",
@@ -23,7 +24,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
-    "@types/node": "^24.12.0",
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
