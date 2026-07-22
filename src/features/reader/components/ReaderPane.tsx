@@ -66,23 +66,99 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
   const {
     showSummary, setShowSummary, showModal, setModal,
     tokens, phrases, currentPage, selectedId, draftPhraseRange,
-    selectItem, setPage, setDraftPhrase, isRTL,
+    selectItem, setDraftPhrase, isRTL,
     handlePageAdvance, activeLessonId, syncLessonProgress,
-    isLoadingLesson, readerMode, toggleReaderMode
+    isLoadingLesson, readerMode, toggleReaderMode, totalPages, columnMapping, setSidebarPosition
   } = useReaderStore();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to top when page changes
-  React.useEffect(() => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTo(0, 0);
+  // --- NEW: CSS Columns Dynamic Layout State ---
+  const anchorTokenRef = useRef<string | null>(null);
+  const [columnWidthPx, setColumnWidthPx] = React.useState(0);
+
+  // Update anchor token and mark as read when page changes
+  React.useLayoutEffect(() => {
+    if (columnMapping[currentPage] && columnMapping[currentPage].length > 0) {
+      anchorTokenRef.current = columnMapping[currentPage][0];
+      useReaderStore.getState().markTokensAsRead(columnMapping[currentPage]);
     }
-  }, [currentPage]);
+  }, [currentPage, columnMapping]);
 
+  // Measurement Engine
+  React.useLayoutEffect(() => {
+    if (!scrollContainerRef.current || isLoadingLesson || tokens.length === 0) return;
+    
+    const container = scrollContainerRef.current;
+    
+    const measure = () => {
+      const containerRect = container.getBoundingClientRect();
+      
+      // Fix: Update column width to exact pixels. CSS column-width does not support percentages (e.g. 100%).
+      if (columnWidthPx !== containerRect.width && containerRect.width > 0) {
+        setColumnWidthPx(containerRect.width);
+        return; // Wait for re-render so CSS columns actually flow horizontally
+      }
 
-  // ONLY SHOW WORDS FOR THIS PAGE
-  const pageTokens = tokens.filter(t => (readerMode === 'sentence' ? t.sentencePageIndex : t.pageIndex) === currentPage);
-  const totalPages = Math.max(...tokens.map(t => (readerMode === 'sentence' ? t.sentencePageIndex : t.pageIndex) || 0)) + 1;
+      if (containerRect.width === 0) return;
+
+      const columnWidthAndGap = containerRect.width + 16; // 1rem gap = 16px
+      
+      const newTotalPages = Math.ceil(container.scrollWidth / columnWidthAndGap);
+      
+      const mapping: Record<number, string[]> = {};
+      const tokenNodes = container.querySelectorAll('[data-token-id]');
+      
+      tokenNodes.forEach(node => {
+        const id = node.getAttribute('data-token-id');
+        if (!id) return;
+        const rect = node.getBoundingClientRect();
+        const relativeLeft = rect.left - containerRect.left;
+        let colIndex = Math.floor((relativeLeft + 5) / columnWidthAndGap); 
+        if (isRTL) {
+           const relativeRight = containerRect.right - rect.right;
+           colIndex = Math.floor((relativeRight + 5) / columnWidthAndGap);
+        }
+        
+        if (!mapping[colIndex]) mapping[colIndex] = [];
+        mapping[colIndex].push(id);
+      });
+      
+      let newColForAnchor = -1;
+      const { initialTokenIndex, tokens, setInitialTokenIndex } = useReaderStore.getState();
+
+      if (initialTokenIndex !== null && initialTokenIndex >= 0 && initialTokenIndex < tokens.length) {
+         const targetTokenId = tokens[initialTokenIndex].id;
+         for (const [col, ids] of Object.entries(mapping)) {
+            if (ids.includes(targetTokenId)) {
+               newColForAnchor = parseInt(col);
+               break;
+            }
+         }
+         // Clear it so it only runs once per lesson load
+         setInitialTokenIndex(null);
+      } else if (anchorTokenRef.current) {
+         for (const [col, ids] of Object.entries(mapping)) {
+            if (ids.includes(anchorTokenRef.current)) {
+               newColForAnchor = parseInt(col);
+               break;
+            }
+         }
+      }
+      
+      // Update global store!
+      useReaderStore.getState().setPagination(newTotalPages || 1, mapping);
+      
+      if (newColForAnchor !== -1 && newColForAnchor !== useReaderStore.getState().currentPage) {
+         useReaderStore.getState().setPage(newColForAnchor);
+      }
+    };
+    
+    measure();
+    
+    const resizeObserver = new ResizeObserver(() => measure());
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, [isLoadingLesson, tokens, isRTL, readerMode, columnWidthPx]);
 
   const mousePos = useRef({
     x: 0,
@@ -195,17 +271,25 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
 
     if (validPhrases.length === 0) {
       // Base case: No phrases cover these tokens. Render standalone words.
-      return tokensList.map(token => {
+      return tokensList.map((token, index) => {
+        // Sentence View: force a column break if the next token starts a new sentence
+        const nextToken = tokensList[index + 1];
+        const shouldBreak = readerMode === 'sentence' && nextToken && token.sentencePageIndex !== nextToken.sentencePageIndex;
+
         return (
-          <WordToken
-            key={token.id}
-            token={token}
-            isSelected={selectedId === token.id || !!draftPhraseRange?.includes(token.id)} // FIX: Only highlight if this exact word is selected
-            onClick={(e: React.MouseEvent) => {
-              e.stopPropagation(); // CRITICAL: Catches click before it hits the Phrase box
-              selectItem(token.id); // FIX: Always select the word itself
-            }}
-          />
+          <React.Fragment key={token.id}>
+            <WordToken
+              token={token}
+              isSelected={selectedId === token.id || !!draftPhraseRange?.includes(token.id)}
+              onClick={(e: React.MouseEvent) => {
+                e.stopPropagation();
+                const screenWidth = window.innerWidth;
+                setSidebarPosition(e.clientX > screenWidth / 2 ? 'left' : 'right');
+                selectItem(token.id);
+              }}
+            />
+            {shouldBreak && <div style={{ breakAfter: 'column', height: 0, width: '100%' }} />}
+          </React.Fragment>
         )
       });
     }
@@ -233,6 +317,8 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
           onPhraseClick={(e: React.MouseEvent) => {
             e.stopPropagation();
             if ((window.getSelection()?.toString().trim().length ?? 0) > 0) return;
+            const screenWidth = window.innerWidth;
+            setSidebarPosition(e.clientX > screenWidth / 2 ? 'left' : 'right');
             selectItem(outermostPhrase.id);
           }}
         >
@@ -258,7 +344,7 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
 
   return (
     <div
-      className={`w-[65%] flex flex-col z-50`} dir={isRTL ? 'rtl' : 'ltr'}
+      className={`flex-1 min-w-0 min-h-[500px] lg:min-h-0 h-full flex flex-col`} dir={isRTL ? 'rtl' : 'ltr'}
       onClick={(e) => e.stopPropagation()}
     >
       {/* // The checklist turns green when there are NO learnable tokens with stage 0 */}
@@ -315,40 +401,45 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
         {/* Left Area (Empty space or Prev Button) */}
         <div className="min-w-20 flex items-center justify-center cursor-pointer opacity-60 hover:opacity-100 ">
           {currentPage > 0 && (
-            <button onClick={() => setPage(currentPage - 1)} className="text-gray-400 cursor-pointer hover:text-gray-600">
+            <button onClick={() => handlePageAdvance(currentPage - 1)} className="text-gray-400 cursor-pointer hover:text-gray-600">
               {isRTL ? <RightArrow /> : <LeftArrow />}
             </button>
           )}
         </div>
 
-        <div className={`flex flex-col mt-2 grow ${isRTL ? 'font-farsi-trad' : 'font-nunito'}`}>
-          {currentPage <= 0 && (
-            <div className={`flex mb-4 mt-2 ${isRTL ? 'border-b' : ''}`}>
-              <div className={`rounded-lg ${lessonImg ? '' : ' bg-gradient-to-tr from-green-200 to-blue-300'}  w-32.5 h-35 content-center text-center`}>
-                {
-                  !lessonImg
-                    ? <div className="w-full h-full flex items-center justify-center text-blue-400 text-6xl">📖</div>
-                    : <img className="object-fill rounded-lg" src={lessonImg} />
-                }
-              </div>
-              <div className={`flex-col p-3 max-w-[80%] ${isRTL ? 'border-gray-400 h-38' : ''}`}>
-                <p className="text-[#4F8EF8] text-[18px] font-extrabold">{courseTitle}</p>
-                <p className="text-[#454646] text-[30px] font-extrabold line-clamp-2 leading-13">{lessonTitle}</p>
-              </div>
-            </div>
-          )}
-
+        <div className={`flex flex-col mt-4 grow min-w-0 ${isRTL ? 'font-farsi-trad pt-1 pb-6 pl-8 pr-4' : 'font-nunito px-4 pb-6'} overflow-hidden relative bg-white rounded-md`}>
           <div
             ref={scrollContainerRef}
-            className={`grow ${isRTL ? 'text-[26px] py-1 pl-8' : 'text-[21px] pl-4'} leading-8 text-gray-800 pr-4 my-4 font-medium overflow-y-auto h-[600px] bg-white rounded-md focus:outline-none transition-all duration-300`}
+            className={`w-full h-full ${isRTL ? 'text-[26px]' : 'text-[21px]'} leading-8 text-gray-800 font-medium transition-transform duration-300`}
+            style={{
+              columnWidth: columnWidthPx > 0 ? `${columnWidthPx}px` : 'auto',
+              columnGap: '1rem',
+              columnFill: 'auto',
+              transform: `translateX(calc(${isRTL ? '' : '-'}${currentPage} * (100% + 1rem)))`,
+            }}
             onMouseDown={handleMouseDown}
             onMouseUp={handleMouseUp}
           >
             {isLoadingLesson ? (
               <ReaderSkeleton />
             ) : (
-              /* Start the recursive build! Pass isTopLevel=true for first call */
-              renderTree(pageTokens, phrases, true)
+              <>
+                <div className={`flex mb-4 mt-2 ${isRTL ? 'border-b' : ''}`} style={{ breakInside: 'avoid' }}>
+                  <div className={`rounded-lg ${lessonImg ? '' : ' bg-gradient-to-tr from-green-200 to-blue-300'}  w-32.5 h-35 content-center text-center shrink-0`}>
+                    {
+                      !lessonImg
+                        ? <div className="w-full h-full flex items-center justify-center text-blue-400 text-6xl">📖</div>
+                        : <img className="object-fill rounded-lg" src={lessonImg} />
+                    }
+                  </div>
+                  <div className={`flex-col p-3 max-w-[80%] ${isRTL ? 'border-gray-400 h-38' : ''}`}>
+                    <p className="text-[#4F8EF8] text-[18px] font-extrabold">{courseTitle}</p>
+                    <p className="text-[#454646] text-[30px] font-extrabold line-clamp-2 leading-13">{lessonTitle}</p>
+                  </div>
+                </div>
+                {/* Start the recursive build! Pass isTopLevel=true for first call */}
+                {renderTree(tokens, phrases, true)}
+              </>
             )}
           </div>
         </div>

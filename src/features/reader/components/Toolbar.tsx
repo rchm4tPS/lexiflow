@@ -3,7 +3,7 @@ import { useReaderStore } from '../../../store/useReaderStore';
 import { Play, Pause, Square } from 'lucide-react';
 
 export default function Toolbar() {
-    const { tokens, setPage, currentPage, showSummary, isRTL, lessonAudio, incrementListeningTicks, readerMode } = useReaderStore();
+    const { tokens, handlePageAdvance, currentPage, showSummary, isRTL, lessonAudio, incrementListeningTicks, totalPages, columnMapping } = useReaderStore();
 
     const audioRef = useRef<HTMLAudioElement>(null);
     const [audioState, setAudioState] = useState<'stopped' | 'playing' | 'paused'>('stopped');
@@ -89,18 +89,16 @@ export default function Toolbar() {
     };
 
 
-    // Find how many pages are in the current dataset
-    const totalPages = Math.max(...tokens.map(w => (readerMode === 'sentence' ? w.sentencePageIndex : w.pageIndex) || 0)) + 1;
-
     // A page is now "Complete" if it contains ZERO stage 0 (blue) words.
     const isPageComplete = (pageIdx: number) => {
-        const pageWords = tokens.filter(w => (readerMode === 'sentence' ? w.sentencePageIndex : w.pageIndex) === pageIdx);
-        // Only count tokens that are meant to be learned
-        const learnableOnPage = pageWords.filter(t => t.isLearnable === true);
-
+        const idsOnPage = columnMapping[pageIdx] || [];
+        if (idsOnPage.length === 0) return true; // Empty page is complete
+        
+        const pageWords = idsOnPage.map(id => tokens.find(t => t.id === id)).filter(Boolean) as typeof tokens;
+        const learnableOnPage = pageWords.filter(t => t.isLearnable);
+        
         if (learnableOnPage.length === 0) return true;
         
-        // Logic: No words on this page have stage 0
         return !learnableOnPage.some(w => (w.stage ?? 0) === 0);
     };
 
@@ -120,7 +118,7 @@ export default function Toolbar() {
             <div className="flex items-center justify-between w-full px-3 pt-3 pb-3 relative">
                 
                 {/* Audio Controls Container - fixed widths prevent layout jump */}
-                <div className="flex items-center shrink-0 min-w-[280px]">
+                <div className="flex items-center shrink-0 min-w-min xl:min-w-[280px]">
                     <audio 
                         src={lessonAudio || '#'} 
                         ref={audioRef} 
@@ -190,7 +188,7 @@ export default function Toolbar() {
                     {Array.from({ length: totalPages }).map((_, i) => (
                         <div 
                             key={i}
-                            onClick={() => setPage(i)}
+                            onClick={() => handlePageAdvance(i)}
                             className={`flex-1 relative cursor-pointer ${isRTL ? 'border-l' : 'border-r'} border-white last:border-0 transition-colors duration-300 flex items-center justify-center
                                 ${i === 0 ? (isRTL ? 'rounded-r-full' : 'rounded-l-full') : ''} 
                                 ${isPageComplete(i) ? 'bg-green-400' : 'bg-gray-400/40'}
@@ -218,11 +216,15 @@ export default function Toolbar() {
                     </div>
                 )}
             </div>
-            <button className="bg-[#FFE578] text-[#C0A332] px-2 py-1.5 rounded-md font-semibold text-md leading-none shadow-sm hover:bg-yellow-400 transition flex gap-2 items-center cursor-pointer">
-                Review<br />LingQs <span className="opacity-70 text-2xl text-black">(24)</span>
+            <button className="bg-[#FFE578] text-[#C0A332] px-2 xl:px-3 py-1.5 rounded-md font-semibold text-md leading-none shadow-sm hover:bg-yellow-400 transition flex gap-1 xl:gap-2 items-center cursor-pointer shrink-0 mx-2">
+                <span className="hidden xl:inline text-left">Review<br />LingQs</span>
+                <div className="flex items-center">
+                    <svg className="w-5 h-5 xl:hidden mr-1" fill="currentColor" viewBox="0 0 20 20"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" /><path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" /></svg>
+                    <span className="opacity-70 text-lg xl:text-2xl text-black">(24)</span>
+                </div>
             </button>
-            <div className="flex items-center justify-between">
-                <svg className="w-12 h-12 text-gray-400 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            <div className="flex items-center justify-between shrink-0">
+                <svg className="w-10 h-10 xl:w-12 xl:h-12 text-gray-400 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
             </div>
             </div>
 

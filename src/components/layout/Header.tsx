@@ -18,6 +18,7 @@ export default function Header() {
     const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const langMenuRef = useRef<HTMLDivElement>(null);
+    const mobileMenuRef = useRef<HTMLDivElement>(null);
 
     // If the URL language differs from the store, fetch statistics for the new target language.
     // This handles manual URL switches (e.g., from /me/es to /me/fr).
@@ -30,7 +31,12 @@ export default function Header() {
     // Close dropdowns when clicking outside
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) setIsImportOpen(false);
+            if (
+                (!dropdownRef.current || !dropdownRef.current.contains(event.target as Node)) &&
+                (!mobileMenuRef.current || !mobileMenuRef.current.contains(event.target as Node))
+            ) {
+                setIsImportOpen(false);
+            }
             if (langMenuRef.current && !langMenuRef.current.contains(event.target as Node)) setIsLangMenuOpen(false);
         }
         document.addEventListener("mousedown", handleClickOutside);
@@ -130,32 +136,64 @@ export default function Header() {
                     {/*<button className="bg-[#FCB817] text-white px-4 py-2 rounded-full text-sm flex items-center shadow-sm hover:bg-yellow-400">
                                 <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path></svg> GET PREMIUM
                             </button>*/}
-                    <Link
-                        to={`/me/${languageCode || 'en'}/profile`}
-                        className="w-11 h-11 bg-white rounded-full flex items-center justify-center overflow-hidden cursor-pointer border-4 border-[#0469E6] hover:scale-105 transition-transform"
-                        title="View Profile"
-                    >
-                        <svg className="w-12 h-12 text-[#47AFE9]" fill="#47AFE9" stroke="currentColor" viewBox="0 -2 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
-                    </Link>
-                    {/* NEW IMPORT DROPDOWN */}
-                    <div className="relative" ref={dropdownRef}>
-                        <div
-                            onClick={() => setIsImportOpen(!isImportOpen)}
-                            className="w-9 h-9 bg-white text-[#3890fc] rounded flex items-center justify-center cursor-pointer text-3xl font-extrabold pb-1 shadow-sm hover:bg-gray-100"
+                    {/* PROFILE & IMPORT - HIDDEN BELOW XL */}
+                    <div className="hidden xl:flex items-center space-x-4">
+                        <Link
+                            to={`/me/${languageCode || 'en'}/profile`}
+                            className="w-11 h-11 bg-white rounded-full flex items-center justify-center overflow-hidden cursor-pointer border-4 border-[#0469E6] hover:scale-105 transition-transform"
+                            title="View Profile"
                         >
-                            +
+                            <svg className="w-12 h-12 text-[#47AFE9]" fill="#47AFE9" stroke="currentColor" viewBox="0 -2 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                        </Link>
+                        {/* NEW IMPORT DROPDOWN */}
+                        <div className="relative" ref={dropdownRef}>
+                            <div
+                                onClick={() => setIsImportOpen(!isImportOpen)}
+                                className="w-9 h-9 bg-white text-[#3890fc] rounded flex items-center justify-center cursor-pointer text-3xl font-extrabold pb-1 shadow-sm hover:bg-gray-100"
+                            >
+                                +
+                            </div>
+                            {isImportOpen && (
+                                <div className="absolute right-0 mt-3 w-48 bg-white rounded-md shadow-[0_4px_20px_rgba(0,0,0,0.15)] py-2 z-50 text-gray-700 text-[15px] font-bold border border-gray-200">
+                                    <Link
+                                        to={`/me/${languageCode || 'en'}/import`}
+                                        onClick={() => setIsImportOpen(false)}
+                                        className="block px-4 py-2 hover:bg-[#eef9ff] hover:text-[#3890fc]"
+                                    >
+                                        Import Lesson
+                                    </Link>
+                                </div>
+                            )}
                         </div>
+                    </div>
+
+                    {/* MOBILE HAMBURGER MENU (VISIBLE BELOW XL) */}
+                    <div className="relative xl:hidden flex items-center" ref={mobileMenuRef}>
+                        <button 
+                            onClick={() => setIsImportOpen(!isImportOpen)}
+                            className="p-2 ml-2 rounded hover:bg-white/10 transition-colors"
+                        >
+                            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                        </button>
                         {isImportOpen && (
-                            <div className="absolute right-0 mt-3 w-48 bg-white rounded-md shadow-[0_4px_20px_rgba(0,0,0,0.15)] py-2 z-50 text-gray-700 text-[15px] font-bold border border-gray-200">
+                            <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-md shadow-2xl py-2 z-50 text-gray-700 text-[15px] font-bold border border-gray-200">
+                                <Link
+                                    to={`/me/${languageCode || 'en'}/profile`}
+                                    onClick={() => setIsImportOpen(false)}
+                                    className="flex items-center px-4 py-2 hover:bg-gray-50"
+                                >
+                                    <svg className="w-5 h-5 mr-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                                    Profile
+                                </Link>
+                                <div className="w-full h-px bg-gray-100 my-1"></div>
                                 <Link
                                     to={`/me/${languageCode || 'en'}/import`}
                                     onClick={() => setIsImportOpen(false)}
-                                    className="block px-4 py-2 hover:bg-[#eef9ff] hover:text-[#3890fc]"
+                                    className="flex items-center px-4 py-2 hover:bg-gray-50 text-[#3890fc]"
                                 >
+                                    <span className="text-xl font-black mr-3 pb-1">+</span>
                                     Import Lesson
                                 </Link>
-                                {/* <a href="#" className="block px-4 py-2 hover:bg-[#eef9ff] hover:text-[#3890fc]">Import Vocabulary</a>
-                                <a href="#" className="block px-4 py-2 hover:bg-[#eef9ff] hover:text-[#3890fc]">Import Ebook</a> */}
                             </div>
                         )}
                     </div>

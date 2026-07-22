@@ -102,10 +102,10 @@ export const useKeyboardShortcuts = () => {
             }
 
             // 5. Page Control
-            if (isShift && key === 'a') setPage(Math.max(0, currentPage - 1));
+            if (isShift && key === 'a') handlePageAdvance(Math.max(0, currentPage - 1));
             if (isShift && key === 'd') {
-                const maxPage = Math.max(...tokens.map(t => t.pageIndex));
-                handlePageAdvance(Math.min(maxPage, currentPage + 1));
+                const maxPage = useReaderStore.getState().totalPages - 1;
+                handlePageAdvance(Math.min(Math.max(0, maxPage), currentPage + 1));
             }
 
             // 6. Edge Navigation (W / S)

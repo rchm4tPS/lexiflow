@@ -129,7 +129,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
     };
 
     return (
-        <div className={`grow shadow-[0_2px_10px_rgba(0,0,0,0.08)] animate-fade-in flex flex-col rounded-xl p-8 m-2 border transition-colors overflow-auto ${isIgnored ? 'bg-gray-100 border-gray-200' : bgTheme}`}>
+        <div className={`grow flex flex-col ${bgTheme} animate-fade-in shadow-md xl:shadow-sm p-4 xl:p-8 m-2 lg:m-4 xl:m-2 rounded-xl overflow-y-auto min-h-0 shrink-1`}>
             <div className="flex items-start mb-4">
                 <button
                     className="w-10 h-10 bg-[#5ad263] rounded-full flex items-center justify-center shadow-md mr-4 hover:bg-green-500 transition cursor-pointer"
@@ -221,7 +221,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                                     onUpdateStage({ id: word.id, stage, meaning: m.text, tags, notes: noteVal });
                                 }
                             }}
-                            className="bg-[#3a92fb] text-white px-3 py-2 rounded-md cursor-pointer flex justify-between gap-2 items-center shadow-sm hover:bg-blue-600 transition"
+                            className="bg-[#3a92fb] text-white px-2 py-1.5 lg:py-1.5 lg:px-3 xl:px-3 xl:py-2 rounded-md cursor-pointer flex justify-between gap-2 items-center shadow-sm hover:bg-blue-600 transition"
                         >
                             <span className="font-bold text-sm">{m.text}</span>
                             <span className="text-blue-100 text-xs font-bold">({m.popularity})</span>
@@ -233,14 +233,14 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
             {showDicts && (
                 <div className="grid grid-cols-1 gap-2 mb-4">
                     <button
-                        className="flex w-full items-center bg-white border border-yellow-200 rounded-md p-3 cursor-pointer shadow-sm hover:border-yellow-400 hover:bg-yellow-50 transition"
+                        className="flex w-full items-center bg-white border border-yellow-200 rounded-md p-1.5 lg:py-1.5 lg:px-2 xl:p-3 cursor-pointer shadow-sm hover:border-yellow-400 hover:bg-yellow-50 transition"
                         onClick={() => openSmallWindow(`https://translate.google.com/?sl=${languageCode || 'auto'}&tl=en&text=${encodeURIComponent(cleanWord)}&op=translate`)}
                     >
                         <span className="font-bold text-[#3890fc] text-lg mr-3 px-1">G</span>
                         <span className="font-bold text-gray-700 text-sm">Translate {isPhrase ? 'phrase' : 'word'} (Google)</span>
                     </button>
                     <button
-                        className="flex w-full items-center bg-white border border-yellow-200 rounded-md p-3 cursor-pointer shadow-sm hover:border-yellow-400 hover:bg-yellow-50 transition"
+                        className="flex w-full items-center bg-white border border-yellow-200 rounded-md p-1.5 lg:py-1.5 lg:px-2 xl:p-3 cursor-pointer shadow-sm hover:border-yellow-400 hover:bg-yellow-50 transition"
                         onClick={() => openSmallWindow(`https://en.wiktionary.org/wiki/${encodeURIComponent(cleanWord)}#${LANGUAGES.find(lang => lang.code === languageCode)?.name}`)}
                     >
                         <span className="font-bold text-[#3890fc] text-lg mr-3 px-1">W</span>

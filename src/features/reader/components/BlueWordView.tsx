@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
 import { Sound, Coin, Check, Stop, UKFlag } from '../../../components/common/Icons';
@@ -15,6 +15,7 @@ interface BlueWordViewProps {
 }
 
 const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps) => {
+    const [showDicts, setShowDicts] = useState(!!word.isDraft);
     const { isRTL, activeWordHints, isLoadingHints, fetchHints, languageCode } = 
         useReaderStore(useShallow((state) => ({
             isRTL: state.isRTL,
@@ -55,8 +56,8 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
     };
 
     return (
-        <div className={`grow bg-[#eef9ff] animate-fade-in flex flex-col rounded-xl shadow-[0_2px_10px_rgba(0,0,0,0.08)] p-8 m-2 border border-gray-100 overflow-auto`}>
-            <div className="flex flex-col h-fit">
+        <div className={`grow bg-[#eef9ff] animate-fade-in flex flex-col rounded-xl shadow-md xl:shadow-[0_2px_10px_rgba(0,0,0,0.08)] p-4 xl:p-8 m-2 lg:m-4 xl:m-2 border border-gray-100 overflow-y-auto`}>
+            <div className="flex flex-col h-fit shrink-0">
                 <div className="flex h-fit items-center">
                     <button
                         className="w-10 h-10 px-2 bg-[#5ad263] rounded-full flex items-center justify-center shadow-md mr-4 hover:bg-green-500 transition cursor-pointer"
@@ -91,60 +92,83 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
                 </button>
             </div>
 
-            {!word.isDraft && (
-                <>
-                    <p className="text-gray-500 text-sm mb-3 font-semibold">Use a popular meaning from the community</p>
-                    <div className="space-y-2 mb-6 overflow-auto max-h-60">
-                        {isLoadingHints ? (
-                            <div className="space-y-2">
-                                {[1, 2, 3].map((i) => (
-                                    <div key={i} className="h-12 bg-[#3a92fb]/50 rounded-md animate-shimmer w-full" />
-                                ))}
-                            </div>
-                        ) : activeWordHints.length > 0 ? (
-                            activeWordHints.map((m, idx) => (
-                                <div
-                                    key={idx}
-                                    onClick={() => {
-                                        if (word.id) {
-                                            onUpdateStage({
-                                                id: word.id,
-                                                stage: 1,
-                                                meaning: m.text
-                                            });
-                                        }
-                                    }}
-                                    className="bg-[#3a92fb] text-white px-4 py-3 rounded-md cursor-pointer flex justify-between items-center shadow-sm hover:bg-[#3a92fb] hover:text-white transition group"
-                                >
-                                    <span className="font-bold">{m.text}</span>
-                                    <span className="text-gray-200 group-hover:text-white/80 text-sm font-bold">({m.popularity})</span>
-                                </div>
-                            ))
-                        ) : (
-                            <div className="text-gray-400 italic text-sm text-center py-4">
-                                No popular meanings found. Try a dictionary below.
-                            </div>
-                        )}
-                    </div>
-                </>
+            {/* Toggle Header for Hints vs Dictionaries (Hidden on XL) */}
+            {!word.isDraft && word.id && (
+                <div className="flex xl:hidden justify-between items-center mb-2 shrink-0">
+                    <p className="text-gray-500 text-sm font-semibold">
+                        {showDicts ? 'Search in external dictionaries' : 'Use a popular meaning'}
+                    </p>
+                    <span 
+                        className="text-[#3a92fb] text-sm font-bold hover:underline cursor-pointer"
+                        onClick={() => setShowDicts(!showDicts)}
+                    >
+                        {showDicts ? 'View popular meanings' : 'Search dictionaries choices'}
+                    </span>
+                </div>
             )}
 
-            <div className="flex justify-between items-center text-[#3a92fb] text-sm font-bold mb-6 cursor-pointer">
-                <span className="hover:underline">View more</span>
-                <span
-                    className="hover:underline"
-                    onClick={() => handleAddLingQ("")}
-                >
-                    Or, create your own meaning
-                </span>
-            </div>
+            {/* Original Header for Hints (Only visible on XL) */}
+            {!word.isDraft && word.id && (
+                <p className="hidden xl:block text-gray-500 text-sm mb-3 font-semibold shrink-0">
+                    Use a popular meaning from the community
+                </p>
+            )}
+
+            {/* Popular Meanings (Hints) */}
+            {(!word.isDraft || !word.id) && (
+                <div className={`${showDicts ? 'hidden xl:block' : 'block'} space-y-2 mb-3 xl:mb-6 overflow-y-auto shrink-1 min-h-0`}>
+                    {isLoadingHints ? (
+                        <div className="space-y-2">
+                            {[1, 2, 3].map((i) => (
+                                <div key={i} className="h-10 bg-[#3a92fb]/50 rounded-md animate-shimmer w-full" />
+                            ))}
+                        </div>
+                    ) : activeWordHints.length > 0 ? (
+                        activeWordHints.slice(0, 3).map((m, idx) => (
+                            <div
+                                key={idx}
+                                onClick={() => {
+                                    if (word.id) {
+                                        onUpdateStage({
+                                            id: word.id,
+                                            stage: 1,
+                                            meaning: m.text
+                                        });
+                                    }
+                                }}
+                                className="bg-[#3a92fb] text-white px-2 py-1.5 lg:py-1.5 lg:px-3 xl:px-4 xl:py-3 rounded-md cursor-pointer flex justify-between items-center shadow-sm hover:bg-[#3a92fb] hover:text-white transition group"
+                            >
+                                <span className="font-bold">{m.text}</span>
+                                <span className="text-gray-200 group-hover:text-white/80 text-sm font-bold">({m.popularity})</span>
+                            </div>
+                        ))
+                    ) : (
+                        <div className="text-gray-400 italic text-sm text-center py-4">
+                            No popular meanings found. Try a dictionary below.
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Create meaning link */}
+            {word.id && (
+                <div className={`${showDicts && !word.isDraft ? 'hidden xl:flex' : 'flex'} justify-between items-center text-[#3a92fb] text-sm font-bold mb-3 xl:mb-6 cursor-pointer shrink-0`}>
+                    <span className="hover:underline">View more</span>
+                    <span
+                        className="hover:underline"
+                        onClick={() => handleAddLingQ("")}
+                    >
+                        Or, create your own meaning
+                    </span>
+                </div>
+            )}
 
             {/* External Dictionaries */}
-            <div className="space-y-3 overflow-y-auto pr-2 pb-4">
+            <div className={`${(!showDicts && !word.isDraft) ? 'hidden xl:block' : 'block'} space-y-2 lg:space-y-1.5 xl:space-y-3 overflow-y-auto pr-2 pb-4 shrink-1 min-h-0`}>
                 {word.isDraft ? (
                     <>
                         <button
-                            className="flex w-full items-center bg-white border border-blue-200 rounded-md p-3 cursor-pointer shadow-sm hover:border-blue-400 hover:bg-blue-50 transition"
+                            className="flex w-full items-center bg-white border border-blue-200 rounded-md p-1.5 lg:py-1.5 lg:px-2 xl:p-3 cursor-pointer shadow-sm hover:border-blue-400 hover:bg-blue-50 transition"
                             onClick={() => {
                                 openSmallWindow(`https://translate.google.com/?sl=${languageCode || 'auto'}&tl=en&text=${encodeURIComponent(cleanWord)}&op=translate`);
                                 handleAddLingQ("");
@@ -154,7 +178,7 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
                             <span className="font-bold text-gray-700 text-[15px]">Translate phrase (Google)</span>
                         </button>
                         <button
-                            className="flex w-full items-center bg-white border border-blue-200 rounded-md p-3 cursor-pointer shadow-sm hover:border-blue-400 hover:bg-blue-50 transition"
+                            className="flex w-full items-center bg-white border border-blue-200 rounded-md p-1.5 lg:py-1.5 lg:px-2 xl:p-3 cursor-pointer shadow-sm hover:border-blue-400 hover:bg-blue-50 transition"
                             onClick={() => {
                                 openSmallWindow(`https://en.wiktionary.org/wiki/${encodeURIComponent(cleanWord)}#${LANGUAGES.find(lang => lang.code === languageCode)?.name}`);
                                 handleAddLingQ("");
@@ -168,7 +192,7 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
                     ['WordReference', 'DICT.cc', 'Linguee'].map((dict, i) => (
                         <button
                             key={i}
-                            className="flex w-full items-center bg-white border border-gray-200 rounded-md p-3 cursor-pointer shadow-sm hover:border-gray-300 hover:bg-blue-100 transition"
+                            className="flex w-full items-center bg-white border border-gray-200 rounded-md p-1.5 lg:py-1.5 lg:px-2 xl:p-3 cursor-pointer shadow-sm hover:border-gray-300 hover:bg-blue-100 transition"
                             onClick={() => openSmallWindow("https://www.wikipedia.com")}
                         >
                             <UKFlag />

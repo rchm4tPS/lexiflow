@@ -71,6 +71,8 @@ interface ReaderState {
   isLoadingLesson: boolean;
   librarySearch: string;
   readerMode: 'paragraph' | 'sentence';
+  initialTokenIndex: number | null;
+  setInitialTokenIndex: (idx: number | null) => void;
 
   setRTL: (rtl: boolean) => void;
   incrementListeningTicks: (amount: number) => void;
@@ -137,15 +139,27 @@ interface ReaderState {
   navigateWord: (direction: 'next' | 'prev', onlyBlue: boolean) => void;
   navigatePhrase: (direction: 'next' | 'prev') => void;
   goToEdgePage: (edge: 'first' | 'last') => void;
+  getPageForToken: (tokenId: string) => number;
 
   // Reading-session trackers
   sessionWordsRead: number;
-  sessionReadPages: Set<number>;
+  readTokenIds: Set<string>;
   sessionDailyLingqs: number;
   sessionDailyLingqsLearned: number;
   pageEnterTime: number;
+  
+  // Dynamic CSS Pagination State
+  totalPages: number;
+  columnMapping: Record<number, string[]>;
+  setPagination: (totalPages: number, columnMapping: Record<number, string[]>) => void;
+
   handlePageAdvance: (newPage: number) => void;
   ticksSinceLastSync: number;
+  markTokensAsRead: (tokenIds: string[]) => void;
+
+  // Layout State
+  sidebarPosition: 'left' | 'right';
+  setSidebarPosition: (pos: 'left' | 'right') => void;
 }
 
 export const useReaderStore = create<ReaderState>((set, get) => ({
@@ -170,6 +184,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   continueStudying: [],
   myLessonsSubTab: 'continue',
   librarySidebarTab: 'lesson-feed',
+
+  sidebarPosition: 'right',
+  setSidebarPosition: (pos: 'left' | 'right') => set({ sidebarPosition: pos }),
 
   activeWordHints: [],
   isLoadingHints: false,
@@ -200,10 +217,14 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   sessionListeningTicks: 0,
 
   sessionWordsRead: 0,
-  sessionReadPages: new Set<number>(),
+  readTokenIds: new Set<string>(),
   sessionDailyLingqs: 0,
   sessionDailyLingqsLearned: 0,
   pageEnterTime: Date.now(),
+  
+  totalPages: 1,
+  columnMapping: {},
+
   ticksSinceLastSync: 0,
 
   showSummary: false,
@@ -214,7 +235,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   hasImportedFromLingq: false,
   isLoadingLesson: false,
   librarySearch: '',
-  readerMode: 'paragraph',
+  readerMode: (localStorage.getItem('lingq_reader_mode') as 'paragraph' | 'sentence') || 'paragraph',
+  initialTokenIndex: null,
+  setInitialTokenIndex: (idx) => set({ initialTokenIndex: idx }),
 
 
   incrementListeningTicks: (amount: number) => {
@@ -490,25 +513,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   setLibrarySidebarTab: (tab) => set({ librarySidebarTab: tab }),
   setLibrarySearch: (term) => set({ librarySearch: term }),
   toggleReaderMode: () => {
-    const { readerMode, tokens, currentPage, setPage } = get();
+    const { readerMode } = get();
     const newMode = readerMode === 'paragraph' ? 'sentence' : 'paragraph';
-
-    // To maintain context, find the first word index of the current page in the OLD mode,
-    // then find which page that word belongs to in the NEW mode.
-    const currentTokens = tokens.filter(t => (readerMode === 'sentence' ? t.sentencePageIndex : t.pageIndex) === currentPage);
-    if (currentTokens.length > 0) {
-      const firstTokenId = currentTokens[0].id;
-      const firstTokenIndex = tokens.findIndex(t => t.id === firstTokenId);
-      if (firstTokenIndex !== -1) {
-        set({ readerMode: newMode });
-        const newToken = tokens[firstTokenIndex];
-        const newPage = newMode === 'sentence' ? (newToken.sentencePageIndex || 0) : newToken.pageIndex;
-        // Re-set page with new pagination
-        setPage(newPage);
-        return;
-      }
-    }
-
+    localStorage.setItem('lingq_reader_mode', newMode);
     set({ readerMode: newMode });
   },
 
@@ -598,7 +605,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           isRTL: data.isRTL || false,
           totalCoins: data.totalCoins || 0,
           totalKnownWords: data.totalKnownWords || 0,
-          currentPage: data.highestPageRead || 0,
+          currentPage: 0,
+          initialTokenIndex: data.highestPageRead || 0,
           selectedId: null,
           draftPhraseRange: null,
           showSummary: false,
@@ -609,7 +617,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           nextLessonId: data.nextLessonId || null,
           // IF IT'S THE SAME LESSON, KEEP THE SESSION STATE. 
           // IF IT'S A NEW LESSON, RESET TO 0.
-          sessionReadPages: isSameLesson ? state.sessionReadPages : new Set<number>(),
+          readTokenIds: isSameLesson ? state.readTokenIds : new Set<string>(),
           sessionWordsRead: isSameLesson ? state.sessionWordsRead : 0,
           sessionListeningTicks: isSameLesson ? state.sessionListeningTicks : 0,
           sessionDailyLingqs: isSameLesson ? state.sessionDailyLingqs : 0,
@@ -617,9 +625,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         }
       });
 
-      // If it's a double-mount, setPage's internal check (!newReadPages.has(page)) 
-      // will see that page 0 is already in the Set and won't add the words again.
-      get().setPage(data.highestPageRead || 0);
+      // We no longer manually call setPage here because ReaderPane will calculate the layout
+      // and use initialTokenIndex to find the correct dynamic CSS column page on its first render!
+      // This ensures responsiveness across devices and reader modes.
     } catch (err) {
       set({ isLoadingLesson: false });
       console.error("Failed to load lesson", err);
@@ -635,29 +643,41 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   setPage: (page) => {
-    const { tokens, sessionReadPages, sessionWordsRead, updateDailyStats, readerMode } = get();
-
-    let newSessionWordsRead = sessionWordsRead;
-    const newReadPages = new Set(sessionReadPages);
-
-    const isAlreadyRead = newReadPages.has(page);
-
-    if (!isAlreadyRead) {
-      const pageLearnableWords = tokens.filter(
-        t => (readerMode === 'sentence' ? t.sentencePageIndex : t.pageIndex) === page && t.isLearnable && !t.isNewline
-      );
-      newSessionWordsRead += pageLearnableWords.length;
-      newReadPages.add(page);
-      updateDailyStats({ words: pageLearnableWords.length });
-    }
-
     set({
       currentPage: page,
       selectedId: null,
       draftPhraseRange: null,
-      sessionWordsRead: newSessionWordsRead,
-      sessionReadPages: newReadPages,
     });
+  },
+
+  setPagination: (totalPages, columnMapping) => {
+    set({ totalPages, columnMapping });
+  },
+
+  markTokensAsRead: (tokenIds) => {
+    const { readTokenIds, sessionWordsRead, updateDailyStats, tokens } = get();
+    
+    let newWordsAdded = 0;
+    const newReadTokens = new Set(readTokenIds);
+    
+    tokenIds.forEach(id => {
+      if (!newReadTokens.has(id)) {
+        // Double check if token is learnable
+        const t = tokens.find(tok => tok.id === id);
+        if (t && t.isLearnable && !t.isNewline) {
+          newReadTokens.add(id);
+          newWordsAdded++;
+        }
+      }
+    });
+
+    if (newWordsAdded > 0) {
+      updateDailyStats({ words: newWordsAdded });
+      set({
+        readTokenIds: newReadTokens,
+        sessionWordsRead: sessionWordsRead + newWordsAdded
+      });
+    }
   },
 
   selectItem: (id) => set({ selectedId: id, draftPhraseRange: null }),
@@ -931,6 +951,14 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     const targetId = lessonId || activeLessonId;
     if (!targetId) return;
 
+    let highestTokenIndex = 0;
+    const { columnMapping } = get();
+    const tokensOnPage = columnMapping[currentPage];
+    if (tokensOnPage && tokensOnPage.length > 0) {
+      highestTokenIndex = tokens.findIndex(t => t.id === tokensOnPage[0]);
+      if (highestTokenIndex === -1) highestTokenIndex = 0;
+    }
+
     const learnableTokens = tokens.filter(t => t.isLearnable && !t.isNewline);
     const newWordsCount = new Set(learnableTokens.filter(t => (t.stage ?? 0) === 0).map(t => t.text.toLowerCase())).size;
     const lingqsCount = new Set(learnableTokens.filter(t => (t.stage ?? 0) >= 1 && (t.stage ?? 0) <= 4).map(w => w.text.toLowerCase())).size;
@@ -943,7 +971,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           newWordsCount,
           lingqsCount,
           knownWordsCount,
-          highestPageRead: currentPage,
+          highestPageRead: highestTokenIndex,
           isCompleted,
           listeningSec: sessionListeningTicks,
           wordsRead: sessionWordsRead,
@@ -977,20 +1005,39 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   handlePageAdvance: (newPage: number) => {
     get().setPage(newPage);
+    const { activeLessonId, syncLessonProgress } = get();
+    if (activeLessonId) {
+      syncLessonProgress(activeLessonId);
+    }
+  },
+
+  getPageForToken: (tokenId: string) => {
+    const { columnMapping } = get();
+    for (const [page, ids] of Object.entries(columnMapping)) {
+      if (ids.includes(tokenId)) {
+        return parseInt(page);
+      }
+    }
+    return 0; // Default fallback
   },
 
   goToEdgePage: (edge) => {
-    const { tokens } = get();
-    const targetPage = edge === 'first' ? 0 : Math.max(...tokens.map(w => w.pageIndex));
-    get().setPage(targetPage);
+    const { totalPages } = get();
+    const targetPage = edge === 'first' ? 0 : Math.max(0, totalPages - 1);
+    get().handlePageAdvance(targetPage);
   },
 
   navigateWord: (direction, onlyBlue) => {
-    const { tokens, selectedId, currentPage } = get();
+    const { tokens, selectedId, currentPage, columnMapping, getPageForToken } = get();
 
     let currentIndex = tokens.findIndex(w => w.id === selectedId);
     if (currentIndex === -1) {
-      currentIndex = tokens.findIndex(w => w.pageIndex === currentPage) - 1;
+      const idsOnPage = columnMapping[currentPage] || [];
+      if (idsOnPage.length > 0) {
+        currentIndex = tokens.findIndex(w => w.id === idsOnPage[0]) - 1;
+      } else {
+        currentIndex = -1;
+      }
     }
 
     const searchArr = direction === 'next'
@@ -1000,7 +1047,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     const target = searchArr.find(w => w.isLearnable && (!onlyBlue || w.stage === 0));
 
     if (target) {
-      get().setPage(target.pageIndex);
+      get().handlePageAdvance(getPageForToken(target.id));
       set({ selectedId: target.id });
     }
   },
@@ -1074,7 +1121,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   navigatePhrase: (direction) => {
-    const { phrases, tokens, selectedId, currentPage } = get();
+    const { phrases, tokens, selectedId, currentPage, getPageForToken } = get();
     if (phrases.length === 0) return;
 
     const currentIndex = phrases.findIndex(p => p.id === selectedId);
@@ -1088,8 +1135,11 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     const firstTokenId = targetPhrase.range[0];
     const targetToken = tokens.find(t => t.id === firstTokenId);
 
-    if (targetToken && targetToken.pageIndex !== currentPage) {
-      get().setPage(targetToken.pageIndex);
+    if (targetToken) {
+      const targetPage = getPageForToken(targetToken.id);
+      if (targetPage !== currentPage) {
+        get().handlePageAdvance(targetPage);
+      }
       set({
         selectedId: targetPhrase.id,
         draftPhraseRange: null
