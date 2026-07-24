@@ -62,7 +62,6 @@ router.get('/info/:userId', async (req: AuthRequest, res) => {
     const userInfo = await db.select({
       fullname: users.fullname,
       username: users.username,
-      total_coins: users.total_coins,
       preferences: users.preferences,
       isRTL: languages.is_RTL,
     })
@@ -72,8 +71,16 @@ router.get('/info/:userId', async (req: AuthRequest, res) => {
 
     const fullname = userInfo[0]?.fullname;
     const username = userInfo[0]?.username;
-    const totalCoins = userInfo[0]?.total_coins;
     const isRTL = userInfo[0]?.isRTL ?? false;
+
+    // Ensure a record exists for this target language
+    await db.insert(userLanguages).values({
+      user_id: userId,
+      language_code: targetLanguage,
+      daily_goal_tier: userInfo[0]?.preferences?.targetLanguage === targetLanguage ? 'calm' : 'calm' 
+    }).onConflictDoNothing({
+      target: [userLanguages.user_id, userLanguages.language_code]
+    });
 
     // Now fetch everything specifically for THIS language
     const userLanguageInfo = await db.select().from(userLanguages)
@@ -154,7 +161,7 @@ router.get('/info/:userId', async (req: AuthRequest, res) => {
       dailyGoalTier: userLanguageInfo[0]?.daily_goal_tier ?? 'calm',
       knownWords: userLanguageInfo[0]?.total_known_words || 0,
       totalLingQs: userLanguageInfo[0]?.total_lingqs || 0,
-      totalCoins,
+      totalCoins: userLanguageInfo[0]?.total_coins || 0,
       totalStreaks: displayStreak,
       totalDailyLingqs: userDailyStatsInfo[0]?.lingqs_created || 0,
       totalDailyLingqsLearned: userDailyStatsInfo[0]?.lingqs_learned || 0,
@@ -440,6 +447,7 @@ router.post('/profile/reset/:languageCode', authenticate, async (req: AuthReques
       await tx.update(userLanguages).set({
         total_known_words: 0,
         total_lingqs: 0,
+        total_coins: 0,
         has_imported_from_lingq: false
       }).where(and(
         eq(userLanguages.user_id, userId),

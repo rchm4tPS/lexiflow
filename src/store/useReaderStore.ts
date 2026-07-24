@@ -49,6 +49,7 @@ interface ReaderState {
   currentPage: number;
   selectedId: string | null;
   draftPhraseRange: string[] | null;
+  clickPos: { x: number, y: number } | null;
 
   totalCoins: number;
   totalKnownWords: number;
@@ -160,6 +161,7 @@ interface ReaderState {
   // Layout State
   sidebarPosition: 'left' | 'right';
   setSidebarPosition: (pos: 'left' | 'right') => void;
+  setClickPos: (pos: { x: number, y: number } | null) => void;
 }
 
 export const useReaderStore = create<ReaderState>((set, get) => ({
@@ -202,6 +204,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   currentPage: 0,
   selectedId: null,
   draftPhraseRange: null,
+  clickPos: null,
 
   totalCoins: 0,
   totalKnownWords: 0,
@@ -238,6 +241,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   readerMode: (localStorage.getItem('lingq_reader_mode') as 'paragraph' | 'sentence') || 'paragraph',
   initialTokenIndex: null,
   setInitialTokenIndex: (idx) => set({ initialTokenIndex: idx }),
+  setClickPos: (pos) => set({ clickPos: pos }),
 
 
   incrementListeningTicks: (amount: number) => {
@@ -647,6 +651,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       currentPage: page,
       selectedId: null,
       draftPhraseRange: null,
+      clickPos: null,
     });
   },
 
@@ -682,7 +687,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   selectItem: (id) => set({ selectedId: id, draftPhraseRange: null }),
 
-  clearSelection: () => set({ selectedId: null, draftPhraseRange: null }),
+  clearSelection: () => {
+    set({ selectedId: null, draftPhraseRange: null, clickPos: null });
+  },
 
   setModal: (show) => set({ showModal: show }),
   setShowSummary: (show) => set({ showSummary: show }),

@@ -90,7 +90,6 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
     });
 
     const [userRecord] = await db.select().from(users).where(eq(users.id, userId));
-    const totalCoins = userRecord?.total_coins || 0;
 
     // --- SIBLING NAVIGATION LOGIC ---
     // Fetch all siblings in this course to find prev/next
@@ -153,7 +152,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       phrases: normalizedPhrases,
       languageCode: course.language_code,
       isRTL: isRTL || false,
-      totalCoins: totalCoins,
+      totalCoins: langRecord?.total_coins || 0,
       totalKnownWords: langRecord!.total_known_words,
       courseTitle: course.title,
       courseLevel: course.level,

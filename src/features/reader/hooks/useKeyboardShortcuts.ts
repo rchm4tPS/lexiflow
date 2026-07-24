@@ -6,7 +6,7 @@ import type { Token, Phrase } from '../../../types/reader';
 export const useKeyboardShortcuts = () => {
     const { isAuthenticated } = useAuthStore();
     const { 
-        selectedId, draftPhraseRange, tokens, phrases, currentPage, 
+        selectedId, draftPhraseRange, tokens, phrases, currentPage, isRTL,
         clearSelection, navigateWord, navigatePhrase, updateStage,
         setPage, goToEdgePage, createPhrase, handlePageAdvance
     } = useReaderStore();
@@ -73,7 +73,12 @@ export const useKeyboardShortcuts = () => {
             // 3. Navigation
             if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
                 e.preventDefault();
-                const direction = e.key === 'ArrowRight' ? 'next' : 'prev';
+                let direction: 'next' | 'prev' = 'next';
+                if (isRTL) {
+                    direction = e.key === 'ArrowLeft' ? 'next' : 'prev';
+                } else {
+                    direction = e.key === 'ArrowRight' ? 'next' : 'prev';
+                }
                 
                 if (isAlt) {
                     // Alt + Arrows = Navigate Phrases
@@ -102,10 +107,14 @@ export const useKeyboardShortcuts = () => {
             }
 
             // 5. Page Control
-            if (isShift && key === 'a') handlePageAdvance(Math.max(0, currentPage - 1));
+            const maxPage = useReaderStore.getState().totalPages - 1;
+            if (isShift && key === 'a') {
+                const newPage = isRTL ? currentPage + 1 : currentPage - 1;
+                handlePageAdvance(Math.min(Math.max(0, maxPage), newPage));
+            }
             if (isShift && key === 'd') {
-                const maxPage = useReaderStore.getState().totalPages - 1;
-                handlePageAdvance(Math.min(Math.max(0, maxPage), currentPage + 1));
+                const newPage = isRTL ? currentPage - 1 : currentPage + 1;
+                handlePageAdvance(Math.min(Math.max(0, maxPage), newPage));
             }
 
             // 6. Edge Navigation (W / S)
@@ -116,7 +125,7 @@ export const useKeyboardShortcuts = () => {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [
-        selectedId, draftPhraseRange, tokens, phrases, currentPage, isAuthenticated,
+        selectedId, draftPhraseRange, tokens, phrases, currentPage, isAuthenticated, isRTL,
         clearSelection, navigateWord, navigatePhrase, updateStage, 
         setPage, goToEdgePage, createPhrase, handlePageAdvance
     ]);

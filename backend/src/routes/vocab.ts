@@ -193,28 +193,23 @@ router.post('/upsert', authenticate, async (req: AuthRequest, res) => {
     // --- MARKOV LOGGING ---
     await VocabHistoryService.logTransition(userId, masterWord!.id, oldStage, newStage);
 
-
-    if (coinDelta !== 0) {
-      await db.update(users)
-        .set({ total_coins: sql`MAX(0, ${users.total_coins} + ${coinDelta})` })
-        .where(eq(users.id, userId));
-    }
-
-    // 2. Update Language Stats (Known words & LingQs)
-    if (knownDelta !== 0 || (lingqDelta !== 0)) {
+    // 2. Update Language Stats (Known words, LingQs & Coins)
+    if (knownDelta !== 0 || lingqDelta !== 0 || coinDelta !== 0) {
       await db.insert(userLanguages)
         .values({
           user_id: userId,
           language_code: languageCode,
           total_known_words: Math.max(0, knownDelta || 0),
           total_lingqs: Math.max(0, lingqDelta || 0),
+          total_coins: Math.max(0, coinDelta || 0),
           daily_goal_tier: 'calm'
         })
         .onConflictDoUpdate({
           target:[userLanguages.user_id, userLanguages.language_code],
           set: { 
             total_known_words: sql`MAX(0, ${userLanguages.total_known_words} + ${knownDelta || 0})`,
-            total_lingqs: sql`MAX(0, ${userLanguages.total_lingqs} + ${lingqDelta || 0})`
+            total_lingqs: sql`MAX(0, ${userLanguages.total_lingqs} + ${lingqDelta || 0})`,
+            total_coins: sql`MAX(0, ${userLanguages.total_coins} + ${coinDelta || 0})`
           }
         });
     }
@@ -277,16 +272,19 @@ router.post('/batch-upsert', authenticate, async (req: AuthRequest, res) => {
     }
 
 
-    db.run(sql`UPDATE users SET total_coins = MAX(0, total_coins + ${coinDeltaTotal}) WHERE id = ${userId}`);
-
     await db.insert(userLanguages)
       .values({ 
           user_id: userId, language_code: languageCode, 
-          total_known_words: knownDeltaTotal, daily_goal_tier: 'calm' 
+          total_known_words: knownDeltaTotal, 
+          total_coins: coinDeltaTotal,
+          daily_goal_tier: 'calm' 
       })
       .onConflictDoUpdate({
         target: [userLanguages.user_id, userLanguages.language_code],
-        set: { total_known_words: sql`MAX(0, ${userLanguages.total_known_words} + ${knownDeltaTotal})` }
+        set: { 
+          total_known_words: sql`MAX(0, ${userLanguages.total_known_words} + ${knownDeltaTotal})`,
+          total_coins: sql`MAX(0, ${userLanguages.total_coins} + ${coinDeltaTotal})`
+        }
       });
 
     const tzOffset = req.headers['x-timezone-offset'] as string | undefined;
@@ -330,7 +328,7 @@ router.post('/recalculate-stats', authenticate, async (req: AuthRequest, res) =>
 
     let trueCoins = 0;
     let trueKnown = 0;
-    let trueLingqs = allPhrases.length; // Start trueLingqs with total phrases;
+    let trueLingqs = allPhrases.length;
 
     const coinValues: Record<number, number> = { 0: 0, 1: 5, 2: 7, 3: 9, 4: 11, 5: 15, 6: 0 };
 
@@ -351,16 +349,11 @@ router.post('/recalculate-stats', authenticate, async (req: AuthRequest, res) =>
     }
 
     // Add Phrase Coins (Assuming all phrases granted 5 coins)
-    // You could expand this if phrases have stages that grant more coins
     trueCoins += (allPhrases.length * 5); 
 
     // 3. Update the Database with the absolute truth
-    await db.update(users)
-      .set({ total_coins: trueCoins })
-      .where(eq(users.id, userId));
-
     await db.update(userLanguages)
-      .set({ total_known_words: trueKnown, total_lingqs: trueLingqs })
+      .set({ total_known_words: trueKnown, total_lingqs: trueLingqs, total_coins: trueCoins })
       .where(and(eq(userLanguages.user_id, userId), eq(userLanguages.language_code, languageCode)));
 
     res.json({ success: true, trueCoins, trueKnown, trueLingqs });

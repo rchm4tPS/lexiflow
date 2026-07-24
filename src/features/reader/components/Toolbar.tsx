@@ -114,7 +114,7 @@ export default function Toolbar() {
     const blueCount = uniqueBlueWords.size;
 
     return (
-        <div className="bg-[#f0f3f6] rounded-lg shadow-sm flex flex-col relative border border-[#d8dee4] h-fit mb-1" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-[#f0f3f6] lg:rounded-lg shadow-sm flex flex-col relative border-t lg:border border-[#d8dee4] h-fit lg:mb-1" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between w-full px-3 pt-3 pb-3 relative">
                 
                 {/* Audio Controls Container - fixed widths prevent layout jump */}
@@ -181,10 +181,9 @@ export default function Toolbar() {
                         )}
                     </div>
                 </div>
-            <div className={`flex items-center w-1/2 h-full`} dir={isRTL ? 'rtl' : 'ltr'}>
-                {/* INTERACTIVE SEGMENTED PROGRESS BAR */}
-                <div className={` flex-1 bg-gray-300 h-6 ${isRTL ? '-ml-1 rounded-tr-full rounded-br-full' : '-mr-1 rounded-tl-full rounded-bl-full'} overflow-hidden flex`}>
-
+            <div className={`flex items-center flex-1 h-full lg:mx-4 shrink`} dir={isRTL ? 'rtl' : 'ltr'}>
+                {/* DESKTOP INTERACTIVE SEGMENTED PROGRESS BAR */}
+                <div className={`hidden lg:flex flex-1 bg-gray-300 h-6 ${isRTL ? '-ml-1 rounded-tr-full rounded-br-full' : '-mr-1 rounded-tl-full rounded-bl-full'} overflow-hidden`}>
                     {Array.from({ length: totalPages }).map((_, i) => (
                         <div 
                             key={i}
@@ -201,36 +200,38 @@ export default function Toolbar() {
                         </div>
                     ))}
                 </div>
+
+                {/* MOBILE/TABLET BEADS PROGRESS (Removed, moved to ReaderPane) */}
                 {/* NEW WORDS COUNTER */}
                 {isLessonProcessed ? (
-                    <div className="flex items-center h-12 min-w-8 w-fit text-gray-600 font-bold text-sm bg-green-400 rounded-full">
+                    <div className="hidden lg:flex items-center h-12 min-w-8 w-fit text-gray-600 font-bold text-sm bg-green-400 rounded-full">
                         <svg className="w-12 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
                         </svg>
                     </div>
                 ) : (
-                    <div className="flex items-center h-12 min-w-8 w-fit px-2 text-gray-600 font-bold text-sm bg-[#BAC0CA] rounded-full">
+                    <div className="hidden lg:flex items-center h-12 min-w-8 w-fit px-2 text-gray-600 font-bold text-sm bg-[#BAC0CA] rounded-full">
                         <div className="h-9 min-w-9 w-fit px-1 mx-auto flex items-center justify-center text-gray-500 font-bold text-sm bg-[#aee0f4] rounded-full border-2 border-white">
                             {blueCount}
                         </div>
                     </div>
                 )}
             </div>
-            <button className="bg-[#FFE578] text-[#C0A332] px-2 xl:px-3 py-1.5 rounded-md font-semibold text-md leading-none shadow-sm hover:bg-yellow-400 transition flex gap-1 xl:gap-2 items-center cursor-pointer shrink-0 mx-2">
+            <button className="hidden lg:flex bg-[#FFE578] text-[#C0A332] px-2 xl:px-3 py-1.5 rounded-md font-semibold text-md leading-none shadow-sm hover:bg-yellow-400 transition gap-1 xl:gap-2 items-center cursor-pointer shrink-0 mx-2">
                 <span className="hidden xl:inline text-left">Review<br />LingQs</span>
                 <div className="flex items-center">
-                    <svg className="w-5 h-5 xl:hidden mr-1" fill="currentColor" viewBox="0 0 20 20"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" /><path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" /></svg>
+                    <svg className="w-5 h-5 mr-1" fill="currentColor" viewBox="0 0 20 20"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" /><path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" /></svg>
                     <span className="opacity-70 text-lg xl:text-2xl text-black">(24)</span>
                 </div>
             </button>
-            <div className="flex items-center justify-between shrink-0">
+            <div className="hidden lg:flex items-center justify-between shrink-0">
                 <svg className="w-10 h-10 xl:w-12 xl:h-12 text-gray-400 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
             </div>
             </div>
 
-            {/* AUDIO PROGRESS BAR (Bottom of Toolbar) */}
+            {/* AUDIO PROGRESS BAR (Top on mobile, Bottom on desktop) */}
             {audioState !== 'stopped' && (
-                <div className="w-full h-1.5 bg-gray-400 absolute -bottom-1 left-0 group flex items-center z-10 ">
+                <div className="w-full h-1.5 bg-gray-400 absolute -top-0 lg:top-auto lg:-bottom-1 left-0 group flex items-center z-10 ">
                     <div 
                         className="absolute left-0 h-full bg-[#EF4444] pointer-events-none transition-all duration-75"
                         style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}

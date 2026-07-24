@@ -7,22 +7,22 @@ interface DraftPhraseGroupProps {
 }
 
 const DraftPhraseGroup = ({ isDrafted, children }: DraftPhraseGroupProps) => {
-    const bgStyle: React.CSSProperties = isDrafted ? {
-      backgroundColor: `rgba(174, 224, 244, 0.6)`,
-      WebkitBoxDecorationBreak: 'clone',
-      boxDecorationBreak: 'clone',
-    } : {};
+  const bgStyle: React.CSSProperties = isDrafted ? {
+    backgroundColor: `rgba(174, 224, 244, 0.6)`,
+    WebkitBoxDecorationBreak: 'clone',
+    boxDecorationBreak: 'clone',
+  } : {};
 
-    const highlightClass = "ring-2 ring-blue-500 shadow-md z-10";
+  const highlightClass = "relative ring-2 ring-blue-500 shadow-md z-10";
 
-    return (
-      <span 
-        style={bgStyle}
-        className={`relative inline rounded-md py-1.5 w-fit mx-1/2 cursor-pointer transition-all duration-200 ${highlightClass}`}
-      >
-        {children}
-      </span>
-    );
+  return (
+    <span
+      style={bgStyle}
+      className={`inline rounded-md py-1 px-1 -mx-1 cursor-pointer transition-all duration-200 ${highlightClass}`}
+    >
+      {children}
+    </span>
+  );
 };
 
 export default DraftPhraseGroup;

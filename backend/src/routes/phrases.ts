@@ -115,16 +115,15 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
       created_at: new Date()
     });
 
-    await db.update(users)
-      .set({ total_coins: sql`MAX(0, ${users.total_coins} + 5)` })
-      .where(eq(users.id, userId));
-    
     const [existingLang] = await db.select().from(userLanguages)
       .where(and(eq(userLanguages.user_id, userId), eq(userLanguages.language_code, language_code)));
 
     if (existingLang) {
         await db.update(userLanguages)
-            .set({ total_lingqs: (existingLang.total_lingqs || 0) + 1 })
+            .set({ 
+              total_lingqs: (existingLang.total_lingqs || 0) + 1,
+              total_coins: (existingLang.total_coins || 0) + 5
+            })
             .where(and(eq(userLanguages.user_id, userId), eq(userLanguages.language_code, language_code)));
     } else {
         await db.insert(userLanguages)
@@ -132,11 +131,15 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
                 user_id: userId,
                 language_code: language_code,
                 total_lingqs: 1,
+                total_coins: 5,
                 daily_goal_tier: 'calm'
             })
             .onConflictDoUpdate({
                 target: [userLanguages.user_id, userLanguages.language_code],
-                set: { total_lingqs: sql`${userLanguages.total_lingqs} + 1` }
+                set: { 
+                  total_lingqs: sql`${userLanguages.total_lingqs} + 1`,
+                  total_coins: sql`${userLanguages.total_coins} + 5`
+                }
             });
     }
     

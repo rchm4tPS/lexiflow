@@ -1,3 +1,4 @@
+import React from 'react';
 import QuickStartGuide from './QuickStartGuide';
 import BlueWordView from './BlueWordView';
 import YellowWordView from './YellowWordView';
@@ -5,31 +6,72 @@ import type { SidebarItem, UpdatePayload } from '../../../types/reader';
 import { useReaderStore } from '../../../store/useReaderStore';
 
 interface SidebarProps {
-  word: SidebarItem | null;
-  onUpdateStage: (payload: UpdatePayload) => void;
-  onCreatePhrase: (range: string[], meaning: string) => void;
+    word: SidebarItem | null;
+    onUpdateStage: (payload: UpdatePayload) => void;
+    onCreatePhrase: (range: string[], meaning: string) => void;
 }
 
 export default function Sidebar({ word, onUpdateStage, onCreatePhrase }: SidebarProps) {
-    const { sidebarPosition } = useReaderStore();
+    const { sidebarPosition, clickPos } = useReaderStore();
     // FIX: Safely coerce the stage to a Number, defaulting to 0.
     // This catches instances where JSON/State causes stage to be undefined or a string
     const currentStage = word ? Number(word.stage || 0) : 0;
 
-    const baseClasses = "w-full lg:w-[350px] xl:w-[400px] shrink-0 h-auto lg:h-full bg-white lg:bg-transparent xl:bg-white flex-col border-t xl:border-t-0 xl:border-l border-gray-200 lg:border-transparent xl:border-gray-200 overflow-hidden z-[60] xl:z-10 transition-all";
-    const positionClasses = "lg:absolute lg:top-0 lg:bottom-0 xl:relative";
-    const sideClasses = sidebarPosition === 'left' ? 'lg:left-0' : 'lg:right-0';
-    const visibilityClasses = !word ? "flex lg:hidden xl:flex" : "flex";
+    let dynamicStyle: React.CSSProperties = {};
+    if (word && window.innerWidth < 1024) {
+        const screenW = window.innerWidth;
+        const screenH = window.innerHeight;
+        const paneW = 320;
+        const paneH = 400; // estimated max height
+
+        let x, y;
+        if (clickPos) {
+            // Try placing it slightly below and right of the click
+            x = clickPos.x + 15;
+            if (x + paneW > screenW) x = clickPos.x - paneW - 15;
+            x = Math.max(10, Math.min(x, screenW - paneW - 10));
+
+            y = clickPos.y + 15;
+            if (y + paneH > screenH) y = clickPos.y - paneH - 15;
+            y = Math.max(10, Math.min(y, screenH - paneH - 10));
+        } else {
+            // Fallback to center if no click pos (e.g. keyboard navigation)
+            x = (screenW - paneW) / 2;
+            y = (screenH - paneH) / 2;
+        }
+
+        dynamicStyle = {
+            position: 'fixed',
+            top: `${y}px`,
+            left: `${x}px`,
+            width: `${paneW}px`,
+            maxHeight: `calc(100dvh - ${y + 10}px)`,
+            zIndex: 100,
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1)',
+            borderRadius: '0.75rem',
+        };
+    }
+
+    const isDynamicOverlay = Object.keys(dynamicStyle).length > 0;
+
+    const baseClasses = isDynamicOverlay
+        ? "flex flex-col min-h-0 bg-white overflow-hidden border border-gray-200"
+        : "w-full lg:w-[350px] xl:w-[400px] shrink-0 h-auto lg:h-full min-h-0 bg-white lg:bg-transparent xl:bg-white flex-col border-t xl:border-t-0 xl:border-l border-gray-200 lg:border-transparent xl:border-gray-200 overflow-hidden z-[60] xl:z-10 transition-all";
+
+    const positionClasses = isDynamicOverlay ? "" : "lg:absolute lg:top-0 lg:bottom-0 xl:relative";
+    const sideClasses = isDynamicOverlay ? "" : (sidebarPosition === 'left' ? 'lg:left-0' : 'lg:right-0');
+    const visibilityClasses = !word ? "hidden xl:flex" : "flex";
 
     return (
-        <div className={`${baseClasses} ${positionClasses} ${sideClasses} ${visibilityClasses}`} 
-             onClick={(e) => {
-                 // On medium screens, clicking the transparent wrapper should bubble up and dismiss the overlay.
-                 if (window.innerWidth >= 1024 && window.innerWidth < 1280 && e.target === e.currentTarget) {
-                     return;
-                 }
-                 e.stopPropagation();
-             }}>
+        <div className={`${baseClasses} ${positionClasses} ${sideClasses} ${visibilityClasses}`}
+            style={dynamicStyle}
+            onClick={(e) => {
+                // On medium screens, clicking the transparent wrapper should bubble up and dismiss the overlay.
+                if (window.innerWidth >= 1024 && window.innerWidth < 1280 && e.target === e.currentTarget) {
+                    return;
+                }
+                e.stopPropagation();
+            }}>
             {!word && <QuickStartGuide />}
             {/* Logic: stage 0 is blue */}
             {word && currentStage === 0 && (

@@ -15,16 +15,16 @@ export const users = sqliteTable("users", {
   username: text("username").notNull().unique(),
   password_hash: text("password_hash").notNull(),
   fullname: text("fullname"),
-  total_coins: integer("total_coins").default(0),
   preferences: text("preferences", { mode: "json" }).$type<{ targetLanguage: string }>(), // Drizzle handles JSON stringification
 });
 
 
 export const userLanguages = sqliteTable("user_languages", {
-  user_id: text("user_id").references(() => users.id).notNull(),
-  language_code: text("language_code").references(() => languages.code).notNull(),
+  user_id: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  language_code: text("language_code").references(() => languages.code, { onDelete: "cascade" }).notNull(),
   total_known_words: integer("total_known_words").default(0),
   total_lingqs: integer("total_lingqs").default(0),
+  total_coins: integer("total_coins").default(0),
   daily_goal_tier: text("daily_goal_tier"),
   has_imported_from_lingq: integer("has_imported_from_lingq", { mode: "boolean" }).default(false),
 }, (t) => ({
@@ -32,8 +32,8 @@ export const userLanguages = sqliteTable("user_languages", {
 }));
 
 export const streaks = sqliteTable("streaks", {
-  user_id: text("user_id").references(() => users.id).notNull(),
-  language_code: text("language_code").references(() => languages.code).notNull(),
+  user_id: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  language_code: text("language_code").references(() => languages.code, { onDelete: "cascade" }).notNull(),
   current_streak: integer("current_streak").default(0),
   apple_state: text("apple_state"), 
   last_activity_date: integer("last_activity_date", { mode: "timestamp" }),
@@ -43,8 +43,8 @@ export const streaks = sqliteTable("streaks", {
 
 export const userDailyStats = sqliteTable("user_daily_stats", {
   id: text("id").primaryKey().$defaultFn(() => randomUUID()),
-  user_id: text("user_id").references(() => users.id).notNull(),
-  language_code: text("language_code").references(() => languages.code).notNull(),
+  user_id: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  language_code: text("language_code").references(() => languages.code, { onDelete: "cascade" }).notNull(),
   log_date: integer("log_date", { mode: "timestamp" }).notNull(),
   listening_sec: integer("listening_sec").default(0),
   words_read: integer("words_read").default(0),
@@ -55,8 +55,8 @@ export const userDailyStats = sqliteTable("user_daily_stats", {
 // --- CONTENT HIERARCHY ---
 export const courses = sqliteTable("courses", {
   id: text("id").primaryKey().$defaultFn(() => randomUUID()),
-  language_code: text("language_code").references(() => languages.code).notNull(),
-  owner_id: text("owner_id").references(() => users.id),
+  language_code: text("language_code").references(() => languages.code, { onDelete: "cascade" }).notNull(),
+  owner_id: text("owner_id").references(() => users.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description"),
   level: text("level"),
@@ -66,8 +66,8 @@ export const courses = sqliteTable("courses", {
 });
 
 export const userCourses = sqliteTable("user_courses", {
-  user_id: text("user_id").references(() => users.id).notNull(),
-  course_id: text("course_id").references(() => courses.id).notNull(),
+  user_id: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  course_id: text("course_id").references(() => courses.id, { onDelete: "cascade" }).notNull(),
   added_at: integer("added_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 }, (t) => ({
   pk: primaryKey({ columns:[t.user_id, t.course_id] }),
@@ -75,7 +75,7 @@ export const userCourses = sqliteTable("user_courses", {
 
 export const lessons = sqliteTable("lessons", {
   id: text("id").primaryKey().$defaultFn(() => randomUUID()),
-  course_id: text("course_id").references(() => courses.id).notNull(),
+  course_id: text("course_id").references(() => courses.id, { onDelete: "cascade" }).notNull(),
   title: text("title").notNull(),
   description: text("description"),
   duration: integer("duration").default(0),
@@ -91,15 +91,15 @@ export const lessons = sqliteTable("lessons", {
 });
 
 export const lessonContent = sqliteTable("lesson_content", {
-  lesson_id: text("lesson_id").primaryKey().references(() => lessons.id),
+  lesson_id: text("lesson_id").primaryKey().references(() => lessons.id, { onDelete: "cascade" }),
   raw_text: text("raw_text").notNull(),
   audio_timestamps: text("audio_timestamps", { mode: "json" }), 
 });
 
 export const userLessonProgress = sqliteTable("user_lesson_progress", {
   id: text("id").primaryKey().$defaultFn(() => randomUUID()),
-  user_id: text("user_id").references(() => users.id).notNull(),
-  lesson_id: text("lesson_id").references(() => lessons.id).notNull(),
+  user_id: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  lesson_id: text("lesson_id").references(() => lessons.id, { onDelete: "cascade" }).notNull(),
   total_listened_sec: integer("total_listened_sec").default(0),
   highest_page_read: integer("highest_page_read").default(0),
   is_completed: integer("is_completed", { mode: "boolean" }).default(false),
@@ -118,13 +118,13 @@ export const masterVocab = sqliteTable("master_vocab", {
   id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   original_word: text("original_word").notNull(),
   lemma: text("lemma"),
-  language_code: text("language_code").references(() => languages.code).notNull(),
+  language_code: text("language_code").references(() => languages.code, { onDelete: "cascade" }).notNull(),
 });
 
 export const userVocabRelation = sqliteTable("user_vocab_relation", {
   id: text("id").primaryKey().$defaultFn(() => randomUUID()),
-  user_id: text("user_id").references(() => users.id).notNull(),
-  master_word_id: text("master_word_id").references(() => masterVocab.id).notNull(),
+  user_id: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  master_word_id: text("master_word_id").references(() => masterVocab.id, { onDelete: "cascade" }).notNull(),
   stage: integer("stage").default(0), 
   user_meaning: text("user_meaning"),
   word_tag: text("word_tag"), 
@@ -138,8 +138,8 @@ export const userVocabRelation = sqliteTable("user_vocab_relation", {
 
 export const userPhrases = sqliteTable("user_phrases", {
   id: text("id").primaryKey().$defaultFn(() => randomUUID()),
-  user_id: text("user_id").references(() => users.id).notNull(),
-  language_code: text("language_code").references(() => languages.code).notNull(),
+  user_id: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  language_code: text("language_code").references(() => languages.code, { onDelete: "cascade" }).notNull(),
   phrase_text: text("phrase_text").notNull(),
   user_meaning: text("user_meaning"),
   stage: integer("stage").default(1),
@@ -161,8 +161,8 @@ export const externalHintsCache = sqliteTable("external_hints_cache", {
 
 export const vocabTransitions = sqliteTable("vocab_transitions", {
   id: text("id").primaryKey().$defaultFn(() => randomUUID()),
-  user_id: text("user_id").references(() => users.id).notNull(),
-  master_word_id: text("master_word_id").references(() => masterVocab.id).notNull(),
+  user_id: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  master_word_id: text("master_word_id").references(() => masterVocab.id, { onDelete: "cascade" }).notNull(),
   old_stage: integer("old_stage").notNull(),
   new_stage: integer("new_stage").notNull(),
   created_at: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
@@ -170,8 +170,8 @@ export const vocabTransitions = sqliteTable("vocab_transitions", {
 
 export const phraseTransitions = sqliteTable("phrase_transitions", {
   id: text("id").primaryKey().$defaultFn(() => randomUUID()),
-  user_id: text("user_id").references(() => users.id).notNull(),
-  phrase_id: text("phrase_id").references(() => userPhrases.id).notNull(),
+  user_id: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  phrase_id: text("phrase_id").references(() => userPhrases.id, { onDelete: "cascade" }).notNull(),
   old_stage: integer("old_stage").notNull(),
   new_stage: integer("new_stage").notNull(),
   created_at: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),

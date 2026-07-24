@@ -74,10 +74,10 @@ export default function ReaderView() {
     }
 
     return (
-        <div className="flex flex-col min-h-[calc(100vh-64px)] lg:h-[calc(100vh-64px)] max-w-7xl w-full mx-auto px-4 py-4" onClick={clearSelection}>
+        <div className="flex flex-col h-[calc(100dvh-48px)] lg:h-[calc(100vh-64px)] max-w-7xl w-full mx-auto p-0 lg:p-4" onClick={clearSelection}>
             {showModal && <CompletionModal />}
-            <Toolbar />
-            <div className="flex flex-col lg:flex-row grow bg-white shadow-lg border border-gray-200 rounded-b-lg overflow-y-auto lg:overflow-hidden relative">
+            <div className="order-2 lg:order-1 z-20"><Toolbar /></div>
+            <div className="order-1 lg:order-2 flex flex-row grow min-h-0 bg-white lg:shadow-lg lg:border border-gray-200 lg:rounded-lg overflow-hidden relative">
                 <ReaderPane
                     courseTitle={courseTitle}
                     lessonTitle={lessonTitle}

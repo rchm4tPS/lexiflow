@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { useReaderStore } from '../../store/useReaderStore';
 import { useAuthStore } from '../../store/useAuthStore';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 
 export default function Header() {
     const {
         languageCode, totalKnownWords, totalStreaks,
-        totalCoins, 
+        totalCoins, courseTitle, lessonTitle,
         // initializeUserState,setRTL,
         isRTL, recalculateStats,
         availableLanguages, fetchLanguages, switchLanguage
@@ -14,11 +14,15 @@ export default function Header() {
     const { user } = useAuthStore();
     const { lang } = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
+    const isReaderPage = location.pathname.includes('/reader/');
     const [isImportOpen, setIsImportOpen] = useState(false);
     const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const langMenuRef = useRef<HTMLDivElement>(null);
     const mobileMenuRef = useRef<HTMLDivElement>(null);
+    const mobileDropdownRef = useRef<HTMLDivElement>(null);
+    const mobileLangMenuRef = useRef<HTMLDivElement>(null);
 
     // If the URL language differs from the store, fetch statistics for the new target language.
     // This handles manual URL switches (e.g., from /me/es to /me/fr).
@@ -33,11 +37,17 @@ export default function Header() {
         function handleClickOutside(event: MouseEvent) {
             if (
                 (!dropdownRef.current || !dropdownRef.current.contains(event.target as Node)) &&
-                (!mobileMenuRef.current || !mobileMenuRef.current.contains(event.target as Node))
+                (!mobileMenuRef.current || !mobileMenuRef.current.contains(event.target as Node)) &&
+                (!mobileDropdownRef.current || !mobileDropdownRef.current.contains(event.target as Node))
             ) {
                 setIsImportOpen(false);
             }
-            if (langMenuRef.current && !langMenuRef.current.contains(event.target as Node)) setIsLangMenuOpen(false);
+            if (
+                (!langMenuRef.current || !langMenuRef.current.contains(event.target as Node)) &&
+                (!mobileLangMenuRef.current || !mobileLangMenuRef.current.contains(event.target as Node))
+            ) {
+                setIsLangMenuOpen(false);
+            }
         }
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -49,36 +59,59 @@ export default function Header() {
     }, [fetchLanguages]);
 
     return (
-        <header className="sticky top-0 bg-[#3890fc] text-white px-6 py-2.5 flex items-center w-full shadow-md z-50" onClick={(e) => e.stopPropagation()}>
-            <div className="flex w-full max-w-400 mx-auto">
-                <div className="flex items-center space-x-8">
-                    <Link to={`/me/${languageCode || 'en'}/library`} className="text-4xl font-extrabold flex items-center cursor-pointer tracking-tight">
-                        <svg className="w-8 h-8 mr-1" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z" /></svg>
-                        <p>Lexiflow <span className='text-yellow-300'></span></p>
+        <header className="sticky top-0 bg-[#3890fc] text-white h-12 lg:h-16 px-3 xl:px-6 py-1.5 xl:py-2.5 flex items-center w-full shadow-md z-50 relative" onClick={(e) => e.stopPropagation()}>
+            <div className="flex w-full max-w-400 mx-auto items-center relative">
+                
+                {/* HAMBURGER FOR READER PAGE (Mobile Left) */}
+                {isReaderPage && (
+                    <div className="md:hidden flex items-center mr-2 shrink-0" ref={mobileMenuRef}>
+                        <button 
+                            onClick={() => setIsImportOpen(!isImportOpen)}
+                            className="p-1 rounded hover:bg-white/10 transition-colors"
+                        >
+                            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                        </button>
+                    </div>
+                )}
+
+                {/* BRAND / LOGO */}
+                <div className={`flex items-center space-x-4 xl:space-x-8 shrink-0 ${isReaderPage ? 'hidden md:flex' : 'flex'}`}>
+                    <Link to={`/me/${languageCode || 'en'}/library`} className="text-2xl xl:text-4xl font-extrabold flex items-center cursor-pointer tracking-tight">
+                        <svg className="w-6 h-6 xl:w-8 xl:h-8 mr-1" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z" /></svg>
+                        <p>Lexiflow</p>
                     </Link>
-                    <nav className="flex space-x-8 text-[20px] font-bold">
-                        <Link to={`/me/${languageCode || 'en'}/library`} className="border border-white/40 rounded-full px-4 py-1 bg-white/10">Lessons</Link>
+                    <nav className="hidden lg:flex space-x-4 xl:space-x-8 text-[16px] xl:text-[20px] font-bold">
+                        <Link to={`/me/${languageCode || 'en'}/library`} className="border border-white/40 rounded-full px-3 xl:px-4 py-0.5 xl:py-1 bg-white/10">Lessons</Link>
                         <a href="#" className="opacity-90 hover:opacity-100 py-1">Tutors</a>
                         <a href="#" className="opacity-90 hover:opacity-100 py-1">Community</a>
                     </nav>
                 </div>
-                <div className="ml-auto flex items-center space-x-4 text-[18px] font-extrabold">
-                    <div className="rounded-full flex gap-6 pr-8 bg-[#2B60A3] relative">
+
+                {/* MOBILE READER TITLES (Center) */}
+                {isReaderPage && (
+                    <div className="md:hidden flex flex-col items-center justify-center grow px-2 overflow-hidden text-center h-full max-w-full min-w-0">
+                        <p className="text-[10px] font-bold opacity-80 truncate w-full">{courseTitle}</p>
+                        <p className="text-[14px] font-extrabold truncate w-full">{lessonTitle}</p>
+                    </div>
+                )}
+
+                <div className={`ml-auto items-center space-x-2 md:space-x-4 text-[13px] xl:text-[18px] font-extrabold shrink-0 ${isReaderPage ? 'hidden md:flex' : 'flex'}`}>
+                    <div className="rounded-full flex gap-2 xl:gap-6 pr-3 xl:pr-8 bg-[#2B60A3] relative">
                         {/* LANGUAGE SELECTOR DROPDOWN */}
                         <div className="relative h-full" ref={langMenuRef}>
                             <button
-                                className="flex h-full text-[#3890fc] bg-white rounded-tl-full rounded-bl-full py-1.5 pl-3 pr-4 items-center shadow-sm cursor-pointer hover:bg-gray-50 transition-colors"
+                                className="flex h-full text-[#3890fc] bg-white rounded-tl-full rounded-bl-full py-1 xl:py-1.5 pl-2 xl:pl-3 pr-2 xl:pr-4 items-center shadow-sm cursor-pointer hover:bg-gray-50 transition-colors"
                                 onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}
                             >
-                                <svg className="w-6 h-6 text-[#3890fc]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path></svg>
+                                <svg className="w-4 h-4 xl:w-6 xl:h-6 text-[#3890fc]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path></svg>
 
                                 {/* LANGUAGE CODE INDICATOR CIRCLE */}
-                                <div className={`w-8 h-8 rounded-full ${isRTL ? 'bg-red-500' : 'bg-green-500'} overflow-hidden border border-gray-300 mx-2 flex items-center justify-center text-white text-[14px] uppercase font-black animate-pulse shadow-inner`}>
+                                <div className={`w-6 h-6 xl:w-8 xl:h-8 rounded-full ${isRTL ? 'bg-red-500' : 'bg-green-500'} overflow-hidden border border-gray-300 mx-1 xl:mx-2 flex items-center justify-center text-white text-[10px] xl:text-[14px] uppercase font-black animate-pulse shadow-inner`}>
                                     {languageCode}
                                 </div>
 
                                 <div className="flex flex-col items-start leading-tight">
-                                    <span className="text-[16px]">{totalKnownWords?.toLocaleString() || 0}</span>
+                                    <span className="text-[13px] xl:text-[16px]">{totalKnownWords?.toLocaleString() || 0}</span>
                                 </div>
                             </button>
 
@@ -110,15 +143,15 @@ export default function Header() {
                                 </div>
                             )}
                         </div>
-                        <div className="flex items-center py-2 mr-4">
-                            <svg className="w-5 h-5 mr-2 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clipRule="evenodd" /></svg> {totalStreaks}
+                        <div className="flex items-center py-1 xl:py-2 mr-2 xl:mr-4">
+                            <svg className="w-4 h-4 xl:w-5 xl:h-5 mr-1 xl:mr-2 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clipRule="evenodd" /></svg> {totalStreaks}
                         </div>
                         {/* COINS WITH TOOLTIP & CLICK TO RECALCULATE */}
                         <div
-                            className="relative group flex items-center cursor-help hover:bg-black/10 px-2"
+                            className="relative group flex items-center cursor-help hover:bg-black/10 px-1 xl:px-2"
                             onClick={() => recalculateStats()}
                         >
-                            <div className="w-5 h-5 mr-2 rounded-full bg-yellow-400 border-2 border-white"></div>
+                            <div className="w-3.5 h-3.5 xl:w-5 xl:h-5 mr-1.5 xl:mr-2 rounded-full bg-yellow-400 border xl:border-2 border-white"></div>
                             <span>{
                                 (totalCoins || 0) < 1000
                                     ? (totalCoins || 0)
@@ -167,16 +200,75 @@ export default function Header() {
                         </div>
                     </div>
 
-                    {/* MOBILE HAMBURGER MENU (VISIBLE BELOW XL) */}
-                    <div className="relative xl:hidden flex items-center" ref={mobileMenuRef}>
-                        <button 
-                            onClick={() => setIsImportOpen(!isImportOpen)}
-                            className="p-2 ml-2 rounded hover:bg-white/10 transition-colors"
-                        >
-                            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
-                        </button>
-                        {isImportOpen && (
-                            <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-md shadow-2xl py-2 z-50 text-gray-700 text-[15px] font-bold border border-gray-200">
+                    {/* MOBILE HAMBURGER MENU (VISIBLE BELOW XL, RIGHT SIDE FOR NON-READER) */}
+                    {!isReaderPage && (
+                        <div className="relative xl:hidden flex items-center" ref={mobileMenuRef}>
+                            <button 
+                                onClick={() => setIsImportOpen(!isImportOpen)}
+                                className="p-1 xl:p-2 ml-1 xl:ml-2 rounded hover:bg-white/10 transition-colors"
+                            >
+                                <svg className="w-6 h-6 xl:w-8 xl:h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                {/* HAMBURGER DROPDOWN (Shared) */}
+                {isImportOpen && (
+                    <div ref={mobileDropdownRef} className={`absolute top-full ${isReaderPage ? 'left-2 md:right-2' : 'right-2'} mt-2 w-56 bg-white rounded-md shadow-2xl py-2 z-[60] text-gray-700 text-[15px] font-bold border border-gray-200`}>
+                        {isReaderPage && (
+                            <div className="md:hidden flex items-center justify-between px-4 py-3 bg-gray-50 border-b mb-1">
+                                <div ref={mobileLangMenuRef} className="flex items-center relative cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsLangMenuOpen(!isLangMenuOpen); }}>
+                                    <div className={`w-5 h-5 rounded-full ${isRTL ? 'bg-red-500' : 'bg-green-500'} overflow-hidden border border-gray-300 mr-1.5 flex items-center justify-center text-white text-[9px] uppercase font-black shadow-inner`}>
+                                        {languageCode}
+                                    </div>
+                                    <span>{totalKnownWords?.toLocaleString() || 0}</span>
+                                    <svg className="w-3 h-3 ml-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path></svg>
+                                    
+                                    {isLangMenuOpen && (
+                                        <div className="absolute top-full left-0 mt-3 w-56 bg-white rounded-lg shadow-2xl py-2 z-[70] border border-gray-200 text-gray-800 overflow-hidden cursor-default" onClick={(e) => e.stopPropagation()}>
+                                            <div className="px-4 py-2 text-xs font-black text-gray-400 uppercase tracking-widest bg-gray-50 border-b mb-1">
+                                                Switch Language
+                                            </div>
+                                            {availableLanguages.map(l => (
+                                                <div 
+                                                    key={l.code}
+                                                    onClick={async () => {
+                                                        setIsLangMenuOpen(false);
+                                                        setIsImportOpen(false);
+                                                        if (l.code !== languageCode) {
+                                                            await switchLanguage(l.code);
+                                                            navigate(`/me/${l.code}/library`);
+                                                        }
+                                                    }}
+                                                    className={`flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-blue-50 transition-colors ${l.code === languageCode ? 'bg-blue-50/50 text-[#3890fc]' : ''}`}
+                                                >
+                                                    <div className="flex flex-col">
+                                                        <span className="font-bold text-[15px]">{l.name}</span>
+                                                        <span className="text-[11px] opacity-60 uppercase">{l.isRTL ? 'RTL Layout' : 'LTR Layout'}</span>
+                                                    </div>
+                                                    {l.code === languageCode && <span className="text-xl">✓</span>}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex items-center text-green-500">
+                                    <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clipRule="evenodd" /></svg> 
+                                    {totalStreaks}
+                                </div>
+                                <div className="flex items-center text-yellow-500">
+                                    <div className="w-3.5 h-3.5 mr-1 rounded-full bg-yellow-400 border border-white"></div>
+                                    {totalCoins}
+                                </div>
+                            </div>
+                        )}
+                        <Link to={`/me/${languageCode || 'en'}/library`} onClick={() => setIsImportOpen(false)} className="flex lg:hidden items-center px-4 py-2 hover:bg-gray-50">
+                            Lessons
+                        </Link>
+                        <Link to={`/me/${languageCode || 'en'}/tutors`} onClick={() => setIsImportOpen(false)} className="flex lg:hidden items-center px-4 py-2 hover:bg-gray-50">Tutors</Link>
+                        <Link to={`/me/${languageCode || 'en'}/community`} onClick={() => setIsImportOpen(false)} className="flex lg:hidden items-center px-4 py-2 hover:bg-gray-50">Community</Link>
+                                <div className="w-full h-px bg-gray-100 my-1 lg:hidden"></div>
                                 <Link
                                     to={`/me/${languageCode || 'en'}/profile`}
                                     onClick={() => setIsImportOpen(false)}
@@ -194,10 +286,9 @@ export default function Header() {
                                     <span className="text-xl font-black mr-3 pb-1">+</span>
                                     Import Lesson
                                 </Link>
-                            </div>
-                        )}
+
                     </div>
-                </div>
+                )}
             </div>
         </header>
     );

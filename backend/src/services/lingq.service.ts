@@ -110,12 +110,16 @@ export class LingqImportService {
     }
 
     // 6. Mark user as having completed their one-time import FOR THIS LANGUAGE
-    await db.update(userLanguages)
-      .set({ has_imported_from_lingq: true })
-      .where(and(
-        eq(userLanguages.user_id, userId),
-        eq(userLanguages.language_code, languageCode)
-      ));
+    await db.insert(userLanguages)
+      .values({
+        user_id: userId,
+        language_code: languageCode,
+        has_imported_from_lingq: true
+      })
+      .onConflictDoUpdate({
+        target: [userLanguages.user_id, userLanguages.language_code],
+        set: { has_imported_from_lingq: true }
+      });
 
 
     const completeMsg = `✅ LingQ import complete for user ${userId}`;

@@ -15,14 +15,15 @@ interface BlueWordViewProps {
 }
 
 const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps) => {
-    const [showDicts, setShowDicts] = useState(!!word.isDraft);
-    const { isRTL, activeWordHints, isLoadingHints, fetchHints, languageCode } = 
+    const [showDicts, setShowDicts] = useState(false);
+    const { isRTL, activeWordHints, isLoadingHints, fetchHints, languageCode, clearSelection } = 
         useReaderStore(useShallow((state) => ({
             isRTL: state.isRTL,
             activeWordHints: state.activeWordHints,
             isLoadingHints: state.isLoadingHints,
             fetchHints: state.fetchHints,
-            languageCode: state.languageCode
+            languageCode: state.languageCode,
+            clearSelection: state.clearSelection
         })));
 
     const cleanWord = (word.text || '')
@@ -38,7 +39,7 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
 
     // Fetch hints once when the component mounts or the word changes
     useEffect(() => {
-        if (cleanWord && cleanWord.split(' ').length === 1) fetchHints(cleanWord);
+        if (cleanWord) fetchHints(cleanWord);
     }, [cleanWord, fetchHints]);
 
     // Helper to promote word to learning with a specific meaning
@@ -56,21 +57,28 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
     };
 
     return (
-        <div className={`grow bg-[#eef9ff] animate-fade-in flex flex-col rounded-xl shadow-md xl:shadow-[0_2px_10px_rgba(0,0,0,0.08)] p-4 xl:p-8 m-2 lg:m-4 xl:m-2 border border-gray-100 overflow-y-auto`}>
+        <div className={`grow bg-[#eef9ff] animate-fade-in flex flex-col min-h-0 rounded-xl shadow-md xl:shadow-[0_2px_10px_rgba(0,0,0,0.08)] p-3 md:p-4 xl:p-8 m-1 md:m-2 lg:m-4 xl:m-2 border border-gray-100 overflow-y-auto`}>
             <div className="flex flex-col h-fit shrink-0">
                 <div className="flex h-fit items-center">
                     <button
-                        className="w-10 h-10 px-2 bg-[#5ad263] rounded-full flex items-center justify-center shadow-md mr-4 hover:bg-green-500 transition cursor-pointer"
+                        className="w-8 h-8 md:w-10 md:h-10 px-1.5 md:px-2 bg-[#5ad263] rounded-full flex items-center justify-center shadow-md mr-3 md:mr-4 hover:bg-green-500 transition cursor-pointer"
                         onClick={() => speak(cleanWord, languageCode)} 
                     >
                         <Sound />
                     </button>
                     <div className='overflow-auto'>
-                        <h2 className={`${isRTL ? 'font-farsi' : 'font-nunito'} text-3xl text-[#3a92fb] font-bold tracking-tight hyphens-auto wrap-break-word`} lang={languageCode || 'en'}>{cleanWord}</h2>
+                        <h2 className={`${isRTL ? 'font-farsi' : 'font-nunito'} text-2xl md:text-3xl text-[#3a92fb] font-bold tracking-tight hyphens-auto wrap-break-word`} lang={languageCode || 'en'}>{cleanWord}</h2>
                         <div className="flex mt-2">
                             <Coin /><Coin />
                         </div>
                     </div>
+                    <button 
+                        onClick={() => clearSelection()}
+                        className="xl:hidden ml-auto self-start text-gray-400 hover:text-gray-600 transition p-1 cursor-pointer"
+                        title="Close"
+                    >
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
                 </div>
                 <button
                     onClick={() => {
@@ -93,30 +101,25 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
             </div>
 
             {/* Toggle Header for Hints vs Dictionaries (Hidden on XL) */}
-            {!word.isDraft && word.id && (
-                <div className="flex xl:hidden justify-between items-center mb-2 shrink-0">
-                    <p className="text-gray-500 text-sm font-semibold">
-                        {showDicts ? 'Search in external dictionaries' : 'Use a popular meaning'}
-                    </p>
-                    <span 
-                        className="text-[#3a92fb] text-sm font-bold hover:underline cursor-pointer"
-                        onClick={() => setShowDicts(!showDicts)}
-                    >
-                        {showDicts ? 'View popular meanings' : 'Search dictionaries choices'}
-                    </span>
-                </div>
-            )}
+            <div className="flex xl:hidden justify-between items-center mb-2 shrink-0">
+                <p className="text-gray-500 text-sm font-semibold">
+                    {showDicts ? 'Search in external dictionaries' : 'Use a popular meaning'}
+                </p>
+                <span 
+                    className="text-[#3a92fb] text-sm font-bold hover:underline cursor-pointer"
+                    onClick={() => setShowDicts(!showDicts)}
+                >
+                    {showDicts ? 'View popular meanings' : 'Search dictionaries choices'}
+                </span>
+            </div>
 
             {/* Original Header for Hints (Only visible on XL) */}
-            {!word.isDraft && word.id && (
-                <p className="hidden xl:block text-gray-500 text-sm mb-3 font-semibold shrink-0">
-                    Use a popular meaning from the community
-                </p>
-            )}
+            <p className="hidden xl:block text-gray-500 text-sm mb-3 font-semibold shrink-0">
+                Use a popular meaning from the community
+            </p>
 
             {/* Popular Meanings (Hints) */}
-            {(!word.isDraft || !word.id) && (
-                <div className={`${showDicts ? 'hidden xl:block' : 'block'} space-y-2 mb-3 xl:mb-6 overflow-y-auto shrink-1 min-h-0`}>
+            <div className={`${showDicts ? 'hidden xl:block' : 'block'} space-y-2 mb-3 xl:mb-6 overflow-y-auto shrink-1 min-h-0`}>
                     {isLoadingHints ? (
                         <div className="space-y-2">
                             {[1, 2, 3].map((i) => (
@@ -148,11 +151,8 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
                         </div>
                     )}
                 </div>
-            )}
-
             {/* Create meaning link */}
-            {word.id && (
-                <div className={`${showDicts && !word.isDraft ? 'hidden xl:flex' : 'flex'} justify-between items-center text-[#3a92fb] text-sm font-bold mb-3 xl:mb-6 cursor-pointer shrink-0`}>
+            <div className={`${showDicts ? 'hidden xl:flex' : 'flex'} justify-between items-center text-[#3a92fb] text-sm font-bold mb-3 xl:mb-6 cursor-pointer shrink-0`}>
                     <span className="hover:underline">View more</span>
                     <span
                         className="hover:underline"
@@ -161,10 +161,10 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
                         Or, create your own meaning
                     </span>
                 </div>
-            )}
+
 
             {/* External Dictionaries */}
-            <div className={`${(!showDicts && !word.isDraft) ? 'hidden xl:block' : 'block'} space-y-2 lg:space-y-1.5 xl:space-y-3 overflow-y-auto pr-2 pb-4 shrink-1 min-h-0`}>
+            <div className={`${!showDicts ? 'hidden xl:block' : 'block'} space-y-2 lg:space-y-1.5 xl:space-y-3 overflow-y-auto pr-2 pb-4 shrink-1 min-h-0`}>
                 {word.isDraft ? (
                     <>
                         <button

@@ -15,7 +15,7 @@ export default function MainLayout() {
     }, [lang, languageCode, syncLanguageWithUrl]);
 
     return (
-        <div className="min-h-screen flex flex-col font-nunito bg-[#f3f4f6]">
+        <div className="min-h-[100dvh] flex flex-col font-nunito bg-[#f3f4f6]">
             <Header />
             <main className="flex-1">
                 <Outlet />

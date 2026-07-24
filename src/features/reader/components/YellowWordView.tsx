@@ -18,7 +18,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
     const isIgnored = stage === 6;
     const isPhrase = !!word.isPhrase;
 
-    const { words, isRTL, languageCode, fetchHints, activeWordHints, fetchUserTags, userTags } = useReaderStore(
+    const { words, isRTL, languageCode, fetchHints, activeWordHints, fetchUserTags, userTags, clearSelection } = useReaderStore(
         useShallow((state) => ({
             words: state.tokens,
             selectedWordId: state.selectedId,
@@ -28,7 +28,8 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
             activeWordHints: state.activeWordHints,
             isLoadingHints: state.isLoadingHints,
             userTags: state.userTags,
-            fetchUserTags: state.fetchUserTags
+            fetchUserTags: state.fetchUserTags,
+            clearSelection: state.clearSelection
         }))
     );
 
@@ -129,20 +130,27 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
     };
 
     return (
-        <div className={`grow flex flex-col ${bgTheme} animate-fade-in shadow-md xl:shadow-sm p-4 xl:p-8 m-2 lg:m-4 xl:m-2 rounded-xl overflow-y-auto min-h-0 shrink-1`}>
+        <div className={`grow flex flex-col ${bgTheme} animate-fade-in shadow-md xl:shadow-sm p-3 md:p-4 xl:p-8 m-1 md:m-2 lg:m-4 xl:m-2 rounded-xl overflow-y-auto min-h-0 shrink-1`}>
             <div className="flex items-start mb-4">
                 <button
-                    className="w-10 h-10 bg-[#5ad263] rounded-full flex items-center justify-center shadow-md mr-4 hover:bg-green-500 transition cursor-pointer"
+                    className="w-8 h-8 md:w-10 md:h-10 bg-[#5ad263] rounded-full flex items-center justify-center shadow-md mr-3 md:mr-4 hover:bg-green-500 transition cursor-pointer"
                     onClick={() => speak(word.text, languageCode)}
                 >
                     <Sound />
                 </button>
                 <div>
-                    <h2 className={`${isRTL ? 'font-farsi' : 'font-nunito'} text-3xl text-[#3a92fb] font-bold tracking-tight`}>{word.text}</h2>
+                    <h2 className={`${isRTL ? 'font-farsi' : 'font-nunito'} text-2xl md:text-3xl text-[#3a92fb] font-bold tracking-tight`}>{word.text}</h2>
                     <div className="flex mt-1">
                         <Coin /><Coin /><Coin /><Coin />
                     </div>
                 </div>
+                <button 
+                    onClick={() => clearSelection()}
+                    className="xl:hidden ml-auto self-start text-gray-400 hover:text-gray-600 transition p-1 cursor-pointer"
+                    title="Close"
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
             </div>
 
             <div className="flex flex-wrap mb-5 gap-2 items-center w-max">

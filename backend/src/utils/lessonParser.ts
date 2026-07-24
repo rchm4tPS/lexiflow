@@ -18,9 +18,11 @@ export async function parseAndSaveLessonContent(
     languageCode: string, 
     userIdForProgress?: string
 ) {
-    // 1. Unicode-aware Tokenization
-    // \p{L} matches any letter in any language. \p{M} matches marks (diacritics).
-    const rawTokens = rawText.match(/\n|(\p{L}+\p{M}*\s?-\s?\p{L}+\p{M}*)|[\p{L}\p{M}-]+|[^\p{L}\p{M}\s]/gu) || [];
+    // 1. Unicode-aware Tokenization using Intl.Segmenter
+    // This is vastly superior to regex as it understands language-specific grammar,
+    // including languages without spaces (Japanese/Chinese) and complex scripts (Farsi/Arabic).
+    const segmenter = new Intl.Segmenter(languageCode, { granularity: 'word' });
+    const segments = Array.from(segmenter.segment(rawText));
 
     const processedTokens = [];
     let currentPageIndex = 0;
@@ -32,9 +34,11 @@ export async function parseAndSaveLessonContent(
 
     let totalOriginalWordInLesson = 0;
     
-    for (const [index, text] of rawTokens.entries()) {
-        const isNewline = text === '\n';
-        const isLearnable = !isNewline && /^[\p{L}\p{M}-]+$/u.test(text);
+    for (const [index, segmentData] of segments.entries()) {
+        const text = segmentData.segment;
+        const isNewline = text === '\n' || text === '\r\n';
+        // Segmenter flags actual language words with isWordLike (skips punctuation/spaces)
+        const isLearnable = segmentData.isWordLike === true;
 
         const isSentenceEnd = /[.!?]/.test(text);
 
