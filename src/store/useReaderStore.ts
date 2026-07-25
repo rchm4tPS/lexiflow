@@ -119,8 +119,12 @@ interface ReaderState {
 
   fetchMyCoursesDropdown: () => Promise<void>;
   createCourse: (title: string, level: string, description?: string, imageUrl?: string, isPublic?: boolean) => Promise<Course | undefined>;
-  importLesson: (courseId: string, title: string, rawText: string, imageUrl?: string, description?: string, audioUrl?: string, isPublic?: boolean, audioDuration?: number) => Promise<string | null>;
-  importFromLingq: (apiKey: string, courseCount: number, lessonsPerCourse: number, onProgress?: (msg: string) => void) => Promise<{ success: boolean; count: number }>;
+  importLesson: (courseId: string, title: string, rawText: string, imageUrl?: string, description?: string, audioUrl?: string, isPublic?: boolean, audioDuration?: number, originalUrl?: string) => Promise<string | null>;
+  
+  fetchLingqRecommendedCourses: (apiKey?: string) => Promise<any[]>;
+  fetchLingqCourseLessons: (courseId: string, apiKey?: string) => Promise<any>;
+  fetchLingqImportedIds: () => Promise<{ importedIds: number[], importedToday: number, maxQuota: number }>;
+  importFromLingq: (apiKey: string, selectedLessons: any[]) => Promise<{ success: boolean; count: number }>;
 
 
   fetchHints: (word: string) => Promise<void>;
@@ -147,7 +151,7 @@ interface ReaderState {
   resetCompletion: () => void;
   clearLessonSession: () => void;
 
-  syncLessonProgress: (lessonId: string, isCompleted?: boolean, incrementReadTime?: boolean) => Promise<void>;
+  syncLessonProgress: (lessonId: string, isCompleted?: boolean, incrementReadTime?: boolean, triggerRecalculateStats?: boolean) => Promise<void>;
 
   // Navigation helpers
   navigateWord: (direction: 'next' | 'prev', onlyBlue: boolean) => void;
@@ -175,6 +179,8 @@ interface ReaderState {
   sidebarPosition: 'left' | 'right';
   setSidebarPosition: (pos: 'left' | 'right') => void;
   setClickPos: (pos: { x: number, y: number } | null) => void;
+  isSidebarVisible: boolean;
+  toggleSidebar: () => void;
 }
 
 export const useReaderStore = create<ReaderState>((set, get) => ({
@@ -209,6 +215,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   sidebarPosition: 'right',
   setSidebarPosition: (pos: 'left' | 'right') => set({ sidebarPosition: pos }),
+  setClickPos: (pos) => set({ clickPos: pos }),
+  isSidebarVisible: true,
+  toggleSidebar: () => set(state => ({ isSidebarVisible: !state.isSidebarVisible })),
 
   activeWordHints: [],
   isLoadingHints: false,
@@ -264,7 +273,6 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   readerMode: (localStorage.getItem('lingq_reader_mode') as 'paragraph' | 'sentence') || 'paragraph',
   initialTokenIndex: null,
   setInitialTokenIndex: (idx) => set({ initialTokenIndex: idx }),
-  setClickPos: (pos) => set({ clickPos: pos }),
 
 
   incrementListeningTicks: (amount: number) => {
@@ -495,9 +503,13 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   fetchGuidedCourses: async () => {
     try {
-      const lang = get().languageCode || 'de';
+      const state = get();
+      const lang = state.languageCode || 'de';
       const data = await apiClient(`/library/guided-courses?lang=${lang}`);
-      set({ guidedCourses: data });
+      if (get().languageCode !== lang) return;
+      if (data) {
+        set({ guidedCourses: data });
+      }
     } catch (err) { console.error(err); }
   },
 
@@ -540,6 +552,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       const lang = state.languageCode || 'de';
       const search = state.librarySearch;
       const data = await apiClient(`/library/feed/${lang}?search=${encodeURIComponent(search)}`);
+      if (get().languageCode !== lang) return;
       if (data) {
         set({ myCourses: data });
       }
@@ -559,6 +572,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         apiClient(`${urlBase}&completed=false`),
         apiClient(`${urlBase}&completed=true`),
       ]);
+      if (get().languageCode !== lang) return;
       set({ myLessons: active, completedLessons: completed });
     } catch (err) {
       console.error("Failed to fetch My Lessons", err);
@@ -570,6 +584,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       const state = get();
       const lang = state.languageCode || 'de';
       const data = await apiClient(`/library/continue-studying?lang=${lang}`);
+      if (get().languageCode !== lang) return;
       set({ continueStudying: data || [] });
     } catch (err) {
       console.error("Failed to fetch Continue Studying", err);
@@ -627,13 +642,13 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     } catch (err) { console.error(err); return null; }
   },
 
-  importLesson: async (courseId: string, title: string, rawText: string, imageUrl?: string, description?: string, audioUrl?: string, isPublic?: boolean, audioDuration?: number) => {
+  importLesson: async (courseId: string, title: string, rawText: string, imageUrl?: string, description?: string, audioUrl?: string, isPublic?: boolean, audioDuration?: number, originalUrl?: string) => {
     try {
       const state = get();
       const lang = state.languageCode || 'de';
       const data = await apiClient('/lessons/parse', {
         method: 'POST',
-        body: JSON.stringify({ courseId, title, rawText, languageCode: lang, imageUrl: imageUrl || '', description: description || '', audioUrl: audioUrl || '', isPublic: isPublic ?? false, audioDuration: audioDuration || 0 })
+        body: JSON.stringify({ courseId, title, rawText, languageCode: lang, imageUrl: imageUrl || '', description: description || '', audioUrl: audioUrl || '', isPublic: isPublic ?? false, audioDuration: audioDuration || 0, originalUrl: originalUrl || '' })
       });
       return data.lessonId;
     } catch (err) { console.error(err); return null; }
@@ -777,7 +792,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     }
   },
 
-  selectItem: (id) => set({ selectedId: id, draftPhraseRange: null }),
+  selectItem: (id) => set({ selectedId: id, draftPhraseRange: null, isSidebarVisible: true }),
 
   clearSelection: () => {
     set({ selectedId: null, draftPhraseRange: null, clickPos: null });
@@ -946,7 +961,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     }
   },
 
-  setDraftPhrase: (range) => set({ draftPhraseRange: range, selectedId: null }),
+  setDraftPhrase: (range) => set({ draftPhraseRange: range, selectedId: null, isSidebarVisible: true }),
 
   createPhrase: async (range, meaning) => {
     const state = get();
@@ -1036,13 +1051,13 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     }
   },
 
-  syncLessonProgress: async (lessonId: string, isCompleted?: boolean, incrementReadTime?: boolean) => {
-    const {
-      tokens,
-      currentPage,
+  syncLessonProgress: async (lessonId, isCompleted, incrementReadTime, triggerRecalculateStats) => {
+    const { 
+      tokens, 
+      currentPage, 
       activeLessonId,
-      sessionListeningTicks,
-      sessionWordsRead,
+      sessionListeningTicks, 
+      sessionWordsRead, 
       sessionDailyLingqs,
       sessionDailyLingqsLearned
     } = get();
@@ -1101,6 +1116,10 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         sessionDailyLingqs: currentLoc.sessionDailyLingqs - sessionDailyLingqs,
         sessionDailyLingqsLearned: currentLoc.sessionDailyLingqsLearned - sessionDailyLingqsLearned
       });
+
+      if (triggerRecalculateStats) {
+        await get().recalculateStats();
+      }
     } catch (err) {
       console.error("Failed to sync progress", err);
     }
@@ -1280,58 +1299,99 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     });
   },
 
-  importFromLingq: async (apiKey, courseCount, lessonsPerCourse, onProgress) => {
+  fetchLingqRecommendedCourses: async (apiKey) => {
     try {
       const { languageCode } = get();
       const token = localStorage.getItem('lingq_token');
       
-      const response = await fetch(`${BASE_URL}/library/lingq-import`, {
+      const queryParams = new URLSearchParams({ lang: languageCode });
+      if (apiKey) queryParams.append('apiKey', apiKey);
+
+      const response = await fetch(`${BASE_URL}/library/lingq-courses?${queryParams.toString()}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
+
+      if (!response.ok) throw new Error("Failed to fetch LingQ recommended courses");
+      
+      const data = await response.json();
+      return data.results || [];
+    } catch (err: unknown) {
+      console.error("fetchLingqRecommendedCourses Error:", err);
+      throw err;
+    }
+  },
+
+  fetchLingqCourseLessons: async (courseId, apiKey) => {
+    try {
+      const { languageCode } = get();
+      const token = localStorage.getItem('lingq_token');
+      
+      const queryParams = new URLSearchParams({ lang: languageCode, courseId: String(courseId) });
+      if (apiKey) queryParams.append('apiKey', apiKey);
+
+      const response = await fetch(`${BASE_URL}/library/lingq-lessons?${queryParams.toString()}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      });
+
+      if (!response.ok) throw new Error("Failed to fetch LingQ course lessons");
+      
+      const data = await response.json();
+      return data;
+    } catch (err: unknown) {
+      console.error("fetchLingqCourseLessons Error:", err);
+      throw err;
+    }
+  },
+
+  fetchLingqImportedIds: async () => {
+    try {
+      const { languageCode } = get();
+      const response = await fetch(`${BASE_URL}/library/lingq-imported-ids?lang=${languageCode}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('lingq_token') || ''}`
+        }
+      });
+      if (!response.ok) throw new Error('Failed to fetch imported LingQ IDs');
+      return await response.json();
+    } catch (error) {
+      console.error("fetchLingqImportedIds error:", error);
+      return { importedIds: [], importedToday: 0, maxQuota: 10 };
+    }
+  },
+
+  importFromLingq: async (apiKey, selectedLessons) => {
+    try {
+      const { languageCode } = get();
+      const token = localStorage.getItem('lingq_token');
+      
+      const response = await fetch(`${BASE_URL}/library/lingq-import-selected`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({ apiKey, languageCode, courseCount, lessonsPerCourse })
+        body: JSON.stringify({ apiKey, languageCode, selectedLessons })
       });
 
-      if (!response.ok || !response.body) {
-         throw new Error("Failed to stream import API. " + response.statusText);
+      if (!response.ok) {
+         const errorData = await response.json();
+         throw new Error(errorData.error || "Failed to import selected lessons.");
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let streamResult = { success: false, count: 0 };
+      const result = await response.json();
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-        
-        for (const line of lines) {
-           if (!line.trim()) continue;
-           
-           if (line.trim().startsWith('{') && line.includes('"success":')) {
-              try {
-                  streamResult = JSON.parse(line);
-              } catch {
-                  // Ignore parse errors on stream data
-              }
-           } else if (line.startsWith('[ERROR]')) {
-              throw new Error(line);
-           } else {
-              if (onProgress) onProgress(line);
-           }
-        }
-      }
-
-      if (streamResult.success) {
-        set({ hasImportedFromLingq: true });
+      if (result.success) {
         // Refresh library stats/feed
         get().fetchLibrary();
       }
-      return streamResult;
+      return result;
     } catch (err: unknown) {
       console.error("LingQ Import Action Error:", err);
       throw err;

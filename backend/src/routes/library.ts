@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/index.js';
 import { courses, lessons, userCourses, userLessonProgress, lessonContent, userVocabRelation, masterVocab, userLanguages } from '../db/schema.js';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
-import { eq, and, sql, notInArray, inArray, like } from 'drizzle-orm';
+import { eq, and, sql, notInArray, inArray, like, isNotNull } from 'drizzle-orm';
 import { LingqImportService } from '../services/lingq.service.js';
 
 
@@ -132,6 +132,7 @@ router.get('/feed/:langCode', authenticate, async (req: AuthRequest, res) => {
       user_lingqs: userLessonProgress.lingqs_count,
       is_bookmarked: userLessonProgress.is_bookmarked,
       is_completed: userLessonProgress.is_completed,
+      lingq_id: lessons.lingq_id,
     })
     .from(lessons)
     .innerJoin(courses, eq(lessons.course_id, courses.id))
@@ -200,6 +201,7 @@ router.get('/my-lessons', authenticate, async (req: AuthRequest, res) => {
       user_lingqs: userLessonProgress.lingqs_count,
       is_completed: userLessonProgress.is_completed,
       is_bookmarked: userLessonProgress.is_bookmarked,
+      lingq_id: lessons.lingq_id,
     })
     .from(userCourses)
     .innerJoin(courses, eq(userCourses.course_id, courses.id))
@@ -623,47 +625,165 @@ router.post('/lessons/:id/bookmark', authenticate, async (req: AuthRequest, res)
   }
 });
 
-// 9. One-time LingQ Import
-router.post('/lingq-import', authenticate, async (req: AuthRequest, res) => {
+// 9. Get already imported LingQ IDs and daily quota
+router.get('/lingq-imported-ids', authenticate, async (req: AuthRequest, res) => {
   try {
-    const userId = req.user!.id;
-    const { apiKey, languageCode, courseCount, lessonsPerCourse } = req.body;
+    const userId = req.user?.id;
+    const lang = req.query.lang as string;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    // First check if user already imported FOR THIS LANGUAGE
-    const targetLang = languageCode || 'en';
-    const [userLang] = await db.select({ hasImported: userLanguages.has_imported_from_lingq })
-      .from(userLanguages).where(and(
-        eq(userLanguages.user_id, userId),
-        eq(userLanguages.language_code, targetLang)
-      ));
+    const imported = await db.select({ lingq_id: lessons.lingq_id })
+      .from(lessons)
+      .innerJoin(courses, eq(lessons.course_id, courses.id))
+      .where(and(eq(courses.owner_id, userId), isNotNull(lessons.lingq_id)));
+
+    const ids = imported.map(row => row.lingq_id);
     
-    if (userLang?.hasImported) {
-      return res.status(403).json({ error: `LingQ import can only be performed once for ${targetLang}.` });
+    let importedToday = 0;
+    if (lang) {
+      const [userLang] = await db.select().from(userLanguages).where(and(
+        eq(userLanguages.user_id, userId),
+        eq(userLanguages.language_code, lang)
+      ));
+      
+      const now = new Date();
+      importedToday = userLang?.lingq_lessons_imported_today || 0;
+      const lastImportDate = userLang?.last_lingq_import_date;
+      if (lastImportDate) {
+        const isSameDay = lastImportDate.getUTCFullYear() === now.getUTCFullYear() &&
+                          lastImportDate.getUTCMonth() === now.getUTCMonth() &&
+                          lastImportDate.getUTCDate() === now.getUTCDate();
+        if (!isSameDay) {
+          importedToday = 0;
+        }
+      }
     }
 
-    // Set streaming headers
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Transfer-Encoding', 'chunked');
+    res.json({ importedIds: ids, importedToday, maxQuota: 10 });
+  } catch (error: any) {
+    console.error('Error fetching imported LingQ IDs:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    const result = await LingqImportService.importRecommended(
+// 10. Fetch Recommended Courses from LingQ
+router.get('/lingq-courses', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const lingqApiKey = req.headers['x-lingq-apikey'] as string | undefined;
+
+    const reqLang = req.query.lang as string | undefined;
+    let languageCode = reqLang;
+
+    if (!languageCode) {
+      const [userLang] = await db.select()
+        .from(userLanguages)
+        .where(eq(userLanguages.user_id, userId))
+        .limit(1);
+      languageCode = userLang?.language_code || 'es';
+    }
+
+    const courses = await LingqImportService.fetchRecommendedCourses(lingqApiKey, languageCode);
+    res.json(courses);
+  } catch (error: any) {
+    console.error('Error fetching LingQ courses:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 11. Fetch Course Lessons from LingQ
+router.get('/lingq-lessons', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { lang, apiKey, courseId } = req.query;
+    if (!lang || !courseId) return res.status(400).json({ error: "Missing language or course ID." });
+    
+    const result = await LingqImportService.fetchCourseLessons(apiKey as string, String(lang), String(courseId));
+    res.json(result);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal Error";
+    res.status(500).json({ error: message });
+  }
+});
+
+// 12. Import Selected Lessons from LingQ
+router.post('/lingq-import-selected', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const { apiKey, languageCode, selectedLessons } = req.body;
+    const targetLang = languageCode || 'en';
+
+    if (!selectedLessons || !Array.isArray(selectedLessons) || selectedLessons.length === 0) {
+      return res.status(400).json({ error: "No lessons selected." });
+    }
+
+    if (selectedLessons.length > 10) {
+      return res.status(400).json({ error: "Cannot import more than 10 lessons at once." });
+    }
+
+    // Check daily limit
+    const [userLang] = await db.select().from(userLanguages).where(and(
+      eq(userLanguages.user_id, userId),
+      eq(userLanguages.language_code, targetLang)
+    ));
+
+    const now = new Date();
+    let importedToday = userLang?.lingq_lessons_imported_today || 0;
+    const lastImportDate = userLang?.last_lingq_import_date;
+
+    // Reset if it's a new day (UTC)
+    if (lastImportDate) {
+      const isSameDay = lastImportDate.getUTCFullYear() === now.getUTCFullYear() &&
+                        lastImportDate.getUTCMonth() === now.getUTCMonth() &&
+                        lastImportDate.getUTCDate() === now.getUTCDate();
+      if (!isSameDay) {
+        importedToday = 0;
+      }
+    }
+
+    if (importedToday + selectedLessons.length > 10) {
+      const remaining = 10 - importedToday;
+      
+      let langName = targetLang;
+      try {
+        langName = new Intl.DisplayNames(['en'], { type: 'language' }).of(targetLang) || targetLang;
+      } catch (e) {
+        // Fallback
+      }
+
+      return res.status(429).json({ error: `Daily quota of 10 imports exceeded. You can only import ${remaining} more lessons today for ${langName}.` });
+    }
+
+    // Process Import
+    const result = await LingqImportService.importSelectedLessons(
       apiKey,
       userId,
       targetLang,
-      courseCount || 3,
-      lessonsPerCourse || 3,
-      (msg) => res.write(msg + '\n')
+      selectedLessons
     );
 
-    res.write(JSON.stringify(result) + '\n');
-    res.end();
-  } catch (error: unknown) {
-    console.error("LingQ Import Error:", error);
-    if (!res.headersSent) {
-      res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
+    // Update daily limit tracking
+    const newImportedToday = importedToday + selectedLessons.length;
+    
+    if (userLang) {
+       await db.update(userLanguages)
+         .set({ lingq_lessons_imported_today: newImportedToday, last_lingq_import_date: now })
+         .where(and(eq(userLanguages.user_id, userId), eq(userLanguages.language_code, targetLang)));
     } else {
-      res.write(`[ERROR] ${(error as { message?: string }).message || "Internal Error"}\n`);
-      res.end();
+       await db.insert(userLanguages)
+         .values({
+           user_id: userId,
+           language_code: targetLang,
+           lingq_lessons_imported_today: newImportedToday,
+           last_lingq_import_date: now
+         });
     }
+
+    res.json(result);
+  } catch (error: unknown) {
+    console.error("LingQ Import Selected Error:", error);
+    res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
   }
 });
 

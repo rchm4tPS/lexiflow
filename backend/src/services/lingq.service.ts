@@ -8,21 +8,8 @@ import { parseAndSaveLessonContent } from '../utils/lessonParser.js';
 export class LingqImportService {
   private static BASE_URL = 'https://www.lingq.com/api';
 
-  /**
-   * Orchestrates the import of recommended courses and their lessons from LingQ.
-   * Enforces a max of 3 courses and 3 lessons per course as per user requirements.
-   */
-  static async importRecommended(
-    userApiKey: string | undefined,
-    userId: string,
-    languageCode: string,
-    courseCount: number,
-    lessonsPerCourse: number,
-    onProgress?: (msg: string) => void
-  ) {
-    // 1. Determine API Key (Provided vs .env)
+  static async fetchRecommendedCourses(userApiKey: string | undefined, languageCode: string) {
     const apiKey = userApiKey || process.env.LINGQ_TOKEN;
-
     if (!apiKey) throw new Error('No LingQ API Key provided.');
 
     const headers = {
@@ -30,103 +17,107 @@ export class LingqImportService {
       'Accept': 'application/json'
     };
 
-    // 2. Fetch Recommended Courses for the language
-    // Enforce max 3 courses
-    const effectiveCourseCount = Math.min(courseCount, 3);
-    const effectiveLessonsPerCourse = Math.min(lessonsPerCourse, 3);
-
-    const startMsg = `Connecting to LingQ API...`;
-    console.log(startMsg);
-    onProgress?.(startMsg);
-
     const coursesRes = await axios.get(`${this.BASE_URL}/languages/${languageCode}/recommended-courses/`, { headers });
-    const recommendedCourses = coursesRes.data.results.slice(0, effectiveCourseCount);
+    return coursesRes.data;
+  }
 
-    for (const lingqCourse of recommendedCourses) {
-      const courseMsg = `Importing course: ${lingqCourse.title}`;
-      console.log(courseMsg);
-      onProgress?.(courseMsg);
+  static async fetchCourseLessons(userApiKey: string | undefined, languageCode: string, courseId: string) {
+    const apiKey = userApiKey || process.env.LINGQ_TOKEN;
+    if (!apiKey) throw new Error('No LingQ API Key provided.');
 
-      // Create Course in our DB
-      const [newCourse] = await db.insert(courses).values({
-        title: lingqCourse.title,
-        description: lingqCourse.description,
-        language_code: languageCode,
-        level: lingqCourse.level,
-        image_url: lingqCourse.image,
-        owner_id: userId,
-        is_public: false
+    const headers = {
+      'Authorization': `Token ${apiKey}`,
+      'Accept': 'application/json'
+    };
+
+    const lessonsRes = await axios.get(`${this.BASE_URL}/languages/${languageCode}/course/?course=${courseId}`, { headers });
+    return lessonsRes.data;
+  }
+
+  static async importSelectedLessons(
+    userApiKey: string | undefined,
+    userId: string,
+    languageCode: string,
+    selectedLessons: {
+      courseId: number;
+      courseTitle: string;
+      courseLevel: string;
+      courseImageUrl: string;
+      lessonId: number;
+      lessonTitle: string;
+      lessonDescription: string;
+      lessonImageUrl: string;
+      lessonAudioUrl: string;
+      lessonDuration: number;
+    }[]
+  ) {
+    const apiKey = userApiKey || process.env.LINGQ_TOKEN;
+    if (!apiKey) throw new Error('No LingQ API Key provided.');
+
+    const headers = {
+      'Authorization': `Token ${apiKey}`,
+      'Accept': 'application/json'
+    };
+
+    // Note: Limit checking is done in the route handler before calling this
+
+    const results = [];
+    
+    for (const lingqLesson of selectedLessons) {
+      // 1. Ensure Course Exists or Create It
+      // Look for a course owned by this user, in this language, with this lingq_id
+      const [existingCourse] = await db.select().from(courses).where(and(
+        eq(courses.owner_id, userId),
+        eq(courses.language_code, languageCode),
+        eq(courses.lingq_id, lingqLesson.courseId)
+      ));
+
+      let dbCourseId = existingCourse?.id;
+
+      if (!existingCourse) {
+        const [newCourse] = await db.insert(courses).values({
+          title: lingqLesson.courseTitle,
+          language_code: languageCode,
+          level: lingqLesson.courseLevel,
+          image_url: lingqLesson.courseImageUrl,
+          owner_id: userId,
+          is_public: false,
+          lingq_id: lingqLesson.courseId
+        }).returning();
+        
+        if (!newCourse) throw new Error("Failed to create course in DB.");
+        dbCourseId = newCourse.id;
+      }
+
+      // 2. Fetch Sentences for the lesson
+      const sentencesRes = await axios.get(`${this.BASE_URL}/languages/${languageCode}/lessons/${lingqLesson.lessonId}/sentences/`, { headers });
+      const sentences = Array.isArray(sentencesRes.data) ? sentencesRes.data : (sentencesRes.data.results || []);
+      const fullText = Array.isArray(sentences) 
+        ? sentences.map((s: string | { text: string }) => (typeof s === 'string' ? s : (s as { text: string }).text || '')).join('\n') 
+        : '';
+
+      // 3. Create Lesson in our DB
+      const [newLesson] = await db.insert(lessons).values({
+        course_id: dbCourseId!,
+        title: lingqLesson.lessonTitle,
+        description: lingqLesson.lessonDescription || '',
+        image_url: lingqLesson.lessonImageUrl,
+        audio_url: lingqLesson.lessonAudioUrl,
+        duration: Math.round(lingqLesson.lessonDuration || 0),
+        is_public: false,
+        original_text: fullText,
+        original_url: `https://www.lingq.com/en/learn/${languageCode}/web/reader/${lingqLesson.lessonId}`,
+        lingq_id: lingqLesson.lessonId
       }).returning();
 
-      if (!newCourse) {
-        return ({ error: "Error, new Course is undefined!" })
-      }
+      if (!newLesson) throw new Error("Failed to create lesson in DB.");
 
-      // 3. Fetch Lessons for this course ID
-      // Some LingQ endpoints use ?collection=, others use ?course=. Based on user snippet, it's ?course=
-      const lessonsRes = await axios.get(`${this.BASE_URL}/languages/${languageCode}/course/?course=${lingqCourse.id}`, { headers });
-
-      // The API might return an array or a paginated object. User snippet shows an array.
-      const rawLessons = Array.isArray(lessonsRes.data) ? lessonsRes.data : (lessonsRes.data.results || []);
-      const lessonsToImport = rawLessons.slice(0, effectiveLessonsPerCourse);
-
-      for (let i = 0; i < lessonsToImport.length; i++) {
-        const lingqLesson = lessonsToImport[i];
-        const lessonMsg = `  - Importing lesson: ${lingqLesson.title}`;
-        console.log(lessonMsg);
-        onProgress?.(lessonMsg);
-
-        // 4. Fetch Sentences for the lesson to build full text
-        const sentencesRes = await axios.get(`${this.BASE_URL}/languages/${languageCode}/lessons/${lingqLesson.id}/sentences/`, { headers });
-
-        // Join sentences with a newline character. 
-        // We use \n (newline char) to ensure formatting is preserved without visible escape characters.
-        const sentences = Array.isArray(sentencesRes.data) ? sentencesRes.data : (sentencesRes.data.results || []);
-        const fullText = Array.isArray(sentences) 
-          ? sentences.map((s: string | { text: string }) => (typeof s === 'string' ? s : (s as { text: string }).text || '')).join('\n') 
-          : '';
-
-
-        // Create Lesson in our DB
-        const [newLesson] = await db.insert(lessons).values({
-          course_id: newCourse.id,
-          title: lingqLesson.title,
-          description: lingqLesson.description || '',
-          image_url: lingqLesson.image_url,
-          audio_url: lingqLesson.audio,
-          duration: Math.round(lingqLesson.duration || 0),
-          is_public: false,
-          original_text: fullText,
-          order: i
-        }).returning();
-
-        if (!newLesson) {
-          throw new Error("Error: New lesson could not be created in the database.");
-        }
-
-        // 5. Parse and save content using our existing utility (tokenization, pagination)
-        // Since the text comes from LingQ's /sentences/ endpoint, it is already perfectly 
-        // segmented with spaces. We pass true to isPreSegmented to preserve these exact boundaries.
-        await parseAndSaveLessonContent(newLesson.id, fullText, languageCode, userId, true);
-      }
+      // 4. Parse Content
+      await parseAndSaveLessonContent(newLesson.id, fullText, languageCode, userId, true);
+      
+      results.push({ lessonId: newLesson.id, title: newLesson.title });
     }
 
-    // 6. Mark user as having completed their one-time import FOR THIS LANGUAGE
-    await db.insert(userLanguages)
-      .values({
-        user_id: userId,
-        language_code: languageCode,
-        has_imported_from_lingq: true
-      })
-      .onConflictDoUpdate({
-        target: [userLanguages.user_id, userLanguages.language_code],
-        set: { has_imported_from_lingq: true }
-      });
-
-
-    const completeMsg = `✅ LingQ import complete for user ${userId}`;
-    console.log(completeMsg);
-    onProgress?.(completeMsg);
-    return { success: true, count: recommendedCourses.length };
+    return { success: true, count: selectedLessons.length, results };
   }
 }

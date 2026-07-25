@@ -1,11 +1,13 @@
 import React, { type ReactNode, useRef, useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { Info, Download, Languages, Zap, PanelRightClose, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
+import Swal from 'sweetalert2';
+import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settings, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useReaderStore } from '../../../store/useReaderStore';
 import SummaryView from './LessonEnd/SummaryView';
 import CompletionModal from './LessonEnd/CompletionModal';
 import WordToken, { PhraseGroup } from './WordToken';
 import DraftPhraseGroup from './DraftPhraseGroup';
+import QuickStartGuide from './QuickStartGuide';
 import { RightArrow, LeftArrow } from '../../../components/common/Icons';
 import MorphingPageDots from '../../../components/ui/morphing-page-dots';
 
@@ -41,29 +43,6 @@ interface ReaderPaneProps {
   lessonImg?: string | null;
 }
 
-// interface ReaderModeToggleProps {
-//   readerMode: 'paragraph' | 'sentence';
-//   toggleReaderMode: () => void;
-// }
-
-// const ReaderModeToggle = ({ readerMode, toggleReaderMode }: ReaderModeToggleProps) => (
-//   <div 
-//       onClick={toggleReaderMode}
-//       className="flex h-7 mx-4 mt-2 border border-gray-500 rounded-lg overflow-hidden cursor-pointer hover:border-[#4F8EF8] focus:outline-none transition-colors"
-//   >
-//     <div className={`flex px-1 items-center transition-colors ${readerMode === 'sentence' ? 'bg-[#424343]' : 'bg-white'}`}>
-//       <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
-//           <path d="M4 12L20 12" stroke={readerMode === 'sentence' ? "white" : "#424343"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-//       </svg>
-//     </div>
-//     <div className={`flex px-1 items-center transition-colors ${readerMode === 'paragraph' ? 'bg-[#424343]' : 'bg-white'}`}>
-//       <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
-//           <path d="M4.5,7 L19.5,7 M4.5,11 L19.5,11 M4.5,15 L19.5,15 M4.5,19 L13.5,19" stroke={readerMode === 'paragraph' ? "white" : "#424343"} strokeWidth="2" strokeLinecap="round" />
-//       </svg>
-//     </div>
-//   </div>
-// );
-
 export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonImg }: ReaderPaneProps) {
   const {
     showSummary, setShowSummary, showModal, setModal,
@@ -71,18 +50,46 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
     selectItem, setDraftPhrase, isRTL, languageCode,
     handlePageAdvance, activeLessonId, syncLessonProgress,
     isLoadingLesson, readerMode, toggleReaderMode, totalPages, columnMapping, setSidebarPosition, setClickPos,
-    lessonIndex, courseLessonsCount, prevLessonId, nextLessonId, setShowLessonInfoModal, initialTokenIndex
+    lessonIndex, courseLessonsCount, prevLessonId, nextLessonId, setShowLessonInfoModal, initialTokenIndex,
+    isStatsLoading, lessonAudio, toggleSidebar, isSidebarVisible
   } = useReaderStore();
+  const location = useLocation();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // --- NEW: Dropdown State ---
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [showQuickStartDrawer, setShowQuickStartDrawer] = useState(false);
+  const [isQuickStartClosing, setIsQuickStartClosing] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // --- NEW: Drawer Drag State ---
+  const [dragY, setDragY] = useState(0);
+  const dragStartY = useRef<number | null>(null);
+
+  const handleDragStart = (clientY: number) => {
+    if (window.innerWidth >= 640) return;
+    dragStartY.current = clientY;
+  };
+  const handleDragMove = (clientY: number) => {
+    if (window.innerWidth >= 640 || dragStartY.current === null) return;
+    const diff = clientY - dragStartY.current;
+    if (diff > 0) setDragY(diff);
+  };
+  const handleDragEnd = () => {
+    if (window.innerWidth >= 640 || dragStartY.current === null) return;
+    if (dragY > 80) closeQuickStart();
+    dragStartY.current = null;
+    setDragY(0);
+  };
+
+  const closeDropdown = () => {
+    setIsDropdownOpen(false);
+  };
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsDropdownOpen(false);
+        closeDropdown();
       }
     };
     if (isDropdownOpen) {
@@ -90,6 +97,48 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isDropdownOpen]);
+
+  useEffect(() => {
+    setIsDropdownOpen(false);
+  }, [location.pathname]);
+
+  const handleDownloadAudio = () => {
+    if (!lessonAudio) {
+      Swal.fire({ 
+        icon: 'info', 
+        title: 'No Audio', 
+        text: 'There is no audio available for this lesson.', 
+        confirmButtonColor: '#3890fc' 
+      });
+      closeDropdown();
+      return;
+    }
+    
+    // Direct link fallback, since we can't fetch it due to strict CORS on CDN
+    // The downloaded file might carry the CDN's raw filename
+    const fallbackLink = document.createElement('a');
+    fallbackLink.href = lessonAudio;
+    fallbackLink.target = '_blank';
+    fallbackLink.download = `${lessonTitle}.mp3`;
+    document.body.appendChild(fallbackLink);
+    fallbackLink.click();
+    document.body.removeChild(fallbackLink);
+    closeDropdown();
+  };
+
+  const closeQuickStart = () => {
+    setIsQuickStartClosing(true);
+    setTimeout(() => {
+      setShowQuickStartDrawer(false);
+      setIsQuickStartClosing(false);
+    }, 280); // matches the ~0.3s CSS animation duration
+  };
+
+  const handleQuickStart = () => {
+    closeDropdown();
+    setShowQuickStartDrawer(true);
+    setIsQuickStartClosing(false);
+  };
 
   // --- NEW: CSS Columns Dynamic Layout State ---
   const anchorTokenRef = useRef<string | null>(null);
@@ -298,14 +347,16 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
         if (idx1 !== -1 && idx2 !== -1) {
           const start = Math.min(idx1, idx2);
           const end = Math.max(idx1, idx2);
-          const rangeCount = end - start + 1;
+          
+          const selectedTokens = tokens.slice(start, end + 1);
+          const learnableCount = selectedTokens.filter(t => t.isLearnable).length;
 
-          // Limit phrase selection to 2-9 words
-          if (rangeCount >= 2 && rangeCount <= 9) {
-            const selectedTokenIds = tokens.slice(start, end + 1).map(t => t.id);
+          // Limit phrase selection to 2-9 learnable words
+          if (learnableCount >= 2 && learnableCount <= 9) {
+            const selectedTokenIds = selectedTokens.map(t => t.id);
 
             // Verify they don't cross page boundaries or newlines
-            const isValid = !tokens.slice(start, end + 1).some(t => t.isNewline);
+            const isValid = !selectedTokens.some(t => t.isNewline);
             if (isValid) {
               const screenWidth = window.innerWidth;
               setSidebarPosition(e.clientX > screenWidth / 2 ? 'left' : 'right');
@@ -469,7 +520,9 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
       {currentPage <= 0 ? (
         <div className="flex items-center h-fit mt-1.5 pt-2 px-4">
           <div className={`hidden md:flex xl:hidden ${isRTL ? 'font-farsi' : 'font-nunito'} shrink min-w-0 max-w-60 h-fit leading-6`}>
-            {courseId ? (
+            {isLoadingLesson || isStatsLoading ? (
+              <div className="h-5 w-32 bg-gray-200 animate-shimmer rounded" />
+            ) : courseId ? (
               <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2" title={courseTitle}>{courseTitle}</Link>
             ) : (
               <p className="text-[#4F8EF8] text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2" title={courseTitle}>{courseTitle}</p>
@@ -479,7 +532,11 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
             {isRTL ? <LeftArrow dim={6} /> : <RightArrow dim={6} />}
           </div>
           <div className={`hidden md:flex xl:hidden ${isRTL ? 'font-farsi' : 'font-nunito'} shrink min-w-0 max-w-75 h-fit leading-6`}>
-            <p className="text-[#454646] text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2">{lessonTitle}</p>
+            {isLoadingLesson || isStatsLoading ? (
+              <div className="h-5 w-48 bg-gray-200 animate-shimmer rounded" />
+            ) : (
+              <p className="text-[#454646] text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2">{lessonTitle}</p>
+            )}
           </div>
           <div className={`flex w-full md:w-fit h-fit justify-between md:justify-end gap-2 md:gap-5 lg:gap-6 items-center shrink-0 ${isRTL ? 'md:mr-auto' : 'md:ml-auto'}`}>
             <div className="flex items-center gap-1">
@@ -505,31 +562,35 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
 
               {/* DROPDOWN MENU */}
               {isDropdownOpen && (
-                <div className="absolute right-0 top-full mt-2 w-72 bg-[#1b1c1d] text-[#e0e2e5] rounded-xl shadow-2xl py-3 z-50 overflow-hidden flex flex-col font-sans">
+                <div className={`absolute ${isRTL ? 'left-0' : 'right-0'} top-full mt-2 w-72 bg-[#1b1c1d] text-[#e0e2e5] rounded-xl shadow-2xl py-3 z-50 overflow-hidden flex flex-col font-sans animate-fade-in-fast`}>
                   {/* Dropdown Header */}
                   <div className="px-5 pb-4 pt-1 border-b border-gray-700/50 flex flex-col items-center text-center">
-                    <p className="font-bold text-[15px] leading-tight mb-2 opacity-95">{lessonTitle}</p>
+                    {isLoadingLesson || isStatsLoading ? (
+                      <div className="h-4 w-40 bg-gray-600/50 animate-shimmer rounded mb-2 mx-auto" />
+                    ) : (
+                      <p className="font-bold text-[15px] leading-tight mb-2 opacity-95">{lessonTitle}</p>
+                    )}
                     <div className="flex items-center justify-between w-full mt-1">
                       {prevLessonId ? (
-                        <Link to={`/me/${languageCode}/lesson/${prevLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
-                          <ChevronLeft className="w-5 h-5 text-gray-300" />
+                        <Link to={`/me/${languageCode}/reader/${prevLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
+                          {isRTL ? <ChevronRight className="w-5 h-5 text-gray-300" /> : <ChevronLeft className="w-5 h-5 text-gray-300" />}
                         </Link>
                       ) : <div className="w-8" />}
                       
-                      <span className="text-[13px] font-semibold text-gray-400">
+                      <span className="text-[13px] font-semibold text-gray-400" dir="ltr">
                         {lessonIndex} / {courseLessonsCount || lessonIndex}
                       </span>
                       
                       {nextLessonId ? (
-                        <Link to={`/me/${languageCode}/lesson/${nextLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
-                          <ChevronRight className="w-5 h-5 text-gray-300" />
+                        <Link to={`/me/${languageCode}/reader/${nextLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
+                          {isRTL ? <ChevronLeft className="w-5 h-5 text-gray-300" /> : <ChevronRight className="w-5 h-5 text-gray-300" />}
                         </Link>
                       ) : <div className="w-8" />}
                     </div>
                   </div>
 
                   {/* Menu Items */}
-                  <div className="flex flex-col py-2 px-2 text-[14.5px] font-medium opacity-90">
+                  <div className="flex flex-col py-2 px-2 text-[14.5px] font-medium opacity-90" dir="ltr">
                     <div 
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={() => {
@@ -540,7 +601,10 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
                       <Info className="w-5 h-5 text-gray-400" />
                       <span>Lesson Info</span>
                     </div>
-                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                    <div 
+                      className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={handleDownloadAudio}
+                    >
                       <Download className="w-5 h-5 text-gray-400" />
                       <span>Download Audio</span>
                     </div>
@@ -551,15 +615,33 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
                     
                     <div className="h-px w-full bg-gray-700/50 my-2" />
                     
-                    <div className="hidden xl:flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
-                      <PanelRightClose className="w-5 h-5 text-gray-400" />
-                      <span>Toggle Sidebar</span>
+                    <div 
+                      className="hidden xl:flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={() => {
+                        toggleSidebar();
+                        closeDropdown();
+                      }}
+                    >
+                      {isSidebarVisible ? (
+                        <>
+                          <PanelRightClose className="w-5 h-5 text-gray-400" />
+                          <span>Close Sidebar</span>
+                        </>
+                      ) : (
+                        <>
+                          <PanelRightOpen className="w-5 h-5 text-gray-400" />
+                          <span>Open Sidebar</span>
+                        </>
+                      )}
                     </div>
                     <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
                       <Settings className="w-5 h-5 text-gray-400" />
                       <span>Settings</span>
                     </div>
-                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                    <div 
+                      className="xl:hidden flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={handleQuickStart}
+                    >
                       <Zap className="w-5 h-5 text-gray-400" />
                       <span>Quick Start Guide</span>
                     </div>
@@ -572,7 +654,9 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
       ) : (
         <div className="flex items-center h-fit mt-1.5 pt-2 px-4">
           <div className={`hidden md:flex ${isRTL ? 'font-farsi' : 'font-nunito'} shrink min-w-0 max-w-60 h-fit leading-6`}>
-            {courseId ? (
+            {isLoadingLesson || isStatsLoading ? (
+              <div className="h-5 w-32 bg-gray-200 animate-shimmer rounded" />
+            ) : courseId ? (
               <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2" title={courseTitle}>{courseTitle}</Link>
             ) : (
               <p className="text-[#4F8EF8] text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2" title={courseTitle}>{courseTitle}</p>
@@ -582,7 +666,11 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
             {isRTL ? <LeftArrow dim={6} /> : <RightArrow dim={6} />}
           </div>
           <div className={`hidden md:flex ${isRTL ? 'font-farsi' : 'font-nunito'} shrink min-w-0 max-w-75 h-fit leading-6`}>
-            <p className="text-[#454646] text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2">{lessonTitle}</p>
+            {isLoadingLesson || isStatsLoading ? (
+              <div className="h-5 w-48 bg-gray-200 animate-shimmer rounded" />
+            ) : (
+              <p className="text-[#454646] text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2">{lessonTitle}</p>
+            )}
           </div>
           <div className={`flex w-full md:w-fit h-fit justify-between md:justify-end gap-2 md:gap-5 lg:gap-6 items-center shrink-0 ${isRTL ? 'md:mr-auto' : 'md:ml-auto'}`}>
             <div className="flex items-center gap-1">
@@ -608,42 +696,49 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
 
               {/* DROPDOWN MENU */}
               {isDropdownOpen && (
-                <div className="absolute right-0 top-full mt-2 w-72 bg-[#1b1c1d] text-[#e0e2e5] rounded-xl shadow-2xl py-3 z-50 overflow-hidden flex flex-col font-sans">
+                <div className={`absolute ${isRTL ? 'left-0' : 'right-0'} top-full mt-2 w-72 bg-[#1b1c1d] text-[#e0e2e5] rounded-xl shadow-2xl py-3 z-50 overflow-hidden flex flex-col font-sans animate-fade-in-fast`}>
                   {/* Dropdown Header */}
                   <div className="px-5 pb-4 pt-1 border-b border-gray-700/50 flex flex-col items-center text-center">
-                    <p className="font-bold text-[15px] leading-tight mb-2 opacity-95">{lessonTitle}</p>
+                    {isLoadingLesson || isStatsLoading ? (
+                      <div className="h-4 w-40 bg-gray-600/50 animate-shimmer rounded mb-2 mx-auto" />
+                    ) : (
+                      <p className="font-bold text-[15px] leading-tight mb-2 opacity-95">{lessonTitle}</p>
+                    )}
                     <div className="flex items-center justify-between w-full mt-1">
                       {prevLessonId ? (
-                        <Link to={`/me/${languageCode}/lesson/${prevLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
-                          <ChevronLeft className="w-5 h-5 text-gray-300" />
+                        <Link to={`/me/${languageCode}/reader/${prevLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
+                          {isRTL ? <ChevronRight className="w-5 h-5 text-gray-300" /> : <ChevronLeft className="w-5 h-5 text-gray-300" />}
                         </Link>
                       ) : <div className="w-8" />}
                       
-                      <span className="text-[13px] font-semibold text-gray-400">
+                      <span className="text-[13px] font-semibold text-gray-400" dir="ltr">
                         {lessonIndex} / {courseLessonsCount || lessonIndex}
                       </span>
                       
                       {nextLessonId ? (
-                        <Link to={`/me/${languageCode}/lesson/${nextLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
-                          <ChevronRight className="w-5 h-5 text-gray-300" />
+                        <Link to={`/me/${languageCode}/reader/${nextLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
+                          {isRTL ? <ChevronLeft className="w-5 h-5 text-gray-300" /> : <ChevronRight className="w-5 h-5 text-gray-300" />}
                         </Link>
                       ) : <div className="w-8" />}
                     </div>
                   </div>
 
                   {/* Menu Items */}
-                  <div className="flex flex-col py-2 px-2 text-[14.5px] font-medium opacity-90">
+                  <div className="flex flex-col py-2 px-2 text-[14.5px] font-medium opacity-90" dir="ltr">
                     <div 
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={() => {
                         setShowLessonInfoModal(true);
-                        setIsDropdownOpen(false);
+                        closeDropdown();
                       }}
                     >
                       <Info className="w-5 h-5 text-gray-400" />
                       <span>Lesson Info</span>
                     </div>
-                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                    <div 
+                      className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={handleDownloadAudio}
+                    >
                       <Download className="w-5 h-5 text-gray-400" />
                       <span>Download Audio</span>
                     </div>
@@ -654,15 +749,33 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
                     
                     <div className="h-px w-full bg-gray-700/50 my-2" />
                     
-                    <div className="hidden xl:flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
-                      <PanelRightClose className="w-5 h-5 text-gray-400" />
-                      <span>Toggle Sidebar</span>
+                    <div 
+                      className="hidden xl:flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={() => {
+                        toggleSidebar();
+                        closeDropdown();
+                      }}
+                    >
+                      {isSidebarVisible ? (
+                        <>
+                          <PanelRightClose className="w-5 h-5 text-gray-400" />
+                          <span>Close Sidebar</span>
+                        </>
+                      ) : (
+                        <>
+                          <PanelRightOpen className="w-5 h-5 text-gray-400" />
+                          <span>Open Sidebar</span>
+                        </>
+                      )}
                     </div>
                     <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
                       <Settings className="w-5 h-5 text-gray-400" />
                       <span>Settings</span>
                     </div>
-                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                    <div 
+                      className="xl:hidden flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={handleQuickStart}
+                    >
                       <Zap className="w-5 h-5 text-gray-400" />
                       <span>Quick Start Guide</span>
                     </div>
@@ -710,7 +823,11 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
                       }
                     </div>
                     <div className={`flex-col p-2 lg:p-3 max-w-[80%] ${isRTL ? 'border-gray-400 xl:h-38' : ''}`}>
-                      <p className="text-[#4F8EF8] text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</p>
+                      {courseId ? (
+                        <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</Link>
+                      ) : (
+                        <p className="text-[#4F8EF8] text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</p>
+                      )}
                       <p className={`text-[#454646] text-[20px] lg:text-[30px] font-extrabold line-clamp-2 ${isRTL ? 'leading-normal' : 'leading-tight'} lg:leading-13`}>{lessonTitle}</p>
                     </div>
                   </div>
@@ -721,9 +838,9 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
             </div>
           </div>
           
-          {/* MORPHING PAGE DOTS FOR TABLET (768px - 1024px) */}
-          <div className="hidden md:flex lg:hidden w-full justify-center pb-4 shrink-0" dir="ltr">
-             <MorphingPageDots total={totalPages} activeIndex={currentPage} onChange={handlePageAdvance} />
+          {/* MORPHING PAGE DOTS FOR MOBILE/TABLET (< 1024px) */}
+          <div className="flex lg:hidden w-full justify-center pb-4 shrink-0" dir="ltr">
+             <MorphingPageDots total={totalPages} activeIndex={currentPage} onChange={handlePageAdvance} isRTL={isRTL} />
           </div>
         </div>
 
@@ -753,6 +870,47 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
           )}
         </div>
       </div>
+
+      {showQuickStartDrawer && (
+        <div 
+          className={`fixed inset-0 z-[110] bg-black/60 flex items-end justify-center sm:items-center sm:p-4 ${isQuickStartClosing ? 'animate-fade-out-drawer' : 'animate-fade-in-drawer'}`} 
+          onClick={closeQuickStart}
+        >
+          <div 
+            className={`w-full max-w-md ${isQuickStartClosing ? 'animate-slide-down sm:animate-none' : 'animate-slide-up sm:animate-none'}`} 
+            onClick={e => e.stopPropagation()}
+          >
+            <div 
+              className="bg-white w-full max-h-[85vh] sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden"
+              style={{ 
+                transform: dragY > 0 ? `translateY(${dragY}px)` : undefined,
+                transition: dragY > 0 ? 'none' : 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+              }}
+            >
+              <div 
+                className="flex justify-between items-center p-4 border-b border-gray-100 bg-white shrink-0 relative sm:cursor-default cursor-grab active:cursor-grabbing select-none"
+                style={{ touchAction: 'none' }}
+                onTouchStart={e => handleDragStart(e.touches[0].clientY)}
+                onTouchMove={e => handleDragMove(e.touches[0].clientY)}
+                onTouchEnd={handleDragEnd}
+                onMouseDown={e => handleDragStart(e.clientY)}
+                onMouseMove={e => handleDragMove(e.clientY)}
+                onMouseUp={handleDragEnd}
+                onMouseLeave={handleDragEnd}
+              >
+                <div className="sm:hidden absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1.5 bg-gray-200 rounded-full" />
+                <h3 className="font-extrabold text-lg text-[#3a92fb] mt-2 sm:mt-0">Quick Start Guide</h3>
+                <button onClick={closeQuickStart} className="p-1.5 hover:bg-gray-100 rounded-full transition cursor-pointer mt-2 sm:mt-0">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              <div className="overflow-y-auto grow bg-[#EEF9FF]">
+                <QuickStartGuide />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

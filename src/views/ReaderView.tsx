@@ -20,7 +20,8 @@ export default function ReaderView() {
         selectedId, draftPhraseRange,
         updateStage, createPhrase,
         clearSelection,
-        showSummary, showModal, showLessonInfoModal, setShowLessonInfoModal
+        showSummary, showModal, showLessonInfoModal, setShowLessonInfoModal,
+        isSidebarVisible
     } = useReaderStore();
 
     useKeyboardShortcuts();
@@ -33,7 +34,8 @@ export default function ReaderView() {
             if (lessonId) {
                 // Sync reading progress but NEVER reset is_completed back to false.
                 // Pass undefined so the backend preserves the existing completed flag.
-                syncLessonProgress(lessonId);
+                // We pass `true` as the fourth parameter to trigger stats recalculation.
+                syncLessonProgress(lessonId, undefined, false, true);
                 useReaderStore.getState().clearLessonSession();
             }
         };
@@ -93,7 +95,7 @@ export default function ReaderView() {
                     lessonTitle={lessonTitle}
                     lessonImg={lessonImg}
                 />
-                {!showSummary && (
+                {!showSummary && isSidebarVisible && (
                     <Sidebar word={activeItem} onUpdateStage={updateStage} onCreatePhrase={createPhrase} />
                 )}
             </div>

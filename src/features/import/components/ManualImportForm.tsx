@@ -12,7 +12,7 @@ interface ManualImportFormProps {
     languageCode: string;
     allCourses: Course[];
     onShowCourseModal: () => void;
-    importLesson: (courseId: string, title: string, text: string, imageUrl: string, tags: string, audioUrl: string, isPublic: boolean, duration: number) => Promise<string | null>;
+    importLesson: (courseId: string, title: string, text: string, imageUrl: string, tags: string, audioUrl: string, isPublic: boolean, duration: number, originalUrl?: string) => Promise<string | null>;
 }
 
 export default function ManualImportForm({ languageCode, allCourses, onShowCourseModal, importLesson }: ManualImportFormProps) {
@@ -25,6 +25,7 @@ export default function ManualImportForm({ languageCode, allCourses, onShowCours
     const [selectedCourseId, setSelectedCourseId] = useState('');
     const [selectedLevel, setSelectedLevel] = useState('');
     const [isPublic, setIsPublic] = useState(false);
+    const [originalUrl, setOriginalUrl] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [activeTab, setActiveTab] = useState<'title-text' | 'resources' | 'clips'>('title-text');
 
@@ -93,7 +94,7 @@ export default function ManualImportForm({ languageCode, allCourses, onShowCours
                 if (audioMode === 'file' && audioFile) URL.revokeObjectURL(durationObjUrl);
             }
 
-            const lessonId = await importLesson(selectedCourseId, title, text, finalImageUrl, '', finalAudioUrl, effectiveIsPublic, parsedAudioDuration);
+            const lessonId = await importLesson(selectedCourseId, title, text, finalImageUrl, '', finalAudioUrl, effectiveIsPublic, parsedAudioDuration, originalUrl);
             setIsSaving(false);
 
             if (lessonId) {
@@ -152,13 +153,15 @@ export default function ManualImportForm({ languageCode, allCourses, onShowCours
                 audioMode={audioMode}
                 setAudioMode={setAudioMode}
                 setAudioUrl={setAudioUrl}
-                onAudioFileClick={() => { setAudioMode('file'); (document.querySelector('input[type="file"][accept="audio/*"]') as HTMLInputElement | null)?.click(); }}
+                onAudioFileClick={() => document.getElementById('audio-upload-manual')?.click()}
                 isPublic={effectiveIsPublic}
                 setIsPublic={setIsPublic}
                 isSelectedCoursePrivate={isSelectedCoursePrivate}
+                originalUrl={originalUrl}
+                setOriginalUrl={setOriginalUrl}
             />
             {/* Hidden input for LessonSidebar trigger */}
-            <input type="file" accept="audio/*" className="hidden" onChange={handleAudioFileChange} />
+            <input id="audio-upload-manual" type="file" accept="audio/*" className="hidden" onChange={handleAudioFileChange} />
 
             <div className="flex flex-col grow overflow-hidden">
                 <LessonForm 

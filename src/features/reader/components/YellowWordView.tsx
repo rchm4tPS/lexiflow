@@ -86,10 +86,10 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
     }, [word.id, word.text, languageCode]);
 
     useEffect(() => {
-        if (!isPhrase && cleanWord && cleanWord.split(' ').length === 1) {
+        if (cleanWord) {
             fetchHints(cleanWord);
         }
-    }, [cleanWord, isPhrase, fetchHints]);
+    }, [cleanWord, fetchHints]);
 
 
     useEffect(() => {
@@ -219,10 +219,10 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
 
             <div className="flex justify-between items-center text-[#3a92fb] text-sm font-bold mb-4 px-1 cursor-pointer">
                 <span className="hover:underline" onClick={() => setShowDicts(!showDicts)}>Check/Manage dictionaries</span>
-                {!isPhrase && <span className="hover:underline" onClick={() => setShowPopular(!showPopular)}>Popular meanings</span>}
+                <span className="hover:underline" onClick={() => setShowPopular(!showPopular)}>Popular meanings</span>
             </div>
 
-            {showPopular && !isPhrase && activeWordHints.length > 0 && (
+            {showPopular && activeWordHints.length > 0 && (
                 <div className="space-y-2 mb-4">
                     {activeWordHints.slice(0, 3).map((m, idx) => (
                         <div

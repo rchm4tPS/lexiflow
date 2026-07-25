@@ -27,6 +27,8 @@ export const userLanguages = sqliteTable("user_languages", {
   total_coins: integer("total_coins").default(0),
   daily_goal_tier: text("daily_goal_tier"),
   has_imported_from_lingq: integer("has_imported_from_lingq", { mode: "boolean" }).default(false),
+  lingq_lessons_imported_today: integer("lingq_lessons_imported_today").default(0),
+  last_lingq_import_date: integer("last_lingq_import_date", { mode: "timestamp" }),
 }, (t) => ({
   pk: primaryKey({ columns: [t.user_id, t.language_code] }),
 }));
@@ -63,6 +65,7 @@ export const courses = sqliteTable("courses", {
   image_url: text("image_url"),
   is_public: integer("is_public", { mode: "boolean" }).default(false),
   category: text("category", { mode: "json" }), 
+  lingq_id: integer("lingq_id"),
 });
 
 export const userCourses = sqliteTable("user_courses", {
@@ -84,10 +87,12 @@ export const lessons = sqliteTable("lessons", {
   total_words: integer("total_words").default(0),
   unique_words: integer("unique_words").default(0),
   original_text: text("original_text"),
+  original_url: text("original_url"),
   is_archived: integer("is_archived", { mode: "boolean" }).default(false),
   is_public: integer("is_public", { mode: "boolean" }).default(false),
   order: integer("order").default(0),
   last_update_date: integer("last_update_date", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  lingq_id: integer("lingq_id"),
 });
 
 export const lessonContent = sqliteTable("lesson_content", {

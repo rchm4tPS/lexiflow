@@ -28,6 +28,7 @@ export default function EditLessonView() {
     const [selectedCourseId, setSelectedCourseId] = useState('');
     const [selectedLevel, setSelectedLevel] = useState<string | null>(null);
     const [isPublic, setIsPublic] = useState(false);
+    const [originalUrl, setOriginalUrl] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'title-text' | 'resources' | 'clips'>('title-text');
@@ -74,6 +75,7 @@ export default function EditLessonView() {
                 setText(data.original_text || '');
                 setSelectedCourseId(data.course_id);
                 setIsPublic(data.is_public);
+                setOriginalUrl(data.original_url || '');
                 setExistingImageUrl(data.image_url);
                 setLessonImagePreview(data.image_url);
                 setExistingAudioUrl(data.audio_url);
@@ -154,7 +156,8 @@ export default function EditLessonView() {
                     imageUrl: finalImageUrl,
                     audioUrl: finalAudioUrl,
                     audioDuration: parsedAudioDuration,
-                    isPublic,
+                    isPublic: effectiveIsPublic,
+                    originalUrl,
                     languageCode
                 })
             });
@@ -207,13 +210,15 @@ export default function EditLessonView() {
                             audioMode={audioMode}
                             setAudioMode={setAudioMode}
                             setAudioUrl={setAudioUrl}
-                            onAudioFileClick={() => { setAudioMode('file'); (document.querySelector('input[type="file"][accept="audio/*"]') as HTMLInputElement | null)?.click(); }}
+                            onAudioFileClick={() => document.getElementById('audio-upload')?.click()}
                             isPublic={effectiveIsPublic}
                             setIsPublic={handleSetIsPublic}
                             isSelectedCoursePrivate={isSelectedCoursePrivate}
+                            originalUrl={originalUrl}
+                            setOriginalUrl={setOriginalUrl}
                         />
                         {/* Hidden input for LessonSidebar trigger */}
-                        <input type="file" accept="audio/*" className="hidden" onChange={handleAudioFileChange} />
+                        <input id="audio-upload" type="file" accept="audio/*" className="hidden" onChange={handleAudioFileChange} />
 
                         <LessonForm 
                             title={title} setTitle={setTitle}

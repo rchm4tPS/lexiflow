@@ -186,6 +186,7 @@ router.post('/parse', authenticate, async (req: AuthRequest, res) => {
       audioUrl,
       audioDuration,
       isPublic,
+      originalUrl,
       rawText, courseId, languageCode } = req.body;
     const userId = req.user!.id;
 
@@ -201,6 +202,7 @@ router.post('/parse', authenticate, async (req: AuthRequest, res) => {
       audio_url: audioUrl || '',
       duration: Math.round(audioDuration || 0),
       is_public: isPublic === true,
+      original_url: originalUrl || '',
       original_text: rawText,
       order: nextOrder,
     }).returning();
@@ -242,7 +244,7 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
   try {
     const lessonId = req.params.id;
     const userId = req.user!.id;
-    const { title, description, imageUrl, audioUrl, audioDuration, isPublic, rawText, courseId, languageCode } = req.body;
+    const { title, description, imageUrl, audioUrl, audioDuration, isPublic, originalUrl, rawText, courseId, languageCode } = req.body;
 
     const [existing] = await db.select().from(lessons).where(eq(lessons.id, String(lessonId)));
     if (!existing) return res.status(404).json({ error: "Lesson not found" });
@@ -259,6 +261,7 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
       audio_url: audioUrl || '',
       duration: Math.round(audioDuration || 0),
       is_public: isPublic === true,
+      original_url: originalUrl || existing.original_url,
       course_id: courseId,
       original_text: rawText || existing.original_text
     }).where(eq(lessons.id, String(lessonId)));

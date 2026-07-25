@@ -13,12 +13,15 @@ interface LessonSidebarProps {
     isPublic: boolean;
     setIsPublic: (isPublic: boolean) => void;
     isSelectedCoursePrivate: boolean;
+    originalUrl?: string;
+    setOriginalUrl?: (url: string) => void;
 }
 
 export default function LessonSidebar({
     imagePreview, onImageChange,
     audioFileName, audioUrl, audioMode, setAudioMode, setAudioUrl,
-    onAudioFileClick, isPublic, setIsPublic, isSelectedCoursePrivate
+    onAudioFileClick, isPublic, setIsPublic, isSelectedCoursePrivate,
+    originalUrl, setOriginalUrl
 }: LessonSidebarProps) {
     const lessonImageRef = useRef<HTMLInputElement>(null);
 
@@ -45,6 +48,8 @@ export default function LessonSidebar({
             <input
                 type="text"
                 placeholder="Enter original URL..."
+                value={originalUrl || ''}
+                onChange={e => setOriginalUrl?.(e.target.value)}
                 className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-xs focus:border-[#3890fc] outline-none bg-white font-medium"
             />
 

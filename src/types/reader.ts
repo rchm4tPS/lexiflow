@@ -56,6 +56,7 @@ export interface Lesson {
   unique_words?: number;
   user_lingqs?: number;
   course_level?: string;
+  lingq_id?: number;
 }
 
 export interface Course {
@@ -77,6 +78,7 @@ export interface Course {
   total_lingqs?: number;
   owner_id?: string;
   total_duration?: number;
+  lingq_id?: number;
 }
 
 export interface CourseDetail {

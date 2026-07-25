@@ -9,7 +9,8 @@ export default function Header() {
         totalCoins, courseTitle, lessonTitle,
         // initializeUserState,setRTL,
         recalculateStats,
-        availableLanguages, enrolledLanguages, fetchLanguages, switchLanguage
+        availableLanguages, enrolledLanguages, fetchLanguages, switchLanguage,
+        isLoadingLesson, isStatsLoading
     } = useReaderStore();
     const navigate = useNavigate();
     const location = useLocation();
@@ -108,8 +109,17 @@ export default function Header() {
                 {/* MOBILE READER TITLES (Center) */}
                 {isReaderPage && (
                     <div className="md:hidden flex flex-col items-center justify-center grow px-2 overflow-hidden text-center h-full max-w-full min-w-0">
-                        <p className="text-[10px] font-bold opacity-80 truncate w-full">{courseTitle}</p>
-                        <p className="text-[14px] font-extrabold truncate w-full">{lessonTitle}</p>
+                        {isLoadingLesson || isStatsLoading ? (
+                            <>
+                                <div className="h-3 w-20 bg-[#2b59a3] animate-shimmer rounded mb-1" />
+                                <div className="h-4 w-32 bg-[#2b59a3] animate-shimmer rounded" />
+                            </>
+                        ) : (
+                            <>
+                                <p className="text-[10px] font-bold opacity-80 truncate w-full">{courseTitle}</p>
+                                <p className="text-[14px] font-extrabold truncate w-full">{lessonTitle}</p>
+                            </>
+                        )}
                     </div>
                 )}
 
