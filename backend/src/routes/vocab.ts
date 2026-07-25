@@ -155,19 +155,19 @@ router.post('/upsert', authenticate, async (req: AuthRequest, res) => {
         : 0
         );
     
-    // lingqDelta: +1 only when first created (0 -> 1-5), never -1 (because you said can't un-lingq)
-    const lingqDelta = (oldStage === 0 && newStage >= 1 && newStage <= 5) ? 1 : 0;
+    const wasAlreadyLingq = existing ? existing.user_vocab_relation.created_as_lingq : false;
+    const isNowLingq = newStage >= 1 && newStage <= 4;
+    const becomesLingqForFirstTime = !wasAlreadyLingq && isNowLingq;
 
-    // const becameLingq = oldStage === 0 && stage >= 1 && stage <= 4;
-    
-    // If it was ALREADY created as a LingQ in the past, keep it true. Otherwise, evaluate it now.
-    // const finalCreatedAsLingq = existing ? (existing.user_vocab_relation.created_as_lingq || becameLingq) : becameLingq;
+    // lingqDelta: +1 only when first created as LingQ, never -1
+    const lingqDelta = becomesLingqForFirstTime ? 1 : 0;
+    const finalCreatedAsLingq = wasAlreadyLingq || becomesLingqForFirstTime;
 
     if (existing) {
       await db.update(userVocabRelation)
         .set({ stage: newStage, user_meaning: meaning, 
           is_ignored_initially: isIgnoredInitially, 
-          created_as_lingq: existing.user_vocab_relation.created_as_lingq,
+          created_as_lingq: finalCreatedAsLingq,
           word_tag: formattedTags,
           notes: notes !== undefined ? notes : existing.user_vocab_relation.notes,
           related_phrase_occur: finalContext,
@@ -183,7 +183,7 @@ router.post('/upsert', authenticate, async (req: AuthRequest, res) => {
         master_word_id: masterWord!.id,
         stage: newStage,
         user_meaning: meaning, is_ignored_initially: isIgnoredInitially,
-        created_as_lingq: lingqDelta === 1 ? true : false,
+        created_as_lingq: finalCreatedAsLingq,
         word_tag: formattedTags,
         notes: notes || null,
         related_phrase_occur: finalContext
@@ -254,8 +254,10 @@ router.post('/batch-upsert', authenticate, async (req: AuthRequest, res) => {
         .where(and(eq(userVocabRelation.user_id, userId), eq(userVocabRelation.master_word_id, masterWord!.id)));
 
       const oldStage = existing ? (existing.stage || 0) : 0;
-      const becameLingq = oldStage === 0 && stage >= 1 && stage <= 4;
-      const finalCreatedAsLingq = existing ? (existing.created_as_lingq || becameLingq) : becameLingq;
+      const wasAlreadyLingq = existing ? (existing.created_as_lingq || false) : false;
+      const isNowLingq = stage >= 1 && stage <= 4;
+      const becomesLingqForFirstTime = !wasAlreadyLingq && isNowLingq;
+      const finalCreatedAsLingq = wasAlreadyLingq || becomesLingqForFirstTime;
 
       if (existing) {
         await db.update(userVocabRelation).set({ stage, created_as_lingq: finalCreatedAsLingq, related_phrase_occur: finalContext || existing.related_phrase_occur, last_reviewed: new Date() })
@@ -375,10 +377,13 @@ router.get('/hints', authenticate, async (req: AuthRequest, res) => {
         eq(externalHintsCache.language_code, String(lang))
       ));
 
-    // If cache is younger than 30 days, return it
+    // If cache is younger than 30 days and NOT empty, return it
     const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
     if (cached && (Date.now() - ( cached.last_updated?.getTime() ?? Date.now() ) < THIRTY_DAYS)) {
-      return res.json(JSON.parse(cached.hints_json));
+      const parsedHints = JSON.parse(cached.hints_json);
+      if (parsedHints.length > 0) {
+        return res.json(parsedHints);
+      }
     }
 
     // 2. Not in cache -> Fetch from LingQ
@@ -388,29 +393,38 @@ router.get('/hints', authenticate, async (req: AuthRequest, res) => {
       return res.status(500).json({ error: "Missing LingQ Token" });
     }
 
-    const response = await axios.get(`https://www.lingq.com/api/languages/${lang}/hints/`, {
-      params: { word },
-      headers: { 'Authorization': `Token ${LINGQ_API_KEY}` }
-    });
+    let hints: any[] = [];
+    let isSuccess = false;
+    try {
+      const response = await axios.get(`https://www.lingq.com/api/languages/${lang}/hints/`, {
+        params: { word },
+        headers: { 'Authorization': `Token ${LINGQ_API_KEY}` }
+      });
+      hints = response.data[String(word)] || [];
+      isSuccess = true;
+    } catch (axiosError: any) {
+      console.warn(`LingQ API fetch failed for word '${word}':`, axiosError.message);
+    }
 
-    const hints = response.data[String(word)] || [];
-
-    // 3. Save to Cache for future requests
-    await db.insert(externalHintsCache).values({
-      word: String(word).toLowerCase(),
-      language_code: String(lang),
-      hints_json: JSON.stringify(hints),
-      last_updated: new Date()
-    }).onConflictDoUpdate({
-      target: [externalHintsCache.word, externalHintsCache.language_code],
-      set: { hints_json: JSON.stringify(hints), last_updated: new Date() }
-    });
+    // 3. Save to Cache ONLY if API call succeeded
+    if (isSuccess) {
+      await db.insert(externalHintsCache).values({
+        word: String(word).toLowerCase(),
+        language_code: String(lang),
+        hints_json: JSON.stringify(hints),
+        last_updated: new Date()
+      }).onConflictDoUpdate({
+        target: [externalHintsCache.word, externalHintsCache.language_code],
+        set: { hints_json: JSON.stringify(hints), last_updated: new Date() }
+      });
+    }
 
     res.json(hints);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal Error";
-    console.error("Hints Error:", message);
-    res.status(500).json({ error: "Failed to fetch hints" });
+    console.error("Hints Route Error:", message);
+    // Return empty array instead of 500 to keep UI functional
+    res.json([]);
   }
 });
 

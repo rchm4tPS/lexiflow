@@ -1,18 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
 import { useReaderStore } from '../../store/useReaderStore';
-import { useAuthStore } from '../../store/useAuthStore';
-import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { LANG_MAP } from '../../constants/languages';
 
 export default function Header() {
     const {
         languageCode, totalKnownWords, totalStreaks,
         totalCoins, courseTitle, lessonTitle,
         // initializeUserState,setRTL,
-        isRTL, recalculateStats,
-        availableLanguages, fetchLanguages, switchLanguage
+        recalculateStats,
+        availableLanguages, enrolledLanguages, fetchLanguages, switchLanguage
     } = useReaderStore();
-    const { user } = useAuthStore();
-    const { lang } = useParams();
     const navigate = useNavigate();
     const location = useLocation();
     const isReaderPage = location.pathname.includes('/reader/');
@@ -24,13 +22,33 @@ export default function Header() {
     const mobileDropdownRef = useRef<HTMLDivElement>(null);
     const mobileLangMenuRef = useRef<HTMLDivElement>(null);
 
-    // If the URL language differs from the store, fetch statistics for the new target language.
-    // This handles manual URL switches (e.g., from /me/es to /me/fr).
-    useEffect(() => {
-        if (user?.id && lang && lang !== languageCode) {
-            recalculateStats(lang);
-        }
-    }, [lang, languageCode, user?.id, recalculateStats]);
+    const renderLanguageItem = (l: any) => (
+        <div 
+            key={l.code}
+            onClick={async () => {
+                setIsLangMenuOpen(false);
+                setIsImportOpen(false);
+                if (l.code !== languageCode) {
+                    await switchLanguage(l.code);
+                    navigate(`/me/${l.code}/library`);
+                }
+            }}
+            className={`flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-blue-50 transition-colors ${l.code === languageCode ? 'bg-blue-50/50 text-[#3890fc]' : ''}`}
+        >
+            <div className="flex items-center gap-3">
+                <div className="w-7 h-7 rounded-full overflow-hidden border border-gray-200 shrink-0 bg-gray-50 flex items-center justify-center shadow-sm">
+                    <img src={`https://flagcdn.com/${LANG_MAP[l.code]?.countryCode || 'us'}.svg`} alt={l.name} className="w-full h-full object-cover" />
+                </div>
+                <div className="flex flex-col">
+                    <span className="font-bold text-[15px]">{l.name}</span>
+                    <span className="text-[11px] opacity-60 uppercase">{l.isRTL ? 'RTL Layout' : 'LTR Layout'}</span>
+                </div>
+            </div>
+            {l.code === languageCode && <span className="text-xl">✓</span>}
+        </div>
+    );
+
+
 
     // Close dropdowns when clicking outside
     useEffect(() => {
@@ -106,10 +124,9 @@ export default function Header() {
                                 <svg className="w-4 h-4 xl:w-6 xl:h-6 text-[#3890fc]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path></svg>
 
                                 {/* LANGUAGE CODE INDICATOR CIRCLE */}
-                                <div className={`w-6 h-6 xl:w-8 xl:h-8 rounded-full ${isRTL ? 'bg-red-500' : 'bg-green-500'} overflow-hidden border border-gray-300 mx-1 xl:mx-2 flex items-center justify-center text-white text-[10px] xl:text-[14px] uppercase font-black animate-pulse shadow-inner`}>
-                                    {languageCode}
+                                <div className="w-6 h-6 xl:w-8 xl:h-8 rounded-full overflow-hidden border border-gray-300 mx-1 xl:mx-2 flex items-center justify-center shadow-inner shrink-0 bg-gray-100">
+                                    <img src={`https://flagcdn.com/${LANG_MAP[languageCode?.toLowerCase() || 'en']?.countryCode || 'us'}.svg`} alt={languageCode} className="w-full h-full object-cover" />
                                 </div>
-
                                 <div className="flex flex-col items-start leading-tight">
                                     <span className="text-[13px] xl:text-[16px]">{totalKnownWords?.toLocaleString() || 0}</span>
                                 </div>
@@ -117,34 +134,30 @@ export default function Header() {
 
                             {/* DROPDOWN MENU */}
                             {isLangMenuOpen && (
-                                <div className="absolute left-0 mt-2 w-56 bg-white rounded-lg shadow-2xl py-2 z-[60] border border-gray-200 text-gray-800 overflow-hidden">
-                                    <div className="px-4 py-2 text-xs font-black text-gray-400 uppercase tracking-widest bg-gray-50 border-b mb-1">
-                                        Switch Language
-                                    </div>
-                                    {availableLanguages.map(l => (
-                                        <div 
-                                            key={l.code}
-                                            onClick={async () => {
-                                                setIsLangMenuOpen(false);
-                                                if (l.code !== languageCode) {
-                                                    await switchLanguage(l.code);
-                                                    navigate(`/me/${l.code}/library`);
-                                                }
-                                            }}
-                                            className={`flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-blue-50 transition-colors ${l.code === languageCode ? 'bg-blue-50/50 text-[#3890fc]' : ''}`}
-                                        >
-                                            <div className="flex flex-col">
-                                                <span className="font-bold text-[15px]">{l.name}</span>
-                                                <span className="text-[11px] opacity-60 uppercase">{l.isRTL ? 'RTL Layout' : 'LTR Layout'}</span>
-                                            </div>
-                                            {l.code === languageCode && <span className="text-xl">✓</span>}
+                                <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-56 md:w-[28rem] xl:w-[42rem] bg-white rounded-lg shadow-2xl py-2 z-[60] border border-gray-200 text-gray-800 overflow-hidden">
+                                    <div className="max-h-[60vh] overflow-y-auto custom-scrollbar">
+                                        {enrolledLanguages?.length > 0 && (
+                                            <>
+                                                <div className="px-4 py-2 text-xs font-black text-gray-400 uppercase tracking-widest bg-gray-50 border-b mb-1">
+                                                    My Languages
+                                                </div>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+                                                    {availableLanguages.filter(l => enrolledLanguages.includes(l.code)).map(renderLanguageItem)}
+                                                </div>
+                                            </>
+                                        )}
+                                        <div className="px-4 py-2 text-xs font-black text-gray-400 uppercase tracking-widest bg-gray-50 border-b mb-1 mt-2">
+                                            Discover New Languages
                                         </div>
-                                    ))}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+                                            {availableLanguages.filter(l => !enrolledLanguages.includes(l.code)).map(renderLanguageItem)}
+                                        </div>
+                                    </div>
                                 </div>
                             )}
                         </div>
                         <div className="flex items-center py-1 xl:py-2 mr-2 xl:mr-4">
-                            <svg className="w-4 h-4 xl:w-5 xl:h-5 mr-1 xl:mr-2 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clipRule="evenodd" /></svg> {totalStreaks}
+                            <svg className="w-4 h-4 xl:w-5 xl:h-5 mr-1 xl:mr-2 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 11-2 0h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clipRule="evenodd" /></svg> {totalStreaks}
                         </div>
                         {/* COINS WITH TOOLTIP & CLICK TO RECALCULATE */}
                         <div
@@ -169,8 +182,8 @@ export default function Header() {
                     {/*<button className="bg-[#FCB817] text-white px-4 py-2 rounded-full text-sm flex items-center shadow-sm hover:bg-yellow-400">
                                 <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path></svg> GET PREMIUM
                             </button>*/}
-                    {/* PROFILE & IMPORT - HIDDEN BELOW XL */}
-                    <div className="hidden xl:flex items-center space-x-4">
+                    {/* PROFILE & IMPORT - HIDDEN BELOW MD */}
+                    <div className="hidden md:flex items-center space-x-2 xl:space-x-4">
                         <Link
                             to={`/me/${languageCode || 'en'}/profile`}
                             className="w-11 h-11 bg-white rounded-full flex items-center justify-center overflow-hidden cursor-pointer border-4 border-[#0469E6] hover:scale-105 transition-transform"
@@ -200,9 +213,9 @@ export default function Header() {
                         </div>
                     </div>
 
-                    {/* MOBILE HAMBURGER MENU (VISIBLE BELOW XL, RIGHT SIDE FOR NON-READER) */}
+                    {/* MOBILE HAMBURGER MENU (VISIBLE BELOW MD, RIGHT SIDE FOR NON-READER) */}
                     {!isReaderPage && (
-                        <div className="relative xl:hidden flex items-center" ref={mobileMenuRef}>
+                        <div className="relative md:hidden flex items-center" ref={mobileMenuRef}>
                             <button 
                                 onClick={() => setIsImportOpen(!isImportOpen)}
                                 className="p-1 xl:p-2 ml-1 xl:ml-2 rounded hover:bg-white/10 transition-colors"
@@ -215,41 +228,36 @@ export default function Header() {
 
                 {/* HAMBURGER DROPDOWN (Shared) */}
                 {isImportOpen && (
-                    <div ref={mobileDropdownRef} className={`absolute top-full ${isReaderPage ? 'left-2 md:right-2' : 'right-2'} mt-2 w-56 bg-white rounded-md shadow-2xl py-2 z-[60] text-gray-700 text-[15px] font-bold border border-gray-200`}>
+                    <div ref={mobileDropdownRef} className={`absolute top-full ${isReaderPage ? 'left-2' : 'right-2'} mt-2 w-56 bg-white rounded-md shadow-2xl py-2 z-[60] text-gray-700 text-[15px] font-bold border border-gray-200 md:hidden`}>
                         {isReaderPage && (
                             <div className="md:hidden flex items-center justify-between px-4 py-3 bg-gray-50 border-b mb-1">
                                 <div ref={mobileLangMenuRef} className="flex items-center relative cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsLangMenuOpen(!isLangMenuOpen); }}>
-                                    <div className={`w-5 h-5 rounded-full ${isRTL ? 'bg-red-500' : 'bg-green-500'} overflow-hidden border border-gray-300 mr-1.5 flex items-center justify-center text-white text-[9px] uppercase font-black shadow-inner`}>
-                                        {languageCode}
+                                    <div className="w-6 h-6 rounded-full overflow-hidden border border-gray-300 mr-1.5 flex items-center justify-center shadow-inner shrink-0 bg-gray-100">
+                                        <img src={`https://flagcdn.com/${LANG_MAP[languageCode?.toLowerCase() || 'en']?.countryCode || 'us'}.svg`} alt={languageCode} className="w-full h-full object-cover" />
                                     </div>
                                     <span>{totalKnownWords?.toLocaleString() || 0}</span>
                                     <svg className="w-3 h-3 ml-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path></svg>
                                     
                                     {isLangMenuOpen && (
-                                        <div className="absolute top-full left-0 mt-3 w-56 bg-white rounded-lg shadow-2xl py-2 z-[70] border border-gray-200 text-gray-800 overflow-hidden cursor-default" onClick={(e) => e.stopPropagation()}>
-                                            <div className="px-4 py-2 text-xs font-black text-gray-400 uppercase tracking-widest bg-gray-50 border-b mb-1">
-                                                Switch Language
-                                            </div>
-                                            {availableLanguages.map(l => (
-                                                <div 
-                                                    key={l.code}
-                                                    onClick={async () => {
-                                                        setIsLangMenuOpen(false);
-                                                        setIsImportOpen(false);
-                                                        if (l.code !== languageCode) {
-                                                            await switchLanguage(l.code);
-                                                            navigate(`/me/${l.code}/library`);
-                                                        }
-                                                    }}
-                                                    className={`flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-blue-50 transition-colors ${l.code === languageCode ? 'bg-blue-50/50 text-[#3890fc]' : ''}`}
-                                                >
-                                                    <div className="flex flex-col">
-                                                        <span className="font-bold text-[15px]">{l.name}</span>
-                                                        <span className="text-[11px] opacity-60 uppercase">{l.isRTL ? 'RTL Layout' : 'LTR Layout'}</span>
-                                                    </div>
-                                                    {l.code === languageCode && <span className="text-xl">✓</span>}
+                                        <div className="absolute top-full left-0 md:left-auto md:-right-4 mt-3 w-56 md:w-[28rem] xl:w-[42rem] bg-white rounded-lg shadow-2xl py-2 z-[70] border border-gray-200 text-gray-800 overflow-hidden cursor-default" onClick={(e) => e.stopPropagation()}>
+                                            <div className="max-h-[50vh] overflow-y-auto custom-scrollbar">
+                                                {enrolledLanguages?.length > 0 && (
+                                                    <>
+                                                        <div className="px-4 py-2 text-xs font-black text-gray-400 uppercase tracking-widest bg-gray-50 border-b mb-1">
+                                                            My Languages
+                                                        </div>
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+                                                            {availableLanguages.filter(l => enrolledLanguages.includes(l.code)).map(renderLanguageItem)}
+                                                        </div>
+                                                    </>
+                                                )}
+                                                <div className="px-4 py-2 text-xs font-black text-gray-400 uppercase tracking-widest bg-gray-50 border-b mb-1 mt-2">
+                                                    Discover New Languages
                                                 </div>
-                                            ))}
+                                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+                                                    {availableLanguages.filter(l => !enrolledLanguages.includes(l.code)).map(renderLanguageItem)}
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
                                 </div>

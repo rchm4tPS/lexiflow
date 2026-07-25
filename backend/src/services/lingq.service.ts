@@ -105,7 +105,9 @@ export class LingqImportService {
         }
 
         // 5. Parse and save content using our existing utility (tokenization, pagination)
-        await parseAndSaveLessonContent(newLesson.id, fullText, languageCode, userId);
+        // Since the text comes from LingQ's /sentences/ endpoint, it is already perfectly 
+        // segmented with spaces. We pass true to isPreSegmented to preserve these exact boundaries.
+        await parseAndSaveLessonContent(newLesson.id, fullText, languageCode, userId, true);
       }
     }
 

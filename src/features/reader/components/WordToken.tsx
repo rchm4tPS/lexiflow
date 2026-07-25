@@ -7,20 +7,27 @@ interface PhraseGroupProps {
   isSelected: boolean;
   onPhraseClick: (e: React.MouseEvent) => void;
   children: React.ReactNode;
+  depth?: number;
 }
 
 // --- THE NEW PHRASE WRAPPER ---
-export function PhraseGroup({ phrase, isSelected, onPhraseClick, children }: PhraseGroupProps) {
+export function PhraseGroup({ phrase, isSelected, onPhraseClick, children, depth = 0 }: PhraseGroupProps) {
   const stage = phrase?.stage || 1;
 
   // Orange gradient logic
   const opacities = [1, 0.8, 0.6, 0.4, 0.2];
   const opacity = (stage >= 1 && stage <= 5) ? opacities[stage - 1] : 0;
+  const vPadding = Math.max(0, 8 - depth * 4);
   const bgStyle: React.CSSProperties = stage <= 5 ? {
     backgroundColor: `rgba(255, 165, 0, ${opacity})`,
     WebkitBoxDecorationBreak: 'clone',
     boxDecorationBreak: 'clone',
-  } : {};
+    paddingTop: `${vPadding}px`,
+    paddingBottom: `${vPadding}px`,
+  } : {
+    paddingTop: `${vPadding}px`,
+    paddingBottom: `${vPadding}px`,
+  };
 
   // Known phrase outline
   const outlineClass = stage === 6 ? "border-2 border-gray-300" : "";
@@ -32,7 +39,7 @@ export function PhraseGroup({ phrase, isSelected, onPhraseClick, children }: Phr
     <span
       onClick={onPhraseClick}
       style={bgStyle}
-      className={`inline rounded-md px-1 -mx-1 py-1 cursor-pointer transition-all duration-200 ${outlineClass} ${highlightClass}`}
+      className={`inline rounded-md px-1 -mx-1 cursor-pointer transition-all duration-200 ${outlineClass} ${highlightClass}`}
     >
       {/* Render whatever the recursive tree hands down */}
       {children}
@@ -80,7 +87,7 @@ export default function WordToken({ token, isSelected, onClick }: WordTokenProps
       data-token-id={token.id} // Essential for Drag-to-Select
       onClick={onClick}
       style={wordBgStyle}
-      className={`cursor-pointer px-1 rounded mx-0.75 ${isRTL ? 'my-4' : 'my-3'} transition-all duration-50 inline-block ${highlightClass} hover:ring-1 ring-amber-400`}
+      className={`cursor-pointer px-0.75 rounded mx-0.75 ${isRTL ? 'my-4' : 'my-3'} transition-all duration-50 inline-block ${highlightClass} hover:ring-1 ring-amber-400`}
     >
       {token.text}
     </span>

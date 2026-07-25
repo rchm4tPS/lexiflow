@@ -137,6 +137,12 @@ router.get('/info/:userId', async (req: AuthRequest, res) => {
       getStatsArray(30)
     ]);
 
+    const enrolledLanguagesResult = await db.select({
+      language_code: userLanguages.language_code
+    }).from(userLanguages)
+      .where(eq(userLanguages.user_id, userId));
+    const enrolledLanguages = enrolledLanguagesResult.map(r => r.language_code);
+
     const rawStreak = userStreakInfo[0]?.current_streak || 0;
     const lastFulfillment = userStreakInfo[0]?.last_activity_date ? new Date(userStreakInfo[0].last_activity_date) : null;
     let displayStreak = rawStreak;
@@ -170,7 +176,8 @@ router.get('/info/:userId', async (req: AuthRequest, res) => {
       hasImportedFromLingq: userLanguageInfo[0]?.has_imported_from_lingq ?? false,
       isRTL,
       stats7d,
-      stats30d
+      stats30d,
+      enrolledLanguages
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal Error";

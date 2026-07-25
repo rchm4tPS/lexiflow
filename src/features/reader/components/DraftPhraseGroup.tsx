@@ -18,7 +18,7 @@ const DraftPhraseGroup = ({ isDrafted, children }: DraftPhraseGroupProps) => {
   return (
     <span
       style={bgStyle}
-      className={`inline rounded-md py-1 px-1 -mx-1 cursor-pointer transition-all duration-200 ${highlightClass}`}
+      className={`inline rounded-md py-1 px-0.75 -mx-0.75 cursor-pointer transition-all duration-200 ${highlightClass}`}
     >
       {children}
     </span>

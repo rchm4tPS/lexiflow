@@ -9,14 +9,14 @@ import { LANGUAGES } from '../../../constants/languages';
 import type { SidebarItem, UpdatePayload } from '../../../types/reader';
 
 interface BlueWordViewProps {
-  word: SidebarItem;
-  onUpdateStage: (payload: UpdatePayload) => void;
-  onCreatePhrase: (range: string[], meaning: string) => void;
+    word: SidebarItem;
+    onUpdateStage: (payload: UpdatePayload) => void;
+    onCreatePhrase: (range: string[], meaning: string) => void;
 }
 
 const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps) => {
     const [showDicts, setShowDicts] = useState(false);
-    const { isRTL, activeWordHints, isLoadingHints, fetchHints, languageCode, clearSelection } = 
+    const { isRTL, activeWordHints, isLoadingHints, fetchHints, languageCode, clearSelection } =
         useReaderStore(useShallow((state) => ({
             isRTL: state.isRTL,
             activeWordHints: state.activeWordHints,
@@ -57,12 +57,15 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
     };
 
     return (
-        <div className={`grow bg-[#eef9ff] animate-fade-in flex flex-col min-h-0 rounded-xl shadow-md xl:shadow-[0_2px_10px_rgba(0,0,0,0.08)] p-3 md:p-4 xl:p-8 m-1 md:m-2 lg:m-4 xl:m-2 border border-gray-100 overflow-y-auto`}>
+        <div 
+            className={`grow bg-[#eef9ff] animate-fade-in flex flex-col min-h-0 rounded-xl shadow-md xl:shadow-[0_2px_10px_rgba(0,0,0,0.08)] p-3 md:p-4 xl:p-8 m-1 md:m-2 lg:m-4 xl:m-2 border border-gray-100 overflow-y-auto`}
+            onClick={(e) => e.stopPropagation()}
+        >
             <div className="flex flex-col h-fit shrink-0">
                 <div className="flex h-fit items-center">
                     <button
                         className="w-8 h-8 md:w-10 md:h-10 px-1.5 md:px-2 bg-[#5ad263] rounded-full flex items-center justify-center shadow-md mr-3 md:mr-4 hover:bg-green-500 transition cursor-pointer"
-                        onClick={() => speak(cleanWord, languageCode)} 
+                        onClick={() => speak(cleanWord, languageCode)}
                     >
                         <Sound />
                     </button>
@@ -72,7 +75,7 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
                             <Coin /><Coin />
                         </div>
                     </div>
-                    <button 
+                    <button
                         onClick={() => clearSelection()}
                         className="xl:hidden ml-auto self-start text-gray-400 hover:text-gray-600 transition p-1 cursor-pointer"
                         title="Close"
@@ -105,7 +108,7 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
                 <p className="text-gray-500 text-sm font-semibold">
                     {showDicts ? 'Search in external dictionaries' : 'Use a popular meaning'}
                 </p>
-                <span 
+                <span
                     className="text-[#3a92fb] text-sm font-bold hover:underline cursor-pointer"
                     onClick={() => setShowDicts(!showDicts)}
                 >
@@ -119,52 +122,49 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
             </p>
 
             {/* Popular Meanings (Hints) */}
-            <div className={`${showDicts ? 'hidden xl:block' : 'block'} space-y-2 mb-3 xl:mb-6 overflow-y-auto shrink-1 min-h-0`}>
-                    {isLoadingHints ? (
-                        <div className="space-y-2">
-                            {[1, 2, 3].map((i) => (
-                                <div key={i} className="h-10 bg-[#3a92fb]/50 rounded-md animate-shimmer w-full" />
-                            ))}
+            <div className={`${showDicts ? 'hidden xl:block' : 'block'} space-y-2 mb-3 xl:mb-6 shrink-0`}>
+                {isLoadingHints ? (
+                    <div className="space-y-2">
+                        {[1, 2, 3].map((i) => (
+                            <div key={i} className="h-10 bg-[#3a92fb]/50 rounded-md animate-shimmer w-full" />
+                        ))}
+                    </div>
+                ) : activeWordHints.length > 0 ? (
+                    activeWordHints.slice(0, 3).map((m, idx) => (
+                        <div
+                            key={idx}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddLingQ(m.text);
+                            }}
+                            className="bg-[#3a92fb] text-white px-2 py-1.5 lg:py-1.5 lg:px-3 xl:px-4 xl:py-3 rounded-md cursor-pointer flex justify-between items-center shadow-sm hover:bg-[#3a92fb] hover:text-white transition group"
+                        >
+                            <span className="font-bold">{m.text}</span>
+                            <span className="text-gray-200 group-hover:text-white/80 text-sm font-bold">({m.popularity})</span>
                         </div>
-                    ) : activeWordHints.length > 0 ? (
-                        activeWordHints.slice(0, 3).map((m, idx) => (
-                            <div
-                                key={idx}
-                                onClick={() => {
-                                    if (word.id) {
-                                        onUpdateStage({
-                                            id: word.id,
-                                            stage: 1,
-                                            meaning: m.text
-                                        });
-                                    }
-                                }}
-                                className="bg-[#3a92fb] text-white px-2 py-1.5 lg:py-1.5 lg:px-3 xl:px-4 xl:py-3 rounded-md cursor-pointer flex justify-between items-center shadow-sm hover:bg-[#3a92fb] hover:text-white transition group"
-                            >
-                                <span className="font-bold">{m.text}</span>
-                                <span className="text-gray-200 group-hover:text-white/80 text-sm font-bold">({m.popularity})</span>
-                            </div>
-                        ))
-                    ) : (
-                        <div className="text-gray-400 italic text-sm text-center py-4">
-                            No popular meanings found. Try a dictionary below.
-                        </div>
-                    )}
-                </div>
+                    ))
+                ) : (
+                    <div className="text-gray-400 italic text-sm text-center py-4">
+                        No popular meanings found. Try a dictionary below.
+                    </div>
+                )}
+            </div>
             {/* Create meaning link */}
-            <div className={`${showDicts ? 'hidden xl:flex' : 'flex'} justify-between items-center text-[#3a92fb] text-sm font-bold mb-3 xl:mb-6 cursor-pointer shrink-0`}>
-                    <span className="hover:underline">View more</span>
-                    <span
-                        className="hover:underline"
-                        onClick={() => handleAddLingQ("")}
-                    >
-                        Or, create your own meaning
-                    </span>
-                </div>
+            <div className={`${showDicts ? 'hidden xl:flex' : 'flex'} justify-end items-center text-[#3a92fb] text-sm font-bold mb-3 xl:mb-6 cursor-pointer shrink-0`}>
+                <span
+                    className="hover:underline"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddLingQ("");
+                    }}
+                >
+                    Or, create your own meaning
+                </span>
+            </div>
 
 
             {/* External Dictionaries */}
-            <div className={`${!showDicts ? 'hidden xl:block' : 'block'} space-y-2 lg:space-y-1.5 xl:space-y-3 overflow-y-auto pr-2 pb-4 shrink-1 min-h-0`}>
+            <div className={`${!showDicts ? 'hidden xl:block' : 'block'} space-y-2 lg:space-y-1.5 xl:space-y-3 pr-2 pb-4 shrink-0`}>
                 {word.isDraft ? (
                     <>
                         <button

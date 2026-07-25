@@ -55,7 +55,7 @@ export const useKeyboardShortcuts = () => {
                 clearSelection();
             }
 
-            if (/[0]/.test(e.key) && activeItem?.id) {
+            if (/^[0]$/.test(e.key) && activeItem?.id) {
                 updateStage({ id: activeItem.id, stage: 6 });
             }
 
@@ -101,8 +101,8 @@ export const useKeyboardShortcuts = () => {
                     e.preventDefault();
                     updateStage({ id: activeItem.id, stage: Math.max(currentStage - 1, 1) });
                 }
-                if (/[1-6]/.test(e.key)) {
-                    updateStage({ id: activeItem.id, stage: parseInt(e.key) });
+                if (/^[1-6]$/.test(e.key)) {
+                    updateStage({ id: activeItem.id, stage: parseInt(e.key, 10) });
                 }
             }
 

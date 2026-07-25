@@ -20,7 +20,7 @@ export default function EditLessonView() {
         languageCode
     } = useReaderStore();
 
-    const currentLang = LANG_MAP[languageCode] || { name: languageCode.toUpperCase(), flag: '🌐' };
+    const currentLang = LANG_MAP[languageCode] || { name: languageCode.toUpperCase(), countryCode: 'un' };
 
     // ── Lesson form state ──────────────────────────────────────────────────────
     const [title, setTitle] = useState('');

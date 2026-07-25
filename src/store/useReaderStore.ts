@@ -1,5 +1,6 @@
 // frontend/src/store/useReaderStore.ts
 import { create } from 'zustand';
+import { useAuthStore } from './useAuthStore';
 import { apiClient, BASE_URL } from '../api/client'; // Your fetch wrapper
 import { buildPhraseInstances } from '../utils/phraseMatcher';
 import { getTier } from '../constants/tiers';
@@ -14,11 +15,18 @@ interface SupportedLanguage {
 interface ReaderState {
   currentUsername: string;
 
+  courseId: string | null;
   courseTitle: string;
   courseLevel: string | null;
   lessonTitle: string;
-  lessonImg: string;
+  lessonImg: string | null;
   lessonAudio: string | null;
+  lessonDuration: number;
+  authorName: string;
+  readTimes: number;
+  totalListenedSec: number;
+  lessonIndex: number;
+  courseLessonsCount: number;
 
   guidedCourses: Course[];
   activeCourseDetails: CourseDetail | null; 
@@ -42,7 +50,9 @@ interface ReaderState {
   dbPhrases: DbPhrase[]; // Stores raw phrases from DB (could be refined further if needed)
   phrases: Phrase[];   // Calculated instances mapping over tokens
   languageCode: string;
+  isStatsLoading: boolean;
   availableLanguages: SupportedLanguage[];
+  enrolledLanguages: string[];
 
   userTags: string[];
 
@@ -66,6 +76,7 @@ interface ReaderState {
 
   showSummary: boolean;
   showModal: boolean;
+  showLessonInfoModal: boolean;
   isRTL: boolean;
   hasFulfilledToday: boolean;
   hasImportedFromLingq: boolean;
@@ -130,9 +141,11 @@ interface ReaderState {
   createPhrase: (range: string[], meaning: string) => void;
 
   setModal: (show: boolean) => void;
+  setShowLessonInfoModal: (show: boolean) => void;
   completeLesson: () => void;
   setShowSummary: (show: boolean) => void;
   resetCompletion: () => void;
+  clearLessonSession: () => void;
 
   syncLessonProgress: (lessonId: string, isCompleted?: boolean, incrementReadTime?: boolean) => Promise<void>;
 
@@ -167,11 +180,18 @@ interface ReaderState {
 export const useReaderStore = create<ReaderState>((set, get) => ({
   currentUsername: "",
 
+  courseId: null,
   courseTitle: "",
   courseLevel: "",
   lessonTitle: "",
-  lessonImg: "",
+  lessonImg: null,
   lessonAudio: null,
+  lessonDuration: 0,
+  authorName: 'LingQ',
+  readTimes: 0,
+  totalListenedSec: 0,
+  lessonIndex: 0,
+  courseLessonsCount: 0,
 
   guidedCourses: [],
   activeCourseDetails: null,
@@ -197,7 +217,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   dbPhrases: [],
   phrases: [],
   languageCode: '',
+  isStatsLoading: false,
   availableLanguages: [],
+  enrolledLanguages: [],
 
   userTags: [],
 
@@ -232,6 +254,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   showSummary: false,
   showModal: false,
+  showLessonInfoModal: false,
   isRTL: false,
 
   hasFulfilledToday: false,
@@ -270,8 +293,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   switchLanguage: async (code: string) => {
     try {
-      const state = get();
-      const userId = localStorage.getItem('lingq_user');
+      const userId = useAuthStore.getState().user?.id;
       if (!userId) return;
 
       // Update backend preference
@@ -280,13 +302,10 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         body: JSON.stringify({ targetLanguage: code })
       });
 
-      // Update local state
-      set({ languageCode: code });
-
-      // Re-initialize for new language
-      await state.initializeUserState(userId, code);
-
-      console.log(`Switched to language: ${code}`);
+      console.log(`Updated language preference to: ${code}`);
+      // NOTE: We DO NOT update local state here anymore!
+      // This prevents a race condition. The state reset and re-initialization 
+      // is now exclusively handled by `syncLanguageWithUrl` triggered by React Router's URL change.
     } catch (err) {
       console.error("Failed to switch language", err);
     }
@@ -297,9 +316,48 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     if (state.languageCode === code) return;
 
     console.log(`Syncing store language with URL: ${code}`);
-    set({ languageCode: code });
+    
+    // Aggressively reset language-specific state
+    set({ 
+      languageCode: code,
+      isStatsLoading: true,
+      totalCoins: 0,
+      totalKnownWords: 0,
+      totalStreaks: 0,
+      totalDailyLingqs: 0,
+      totalDailyLingqsLearned: 0,
+      totalDailyListeningSec: 0,
+      totalDailyWordsRead: 0,
+      last7DaysStats: [],
+      last30DaysStats: [],
+      dailyGoalTier: 'calm',
+      hasFulfilledToday: false,
+      enrolledLanguages: [],
+      hasImportedFromLingq: false,
+      isRTL: false,
+      currentUsername: '',
+      guidedCourses: [],
+      activeCourseDetails: null,
+      myCourses: [],
+      myCoursesDropdown: [],
+      myLessons: [],
+      completedLessons: [],
+      continueStudying: [],
+      tokens: [],
+      dbPhrases: [],
+      phrases: [],
+      activeLessonId: null,
+      currentPage: 0,
+      sessionDailyLingqs: 0,
+      sessionDailyLingqsLearned: 0,
+      sessionListeningTicks: 0,
+      sessionWordsRead: 0,
+      librarySearch: '',
+      showSummary: false,
+      showModal: false
+    });
 
-    const userId = localStorage.getItem('lingq_user');
+    const userId = useAuthStore.getState().user?.id;
     if (userId) {
       await state.initializeUserState(userId, code);
     }
@@ -307,8 +365,21 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   initializeUserState: async (id: string, lang?: string) => {
     try {
-      const endpoint = lang ? `/auth/info/${id}?lang=${lang}` : `/auth/info/${id}`;
+      const cacheBuster = `t=${Date.now()}`;
+      const endpoint = lang 
+        ? `/auth/info/${id}?lang=${lang}&${cacheBuster}` 
+        : `/auth/info/${id}?${cacheBuster}`;
       const initUserData = await apiClient(endpoint);
+      
+      // Prevent race conditions: if the user rapidly switched languages, 
+      // the store's languageCode will no longer match the lang we just fetched.
+      // In that case, we discard this stale response.
+      if (lang && get().languageCode !== lang) {
+        console.warn(`Discarded stale fetch for ${lang} because current language is ${get().languageCode}`);
+        set({ isStatsLoading: false });
+        return;
+      }
+
       set({
         currentUsername: initUserData.username,
         languageCode: initUserData.languageCode,
@@ -323,13 +394,16 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         isRTL: initUserData.isRTL ?? false,
         last7DaysStats: initUserData.stats7d || [],
         last30DaysStats: initUserData.stats30d || [],
+        enrolledLanguages: initUserData.enrolledLanguages || [],
+        isStatsLoading: false,
         dailyGoalTier: initUserData.dailyGoalTier || 'calm',
         hasFulfilledToday: (initUserData.totalDailyLingqs >= getTier(initUserData.dailyGoalTier).lingqGoal) &&
           (initUserData.totalDailyListeningSec >= getTier(initUserData.dailyGoalTier).listenMinGoal * 60)
       });
 
     } catch (err) {
-      console.error(err);
+      console.error("Failed to fetch user state", err);
+      set({ isStatsLoading: false });
     }
   },
 
@@ -400,6 +474,12 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         method: 'POST',
         body: JSON.stringify({ languageCode: lang })
       });
+
+      // Prevent race condition: if language changed while fetching, discard response
+      if (get().languageCode !== lang) {
+        console.warn(`Discarded stale recalculateStats for ${lang}`);
+        return;
+      }
 
       if (response.success) {
         set({
@@ -571,6 +651,10 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     }
   },
 
+  clearLessonSession: () => {
+    set({ activeLessonId: null });
+  },
+
   fetchLesson: async (lessonId: string) => {
     set({ isLoadingLesson: true });
     try {
@@ -580,7 +664,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       // --- CALCULATE SENTENCE PAGINATION ---
       let sentenceIdx = 0;
       const tokensWithSentencePaging = (tokens || []).map((t: Token) => {
-        const isSentenceEnd = /[.!?]/.test(t.text);
+        const isSentenceEnd = /[.!?。！？]/.test(t.text);
         const updated = { ...t, sentencePageIndex: sentenceIdx };
         if (isSentenceEnd) {
           sentenceIdx++;
@@ -597,11 +681,16 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
         return {
           activeLessonId: lessonId,
+          courseId: data.courseId || null,
           courseTitle: data.courseTitle,
           courseLevel: data.courseLevel,
           lessonTitle: data.lessonTitle,
           lessonImg: data.lessonImg,
           lessonAudio: data.lessonAudio || null,
+          lessonDuration: data.lessonDuration || 0,
+          authorName: data.authorName || 'LingQ',
+          readTimes: data.readTimes || 0,
+          totalListenedSec: data.totalListenedSec || 0,
           tokens: tokensWithSentencePaging,
           dbPhrases: data.phrases || [],
           phrases: instances,
@@ -615,10 +704,13 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           draftPhraseRange: null,
           showSummary: false,
           showModal: false,
+          showLessonInfoModal: false,
           pageEnterTime: Date.now(),
           isLoadingLesson: false,
           prevLessonId: data.prevLessonId || null,
           nextLessonId: data.nextLessonId || null,
+          lessonIndex: data.lessonIndex || 0,
+          courseLessonsCount: data.courseLessonsCount || 0,
           // IF IT'S THE SAME LESSON, KEEP THE SESSION STATE. 
           // IF IT'S A NEW LESSON, RESET TO 0.
           readTokenIds: isSameLesson ? state.readTokenIds : new Set<string>(),
@@ -692,6 +784,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   setModal: (show) => set({ showModal: show }),
+  setShowLessonInfoModal: (show) => set({ showLessonInfoModal: show }),
   setShowSummary: (show) => set({ showSummary: show }),
 
   updateStage: async (payload: UpdatePayload) => {
@@ -1000,10 +1093,13 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         hasFulfilledToday: currentLoc.hasFulfilledToday || isFulfilled,
         totalStreaks: (currentLoc.hasFulfilledToday === false && isFulfilled === true) ? currentLoc.totalStreaks + 1 : currentLoc.totalStreaks,
         
-        sessionListeningTicks: 0,
-        sessionWordsRead: 0,
-        sessionDailyLingqs: 0,
-        sessionDailyLingqsLearned: 0
+        readTimes: currentLoc.readTimes + sessionWordsRead,
+        totalListenedSec: currentLoc.totalListenedSec + sessionListeningTicks,
+
+        sessionListeningTicks: currentLoc.sessionListeningTicks - sessionListeningTicks,
+        sessionWordsRead: currentLoc.sessionWordsRead - sessionWordsRead,
+        sessionDailyLingqs: currentLoc.sessionDailyLingqs - sessionDailyLingqs,
+        sessionDailyLingqsLearned: currentLoc.sessionDailyLingqsLearned - sessionDailyLingqsLearned
       });
     } catch (err) {
       console.error("Failed to sync progress", err);

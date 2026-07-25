@@ -156,7 +156,7 @@ export default function SignUpView() {
                             : 'border-gray-100 hover:border-blue-200 hover:bg-blue-50/30 text-gray-500'
                         }`}
                       >
-                        <span className="text-2xl drop-shadow-sm">{l.flag}</span>
+                        <img src={`https://flagcdn.com/${l.countryCode}.svg`} alt={l.name} className="w-8 h-6 object-contain drop-shadow-sm rounded-sm" />
                         <span className="text-[10px] uppercase tracking-tight">{l.name}</span>
                       </button>
                     ))}

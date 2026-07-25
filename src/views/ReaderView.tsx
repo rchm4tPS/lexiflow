@@ -6,6 +6,7 @@ import Toolbar from "../features/reader/components/Toolbar";
 import ReaderPane from "../features/reader/components/ReaderPane";
 import Sidebar from "../features/reader/components/Sidebar";
 import CompletionModal from "../features/reader/components/LessonEnd/CompletionModal";
+import LessonInfoModal from "../features/reader/components/LessonInfoModal";
 import type { SidebarItem } from "../types/reader";
 
 export default function ReaderView() {
@@ -14,12 +15,12 @@ export default function ReaderView() {
     const {
         fetchLesson, syncLessonProgress,
         // courseLevel
-        courseTitle, lessonTitle, lessonImg,
+        courseId, courseTitle, lessonTitle, lessonImg,
         tokens, phrases,
         selectedId, draftPhraseRange,
         updateStage, createPhrase,
         clearSelection,
-        showSummary, showModal
+        showSummary, showModal, showLessonInfoModal, setShowLessonInfoModal
     } = useReaderStore();
 
     useKeyboardShortcuts();
@@ -33,6 +34,7 @@ export default function ReaderView() {
                 // Sync reading progress but NEVER reset is_completed back to false.
                 // Pass undefined so the backend preserves the existing completed flag.
                 syncLessonProgress(lessonId);
+                useReaderStore.getState().clearLessonSession();
             }
         };
     }, [fetchLesson, lessonId, syncLessonProgress]);
@@ -40,10 +42,16 @@ export default function ReaderView() {
     // Compute activeItem for Sidebar
     const activeItem = useMemo(() => {
         if (draftPhraseRange) {
-            // 1. Check if this highlight matches an existing phrase
+            // 1. Filter draftPhraseRange to only include word tokens (no spaces/newlines)
+            // This is required because p.range excludes non-word tokens!
+            const wordTokenIds = tokens
+                .filter(t => draftPhraseRange.includes(t.id) && !t.isNewline && !!t.text.match(/\p{L}/u))
+                .map(t => t.id);
+
+            // 2. Check if this highlight matches an existing phrase
             const existingPhrase = phrases.find(p =>
-                p.range.length === draftPhraseRange.length && 
-                p.range.every((id: string, idx: number) => id === draftPhraseRange[idx])
+                p.range.length === wordTokenIds.length && 
+                p.range.every((id: string, idx: number) => id === wordTokenIds[idx])
             );
 
             if (existingPhrase) return { ...existingPhrase, isPhrase: true as const };
@@ -76,9 +84,11 @@ export default function ReaderView() {
     return (
         <div className="flex flex-col h-[calc(100dvh-48px)] lg:h-[calc(100vh-64px)] max-w-7xl w-full mx-auto p-0 lg:p-4" onClick={clearSelection}>
             {showModal && <CompletionModal />}
+            {showLessonInfoModal && <LessonInfoModal onClose={() => setShowLessonInfoModal(false)} />}
             <div className="order-2 lg:order-1 z-20"><Toolbar /></div>
             <div className="order-1 lg:order-2 flex flex-row grow min-h-0 bg-white lg:shadow-lg lg:border border-gray-200 lg:rounded-lg overflow-hidden relative">
                 <ReaderPane
+                    courseId={courseId}
                     courseTitle={courseTitle}
                     lessonTitle={lessonTitle}
                     lessonImg={lessonImg}

@@ -3,7 +3,20 @@ import { useReaderStore } from '../../../store/useReaderStore';
 import { Play, Pause, Square } from 'lucide-react';
 
 export default function Toolbar() {
-    const { tokens, handlePageAdvance, currentPage, showSummary, isRTL, lessonAudio, incrementListeningTicks, totalPages, columnMapping } = useReaderStore();
+    const { tokens, phrases, handlePageAdvance, currentPage, showSummary, isRTL, lessonAudio, incrementListeningTicks, totalPages, columnMapping } = useReaderStore();
+    
+    // Count of unique LingQs (stage 1, 2, 3) in the lesson
+    const uniqueLingQs = new Set(
+        tokens
+            .filter(w => w.isLearnable && (w.stage ?? 0) > 0 && (w.stage ?? 0) < 4)
+            .map(w => w.text.toLowerCase())
+    );
+    const uniquePhrases = new Set(
+        phrases
+            .filter(p => (p.stage ?? 0) > 0 && (p.stage ?? 0) < 4)
+            .map(p => p.text.toLowerCase())
+    );
+    const reviewCount = uniqueLingQs.size + uniquePhrases.size;
 
     const audioRef = useRef<HTMLAudioElement>(null);
     const [audioState, setAudioState] = useState<'stopped' | 'playing' | 'paused'>('stopped');
@@ -49,6 +62,10 @@ export default function Toolbar() {
     const handleTimeUpdate = () => {
         if (audioRef.current) {
             setCurrentTime(audioRef.current.currentTime);
+            // Fallback: update duration if onLoadedMetadata missed firing
+            if (audioRef.current.duration && duration !== audioRef.current.duration) {
+                setDuration(audioRef.current.duration);
+            }
         }
     };
 
@@ -218,15 +235,13 @@ export default function Toolbar() {
                 )}
             </div>
             <button className="hidden lg:flex bg-[#FFE578] text-[#C0A332] px-2 xl:px-3 py-1.5 rounded-md font-semibold text-md leading-none shadow-sm hover:bg-yellow-400 transition gap-1 xl:gap-2 items-center cursor-pointer shrink-0 mx-2">
-                <span className="hidden xl:inline text-left">Review<br />LingQs</span>
+                <span className="inline text-left">Review<br />LingQs</span>
                 <div className="flex items-center">
                     <svg className="w-5 h-5 mr-1" fill="currentColor" viewBox="0 0 20 20"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" /><path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" /></svg>
-                    <span className="opacity-70 text-lg xl:text-2xl text-black">(24)</span>
+                    <span className="opacity-70 text-lg xl:text-2xl text-black">({reviewCount})</span>
                 </div>
             </button>
-            <div className="hidden lg:flex items-center justify-between shrink-0">
-                <svg className="w-10 h-10 xl:w-12 xl:h-12 text-gray-400 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-            </div>
+
             </div>
 
             {/* AUDIO PROGRESS BAR (Top on mobile, Bottom on desktop) */}

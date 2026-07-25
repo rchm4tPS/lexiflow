@@ -182,7 +182,7 @@ export class LearningAnalyticsService {
       .where(and(
         eq(userVocabRelation.user_id, userId),
         eq(masterVocab.language_code, languageCode),
-        sql`${userVocabRelation.stage} BETWEEN 1 AND 5`, // Exclude ignored (6) and new (0)
+        eq(userVocabRelation.created_as_lingq, true),
         sql`${userVocabRelation.created_at} >= ${thirtyDaysAgo.getTime() / 1000}`
       ));
 

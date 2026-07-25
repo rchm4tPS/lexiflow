@@ -1,12 +1,13 @@
-import React, { type ReactNode } from 'react';
-import { useRef } from 'react';
+import React, { type ReactNode, useRef, useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { Info, Download, Languages, Zap, PanelRightClose, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useReaderStore } from '../../../store/useReaderStore';
-import type { Token, Phrase } from '../../../types/reader';
 import SummaryView from './LessonEnd/SummaryView';
 import CompletionModal from './LessonEnd/CompletionModal';
 import WordToken, { PhraseGroup } from './WordToken';
 import DraftPhraseGroup from './DraftPhraseGroup';
 import { RightArrow, LeftArrow } from '../../../components/common/Icons';
+import MorphingPageDots from '../../../components/ui/morphing-page-dots';
 
 // --- SKELETON UI ---
 const ReaderSkeleton = () => {
@@ -34,9 +35,10 @@ const ReaderSkeleton = () => {
 };
 
 interface ReaderPaneProps {
+  courseId?: string | null;
   courseTitle: string;
   lessonTitle: string;
-  lessonImg?: string;
+  lessonImg?: string | null;
 }
 
 // interface ReaderModeToggleProps {
@@ -62,27 +64,58 @@ interface ReaderPaneProps {
 //   </div>
 // );
 
-export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: ReaderPaneProps) {
+export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonImg }: ReaderPaneProps) {
   const {
     showSummary, setShowSummary, showModal, setModal,
     tokens, phrases, currentPage, selectedId, draftPhraseRange,
-    selectItem, setDraftPhrase, isRTL,
+    selectItem, setDraftPhrase, isRTL, languageCode,
     handlePageAdvance, activeLessonId, syncLessonProgress,
-    isLoadingLesson, readerMode, toggleReaderMode, totalPages, columnMapping, setSidebarPosition, setClickPos
+    isLoadingLesson, readerMode, toggleReaderMode, totalPages, columnMapping, setSidebarPosition, setClickPos,
+    lessonIndex, courseLessonsCount, prevLessonId, nextLessonId, setShowLessonInfoModal, initialTokenIndex
   } = useReaderStore();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // --- NEW: Dropdown State ---
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isDropdownOpen]);
 
   // --- NEW: CSS Columns Dynamic Layout State ---
   const anchorTokenRef = useRef<string | null>(null);
   const [columnWidthPx, setColumnWidthPx] = React.useState(0);
 
+  // Count of unique LingQs (stage 1, 2, 3) in the lesson
+  const uniqueLingQs = new Set(
+    tokens
+      .filter(w => w.isLearnable && (w.stage ?? 0) > 0 && (w.stage ?? 0) < 4)
+      .map(w => w.text.toLowerCase())
+  );
+  const uniquePhrases = new Set(
+    phrases
+      .filter(p => (p.stage ?? 0) > 0 && (p.stage ?? 0) < 4)
+      .map(p => p.text.toLowerCase())
+  );
+  const reviewCount = uniqueLingQs.size + uniquePhrases.size;
+
   // Update anchor token and mark as read when page changes
   React.useLayoutEffect(() => {
+    if (initialTokenIndex !== null) return;
     if (columnMapping[currentPage] && columnMapping[currentPage].length > 0) {
       anchorTokenRef.current = columnMapping[currentPage][0];
       useReaderStore.getState().markTokensAsRead(columnMapping[currentPage]);
     }
-  }, [currentPage, columnMapping]);
+  }, [currentPage, columnMapping, initialTokenIndex]);
 
   // Measurement Engine
   React.useLayoutEffect(() => {
@@ -103,8 +136,6 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
 
       const columnWidthAndGap = containerRect.width + 48; // 3rem gap = 48px
 
-      const newTotalPages = Math.ceil(container.scrollWidth / columnWidthAndGap);
-
       const mapping: Record<number, string[]> = {};
       const tokenNodes = container.querySelectorAll('[data-token-id]');
 
@@ -122,6 +153,12 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
         if (!mapping[colIndex]) mapping[colIndex] = [];
         mapping[colIndex].push(id);
       });
+
+      // Calculate total pages based on actual tokens, ignoring empty trailing scroll width
+      const maxColIndex = Object.keys(mapping).length > 0 
+        ? Math.max(...Object.keys(mapping).map(Number)) 
+        : 0;
+      const newTotalPages = Math.max(1, maxColIndex + 1);
 
       let newColForAnchor = -1;
       const { initialTokenIndex, tokens, setInitialTokenIndex } = useReaderStore.getState();
@@ -284,12 +321,17 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
     } else {
       mousePos.current.isDragging = false;
     }
-
   };
 
   // --- RECURSIVE DOM ALGORITHM ---
   // This allows infinite levels of stacked phrases (e.g. Phrase inside a Phrase)
-  const renderTree = (tokensList: Token[], availablePhrases: Phrase[], isTopLevel: boolean = false, phraseContext?: string): ReactNode => {
+  const renderTree = (
+    tokensList: typeof tokens,
+    availablePhrases: typeof phrases,
+    isTopLevel: boolean = false,
+    phraseContext: string | null = null,
+    depth: number = 0
+  ): ReactNode => {
     if (tokensList.length === 0) return null;
 
     // Only check for draft phrase at the top level (page-wide tokens)
@@ -318,11 +360,11 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
 
       return (
         <>
-          {renderTree(before, availablePhrases, false, phraseContext)}
+          {renderTree(before, availablePhrases, false, phraseContext, depth)}
           <DraftPhraseGroup key="draft-phrase" isDrafted={true}>
-            {renderTree(inside, availablePhrases, false, phraseContext)}
+            {renderTree(inside, availablePhrases, false, phraseContext, depth + 1)}
           </DraftPhraseGroup>
-          {renderTree(after, availablePhrases, false, phraseContext)}
+          {renderTree(after, availablePhrases, false, phraseContext, depth)}
         </>
       );
     }
@@ -375,10 +417,11 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
 
     return (
       <>
-        {renderTree(before, remainingPhrases, false, phraseContext)}
+        {renderTree(before, remainingPhrases, false, phraseContext, depth)}
         <PhraseGroup
           key={outermostPhrase.id}
           phrase={outermostPhrase}
+          depth={depth}
           isSelected={selectedId === outermostPhrase.id}
           onPhraseClick={(e: React.MouseEvent) => {
             e.stopPropagation();
@@ -390,9 +433,9 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
           }}
         >
           {/* Recursively render whatever is inside this phrase, passing phrase context */}
-          {renderTree(inside, remainingPhrases, false, outermostPhrase.id)}
+          {renderTree(inside, remainingPhrases, false, outermostPhrase.id, depth + 1)}
         </PhraseGroup>
-        {renderTree(after, remainingPhrases, false, phraseContext)}
+        {renderTree(after, remainingPhrases, false, phraseContext, depth)}
       </>
     );
   };
@@ -409,18 +452,6 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
 
   const stillHasBlueWords = tokens.some(w => w.isLearnable && (w.stage ?? 0) === 0)
 
-  const isPageComplete = (pageIndex: number) => {
-    const idsOnPage = columnMapping[pageIndex] || [];
-    if (idsOnPage.length === 0) return false;
-
-    return idsOnPage.every(id => {
-      const token = tokens.find(t => t.id === id);
-      if (!token) return true;
-      if (!token.isLearnable) return true;
-      return (token.stage ?? 0) !== 0;
-    });
-  }
-
   return (
     <div
       className={`flex-1 min-w-0 min-h-0 h-full flex flex-col`} dir={isRTL ? 'rtl' : 'ltr'}
@@ -436,74 +467,214 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
       }
       {/* Conditional Header Rendering */}
       {currentPage <= 0 ? (
-        <div className="flex h-fit mt-1.5 pt-2 px-4">
-          <div className={`hidden md:flex xl:hidden ${isRTL ? 'font-farsi' : 'font-nunito'} pt-2 max-w-60 h-fit leading-6`}>
-            <p className="text-[#4F8EF8] text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2">{courseTitle}</p>
+        <div className="flex items-center h-fit mt-1.5 pt-2 px-4">
+          <div className={`hidden md:flex xl:hidden ${isRTL ? 'font-farsi' : 'font-nunito'} shrink min-w-0 max-w-60 h-fit leading-6`}>
+            {courseId ? (
+              <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2" title={courseTitle}>{courseTitle}</Link>
+            ) : (
+              <p className="text-[#4F8EF8] text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2" title={courseTitle}>{courseTitle}</p>
+            )}
           </div>
-          <div className="hidden md:block xl:hidden pt-2 mx-2 h-2">
+          <div className="hidden md:flex xl:hidden items-center mx-2 h-fit shrink-0">
             {isRTL ? <LeftArrow dim={6} /> : <RightArrow dim={6} />}
           </div>
-          <div className={`hidden md:flex xl:hidden ${isRTL ? 'font-farsi' : 'font-nunito'} pt-2 max-w-75 h-fit leading-6`}>
+          <div className={`hidden md:flex xl:hidden ${isRTL ? 'font-farsi' : 'font-nunito'} shrink min-w-0 max-w-75 h-fit leading-6`}>
             <p className="text-[#454646] text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2">{lessonTitle}</p>
           </div>
-          <div className={`flex w-full md:w-fit h-fit justify-between md:justify-end gap-2 lg:gap-6 items-center ${isRTL ? 'md:mr-auto' : 'md:ml-auto'}`}>
-            {/* Mobile Review Button */}
-            <button className="flex lg:hidden bg-[#FFE578] text-[#C0A332] px-2 py-1.5 rounded-md font-semibold text-xs leading-none shadow-sm items-center cursor-pointer shrink-0">
-              <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" /><path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" /></svg>
-              <span className="opacity-70 text-black">({tokens.filter(w => w.isLearnable && (w.stage ?? 0) === 0).length})</span>
-            </button>
+          <div className={`flex w-full md:w-fit h-fit justify-between md:justify-end gap-2 md:gap-5 lg:gap-6 items-center shrink-0 ${isRTL ? 'md:mr-auto' : 'md:ml-auto'}`}>
             <div className="flex items-center gap-1">
               <div className="flex flex-col items-center justify-center p-1.5 -m-1.5 rounded-lg cursor-pointer hover:bg-gray-200 active:bg-gray-300 active:scale-95 transition-all duration-200" onClick={toggleReaderMode} title="Toggle Reader Mode">
                 <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="#000000" className="w-8 bi bi-text-paragraph opacity-70"><path fillRule="evenodd" d="M2 12.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm0-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm0-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm4-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5z"></path></svg>
                 <p className="text-[10px] w-6 text-center leading-tight mt-0.5">{readerMode === 'sentence' ? 'Sentence View' : 'Normal View'}</p>
               </div>
               <div className={`mb-auto -mt-1.5 ${isRTL ? '' : '-ml-2'} border-2 border-black rounded-full min-h-4 h-fit w-fit text-center text-xs items-center px-1`}>{currentPage + 1}</div>
-              <svg className={`h-4 ${isRTL ? '-mr-1' : '-ml-1'} items-center`} fill="#000000" viewBox="-2.16 -2.16 28.32 28.32" transform="rotate(180)"><path d="M21,21H3L12,3Z"></path></svg>
             </div>
-            <div className="flex lg:hidden items-center">
-              <svg className="w-8 h-8 text-gray-600 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-            </div>
-            <div className="hidden lg:flex items-center">
-              <svg width="30px" viewBox="-1.12 -1.12 18.24 18.24" xmlns="http://www.w3.org/2000/svg" fill="#000000" className="bi bi-three-dots" stroke="#000000" strokeWidth="0.44800000000000006"><g id="SVGRepo_bgCarrier" strokeWidth="0"></g><g id="SVGRepo_tracerCarrier" strokeLinecap="round" strokeLinejoin="round"></g><g id="SVGRepo_iconCarrier"> <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"></path> </g></svg>
+            {/* Mobile/Tablet Review Button */}
+            <button className="flex lg:hidden bg-[#FFE578] hover:bg-yellow-400 text-[#C0A332] px-2 py-1.5 rounded-md font-semibold text-[10px] sm:text-xs leading-none shadow-sm items-center cursor-pointer shrink-0 transition gap-1">
+              <span className="text-left leading-tight inline">Review<br />LingQs</span>
+              <div className="flex items-center">
+                <svg className="w-4 h-4 mr-0.5" fill="currentColor" viewBox="0 0 20 20"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" /><path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" /></svg>
+                <span className="opacity-70 text-black">({reviewCount})</span>
+              </div>
+            </button>
+            {/* The Dropdown Container */}
+            <div className="relative flex items-center" ref={dropdownRef}>
+              <div className="flex items-center" onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
+                <svg width="30px" viewBox="-1.12 -1.12 18.24 18.24" xmlns="http://www.w3.org/2000/svg" fill="#000000" className="bi bi-three-dots cursor-pointer hover:bg-gray-200 rounded-full transition-colors" stroke="#000000" strokeWidth="0.44800000000000006"><g id="SVGRepo_bgCarrier" strokeWidth="0"></g><g id="SVGRepo_tracerCarrier" strokeLinecap="round" strokeLinejoin="round"></g><g id="SVGRepo_iconCarrier"> <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"></path> </g></svg>
+              </div>
+
+              {/* DROPDOWN MENU */}
+              {isDropdownOpen && (
+                <div className="absolute right-0 top-full mt-2 w-72 bg-[#1b1c1d] text-[#e0e2e5] rounded-xl shadow-2xl py-3 z-50 overflow-hidden flex flex-col font-sans">
+                  {/* Dropdown Header */}
+                  <div className="px-5 pb-4 pt-1 border-b border-gray-700/50 flex flex-col items-center text-center">
+                    <p className="font-bold text-[15px] leading-tight mb-2 opacity-95">{lessonTitle}</p>
+                    <div className="flex items-center justify-between w-full mt-1">
+                      {prevLessonId ? (
+                        <Link to={`/me/${languageCode}/lesson/${prevLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
+                          <ChevronLeft className="w-5 h-5 text-gray-300" />
+                        </Link>
+                      ) : <div className="w-8" />}
+                      
+                      <span className="text-[13px] font-semibold text-gray-400">
+                        {lessonIndex} / {courseLessonsCount || lessonIndex}
+                      </span>
+                      
+                      {nextLessonId ? (
+                        <Link to={`/me/${languageCode}/lesson/${nextLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
+                          <ChevronRight className="w-5 h-5 text-gray-300" />
+                        </Link>
+                      ) : <div className="w-8" />}
+                    </div>
+                  </div>
+
+                  {/* Menu Items */}
+                  <div className="flex flex-col py-2 px-2 text-[14.5px] font-medium opacity-90">
+                    <div 
+                      className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={() => {
+                        setShowLessonInfoModal(true);
+                        setIsDropdownOpen(false);
+                      }}
+                    >
+                      <Info className="w-5 h-5 text-gray-400" />
+                      <span>Lesson Info</span>
+                    </div>
+                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                      <Download className="w-5 h-5 text-gray-400" />
+                      <span>Download Audio</span>
+                    </div>
+                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                      <Languages className="w-5 h-5 text-gray-400" />
+                      <span>Show Translation</span>
+                    </div>
+                    
+                    <div className="h-px w-full bg-gray-700/50 my-2" />
+                    
+                    <div className="hidden xl:flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                      <PanelRightClose className="w-5 h-5 text-gray-400" />
+                      <span>Toggle Sidebar</span>
+                    </div>
+                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                      <Settings className="w-5 h-5 text-gray-400" />
+                      <span>Settings</span>
+                    </div>
+                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                      <Zap className="w-5 h-5 text-gray-400" />
+                      <span>Quick Start Guide</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
       ) : (
-        <div className="flex h-fit mt-1.5 pt-2 px-4">
-          <div className={`hidden md:flex ${isRTL ? 'font-farsi' : 'font-nunito'} pt-2 max-w-60 h-fit leading-6`}>
-            <p className="text-[#4F8EF8] text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2">{courseTitle}</p>
+        <div className="flex items-center h-fit mt-1.5 pt-2 px-4">
+          <div className={`hidden md:flex ${isRTL ? 'font-farsi' : 'font-nunito'} shrink min-w-0 max-w-60 h-fit leading-6`}>
+            {courseId ? (
+              <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2" title={courseTitle}>{courseTitle}</Link>
+            ) : (
+              <p className="text-[#4F8EF8] text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2" title={courseTitle}>{courseTitle}</p>
+            )}
           </div>
-          <div className="hidden md:block pt-2 mx-2 h-2">
+          <div className="hidden md:flex items-center mx-2 h-fit shrink-0">
             {isRTL ? <LeftArrow dim={6} /> : <RightArrow dim={6} />}
           </div>
-          <div className={`hidden md:flex ${isRTL ? 'font-farsi' : 'font-nunito'} pt-2 max-w-75 h-fit leading-6`}>
+          <div className={`hidden md:flex ${isRTL ? 'font-farsi' : 'font-nunito'} shrink min-w-0 max-w-75 h-fit leading-6`}>
             <p className="text-[#454646] text-[18px] font-extrabold overflow-hidden text-ellipsis line-clamp-2">{lessonTitle}</p>
           </div>
-          <div className={`flex w-full md:w-fit h-fit justify-between md:justify-end gap-2 lg:gap-6 items-center ${isRTL ? 'md:mr-auto' : 'md:ml-auto'}`}>
-            {/* Mobile Review Button */}
-            <button className="flex lg:hidden bg-[#FFE578] text-[#C0A332] px-2 py-1.5 rounded-md font-semibold text-xs leading-none shadow-sm items-center cursor-pointer shrink-0">
-              <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" /><path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" /></svg>
-              <span className="opacity-70 text-black">({tokens.filter(w => w.isLearnable && (w.stage ?? 0) === 0).length})</span>
-            </button>
+          <div className={`flex w-full md:w-fit h-fit justify-between md:justify-end gap-2 md:gap-5 lg:gap-6 items-center shrink-0 ${isRTL ? 'md:mr-auto' : 'md:ml-auto'}`}>
             <div className="flex items-center gap-1">
               <div className="flex flex-col items-center justify-center p-1.5 -m-1.5 rounded-lg cursor-pointer hover:bg-gray-200 active:bg-gray-300 active:scale-95 transition-all duration-200" onClick={toggleReaderMode} title="Toggle Reader Mode">
                 <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="#000000" className="w-8 bi bi-text-paragraph opacity-70"><path fillRule="evenodd" d="M2 12.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm0-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm0-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zm4-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5z"></path></svg>
                 <p className="text-[10px] w-6 text-center leading-tight mt-0.5">{readerMode === 'sentence' ? 'Sentence View' : 'Normal View'}</p>
               </div>
               <div className={`mb-auto -mt-1.5 ${isRTL ? '' : ''} border-2 border-black rounded-full min-h-4 h-fit w-fit text-center text-xs items-center px-1`}>{currentPage + 1}</div>
-              <svg className={`h-4 ${isRTL ? '-mr-1' : '-ml-1'} items-center`} fill="#000000" viewBox="-2.16 -2.16 28.32 28.32" transform="rotate(180)"><path d="M21,21H3L12,3Z"></path></svg>
             </div>
-            <div className="flex lg:hidden items-center">
-              <svg className="w-8 h-8 text-gray-600 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-            </div>
-            <div className="hidden lg:flex items-center">
-              <svg width="30px" viewBox="-1.12 -1.12 18.24 18.24" xmlns="http://www.w3.org/2000/svg" fill="#000000" className="bi bi-three-dots" stroke="#000000" strokeWidth="0.44800000000000006"><g id="SVGRepo_bgCarrier" strokeWidth="0"></g><g id="SVGRepo_tracerCarrier" strokeLinecap="round" strokeLinejoin="round"></g><g id="SVGRepo_iconCarrier"> <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"></path> </g></svg>
+            {/* Mobile/Tablet Review Button */}
+            <button className="flex lg:hidden bg-[#FFE578] hover:bg-yellow-400 text-[#C0A332] px-2 py-1.5 rounded-md font-semibold text-[10px] sm:text-xs leading-none shadow-sm items-center cursor-pointer shrink-0 transition gap-1">
+              <span className="text-left leading-tight inline">Review<br />LingQs</span>
+              <div className="flex items-center">
+                <svg className="w-4 h-4 mr-0.5" fill="currentColor" viewBox="0 0 20 20"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" /><path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" /></svg>
+                <span className="opacity-70 text-black">({reviewCount})</span>
+              </div>
+            </button>
+            {/* The Dropdown Container */}
+            <div className="relative flex items-center" ref={dropdownRef}>
+              <div className="flex items-center" onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
+                <svg width="30px" viewBox="-1.12 -1.12 18.24 18.24" xmlns="http://www.w3.org/2000/svg" fill="#000000" className="bi bi-three-dots cursor-pointer hover:bg-gray-200 rounded-full transition-colors" stroke="#000000" strokeWidth="0.44800000000000006"><g id="SVGRepo_bgCarrier" strokeWidth="0"></g><g id="SVGRepo_tracerCarrier" strokeLinecap="round" strokeLinejoin="round"></g><g id="SVGRepo_iconCarrier"> <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"></path> </g></svg>
+              </div>
+
+              {/* DROPDOWN MENU */}
+              {isDropdownOpen && (
+                <div className="absolute right-0 top-full mt-2 w-72 bg-[#1b1c1d] text-[#e0e2e5] rounded-xl shadow-2xl py-3 z-50 overflow-hidden flex flex-col font-sans">
+                  {/* Dropdown Header */}
+                  <div className="px-5 pb-4 pt-1 border-b border-gray-700/50 flex flex-col items-center text-center">
+                    <p className="font-bold text-[15px] leading-tight mb-2 opacity-95">{lessonTitle}</p>
+                    <div className="flex items-center justify-between w-full mt-1">
+                      {prevLessonId ? (
+                        <Link to={`/me/${languageCode}/lesson/${prevLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
+                          <ChevronLeft className="w-5 h-5 text-gray-300" />
+                        </Link>
+                      ) : <div className="w-8" />}
+                      
+                      <span className="text-[13px] font-semibold text-gray-400">
+                        {lessonIndex} / {courseLessonsCount || lessonIndex}
+                      </span>
+                      
+                      {nextLessonId ? (
+                        <Link to={`/me/${languageCode}/lesson/${nextLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
+                          <ChevronRight className="w-5 h-5 text-gray-300" />
+                        </Link>
+                      ) : <div className="w-8" />}
+                    </div>
+                  </div>
+
+                  {/* Menu Items */}
+                  <div className="flex flex-col py-2 px-2 text-[14.5px] font-medium opacity-90">
+                    <div 
+                      className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={() => {
+                        setShowLessonInfoModal(true);
+                        setIsDropdownOpen(false);
+                      }}
+                    >
+                      <Info className="w-5 h-5 text-gray-400" />
+                      <span>Lesson Info</span>
+                    </div>
+                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                      <Download className="w-5 h-5 text-gray-400" />
+                      <span>Download Audio</span>
+                    </div>
+                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                      <Languages className="w-5 h-5 text-gray-400" />
+                      <span>Show Translation</span>
+                    </div>
+                    
+                    <div className="h-px w-full bg-gray-700/50 my-2" />
+                    
+                    <div className="hidden xl:flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                      <PanelRightClose className="w-5 h-5 text-gray-400" />
+                      <span>Toggle Sidebar</span>
+                    </div>
+                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                      <Settings className="w-5 h-5 text-gray-400" />
+                      <span>Settings</span>
+                    </div>
+                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                      <Zap className="w-5 h-5 text-gray-400" />
+                      <span>Quick Start Guide</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      <div className={`flex max-h-[90%] grow`}>
+      <div className={`flex max-h-[90%] grow min-h-0`}>
         <div className="w-8 sm:w-16 lg:w-28 flex flex-col items-center justify-center cursor-pointer opacity-60 hover:opacity-100 shrink-0">
           {currentPage > 0 && (
             <button onClick={() => handlePageAdvance(currentPage - 1)} className="bg-gray-200 rounded-full p-2 lg:p-4 shadow-md border border-gray-200 text-gray-500 cursor-pointer hover:text-blue-600 hover:bg-blue-100 hover:scale-105 transition-all">
@@ -512,34 +683,8 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
           )}
         </div>
 
-        <div className={`flex flex-col mt-2 lg:mt-4 grow min-w-0 ${isRTL ? 'font-farsi-trad pl-4 lg:pl-8 pr-2 lg:pr-4' : 'font-nunito px-2 lg:px-4'} relative bg-white rounded-md`}>
-          {/* MOBILE/TABLET STEP UI PROGRESS */}
-          <div className="hidden md:flex lg:hidden w-full overflow-x-auto px-4 py-2 shrink-0 scrollbar-hide" dir={isRTL ? "rtl" : "ltr"}>
-            <div className="flex items-center w-full min-w-max mx-auto justify-center">
-              {Array.from({ length: totalPages }).map((_, i) => {
-                const isComplete = isPageComplete(i);
-                const isNextComplete = i < totalPages - 1 ? isPageComplete(i + 1) : false;
-                return (
-                  <React.Fragment key={i}>
-                    <button
-                      onClick={() => handlePageAdvance(i)}
-                      className={`relative w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center shrink-0 rounded-full transition-all duration-300 cursor-pointer shadow-sm z-10
-                                      ${currentPage === i ? 'ring-2 ring-blue-500 scale-125 border-2 border-white' : 'border-2 border-white'}
-                                      ${isComplete ? 'bg-green-400' : 'bg-gray-300'}
-                                  `}
-                    >
-                      {isComplete && <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg>}
-                    </button>
-                    {i < totalPages - 1 && (
-                      <div className={`w-6 sm:w-10 h-1 transition-all duration-300 ${isComplete && isNextComplete ? 'bg-green-400' : 'bg-gray-200'}`} />
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className={`w-full h-full overflow-hidden relative ${isRTL ? 'pt-1 pb-6' : 'pb-4 lg:pb-6'}`}>
+        <div className={`flex flex-col mt-2 lg:mt-4 grow min-w-0 min-h-0 ${isRTL ? 'font-farsi-trad' : 'font-nunito'} relative bg-white rounded-md`}>
+          <div className={`w-full flex-1 min-h-0 overflow-hidden relative ${isRTL ? 'pt-1 pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pb-4 lg:pb-6 px-3 lg:px-5'}`}>
             <div
               ref={scrollContainerRef}
               className={`w-full h-full ${isRTL ? 'text-[clamp(1.2rem,4vw,1.75rem)]' : 'text-[clamp(1.1rem,3.5vw,1.5rem)]'} leading-7 lg:leading-8 text-gray-800 font-medium transition-transform duration-300`}
@@ -574,6 +719,11 @@ export default function ReaderPane({ courseTitle, lessonTitle, lessonImg }: Read
                 </>
               )}
             </div>
+          </div>
+          
+          {/* MORPHING PAGE DOTS FOR TABLET (768px - 1024px) */}
+          <div className="hidden md:flex lg:hidden w-full justify-center pb-4 shrink-0" dir="ltr">
+             <MorphingPageDots total={totalPages} activeIndex={currentPage} onChange={handlePageAdvance} />
           </div>
         </div>
 

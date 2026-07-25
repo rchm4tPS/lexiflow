@@ -130,7 +130,10 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
     };
 
     return (
-        <div className={`grow flex flex-col ${bgTheme} animate-fade-in shadow-md xl:shadow-sm p-3 md:p-4 xl:p-8 m-1 md:m-2 lg:m-4 xl:m-2 rounded-xl overflow-y-auto min-h-0 shrink-1`}>
+        <div 
+            className={`grow flex flex-col ${bgTheme} animate-fade-in shadow-md xl:shadow-sm p-3 md:p-4 xl:p-8 m-1 md:m-2 lg:m-4 xl:m-2 rounded-xl overflow-y-auto min-h-0 shrink-1`}
+            onClick={(e) => e.stopPropagation()}
+        >
             <div className="flex items-start mb-4">
                 <button
                     className="w-8 h-8 md:w-10 md:h-10 bg-[#5ad263] rounded-full flex items-center justify-center shadow-md mr-3 md:mr-4 hover:bg-green-500 transition cursor-pointer"

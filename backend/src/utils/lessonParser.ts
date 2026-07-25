@@ -16,13 +16,54 @@ export async function parseAndSaveLessonContent(
     lessonId: string, 
     rawText: string, 
     languageCode: string, 
-    userIdForProgress?: string
+    userIdForProgress?: string,
+    isPreSegmented: boolean = false
 ) {
-    // 1. Unicode-aware Tokenization using Intl.Segmenter
-    // This is vastly superior to regex as it understands language-specific grammar,
-    // including languages without spaces (Japanese/Chinese) and complex scripts (Farsi/Arabic).
-    const segmenter = new Intl.Segmenter(languageCode, { granularity: 'word' });
-    const segments = Array.from(segmenter.segment(rawText));
+    let segments: { segment: string; isWordLike: boolean }[] = [];
+
+    if (isPreSegmented) {
+        // LingQ provides pre-segmented text where words are separated by spaces.
+        // We extract non-whitespace chunks and individual spaces/newlines.
+        const tokens = rawText.match(/\S+|\n|\s/g) || [];
+        
+        for (const token of tokens) {
+            // Is it a pure whitespace/newline token?
+            if (/^\s+$/.test(token)) {
+                segments.push({ segment: token, isWordLike: false });
+                continue;
+            }
+            
+            // Separate leading/trailing punctuation from the actual word (e.g. ":迈克" -> ":" and "迈克")
+            const match = token.match(/^([\p{P}\p{S}]*)(.*?)([\p{P}\p{S}]*)$/u);
+            if (match) {
+                const [, leading, word, trailing] = match;
+                
+                if (leading) {
+                    segments.push({ segment: leading, isWordLike: false });
+                }
+                
+                if (word) {
+                    // Check if it's learnable (contains at least one letter/number/ideograph)
+                    const isLearnable = /[\p{L}\p{N}]/u.test(word);
+                    segments.push({ segment: word, isWordLike: isLearnable });
+                }
+                
+                if (trailing) {
+                    segments.push({ segment: trailing, isWordLike: false });
+                }
+            } else {
+                const isLearnable = /[\p{L}\p{N}]/u.test(token);
+                segments.push({ segment: token, isWordLike: isLearnable });
+            }
+        }
+    } else {
+        // Fallback to Intl.Segmenter for generic raw text
+        const segmenter = new Intl.Segmenter(languageCode, { granularity: 'word' });
+        segments = Array.from(segmenter.segment(rawText)).map(s => ({
+            segment: s.segment,
+            isWordLike: s.isWordLike === true
+        }));
+    }
 
     const processedTokens = [];
     let currentPageIndex = 0;
@@ -37,10 +78,9 @@ export async function parseAndSaveLessonContent(
     for (const [index, segmentData] of segments.entries()) {
         const text = segmentData.segment;
         const isNewline = text === '\n' || text === '\r\n';
-        // Segmenter flags actual language words with isWordLike (skips punctuation/spaces)
-        const isLearnable = segmentData.isWordLike === true;
+        const isLearnable = segmentData.isWordLike;
 
-        const isSentenceEnd = /[.!?]/.test(text);
+        const isSentenceEnd = /[.!?。！？]/.test(text);
 
         if (isLearnable) {
             totalOriginalWordInLesson++;

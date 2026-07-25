@@ -25,7 +25,7 @@ export default function LibraryView() {
         clearActiveCourse, toggleLessonBookmark, checkAndUpdateCompletions,
         setMyLessonsSubTab, setLibrarySidebarTab, recalculateStats,
         guidedCourses, activeCourseDetails, librarySidebarTab, myLessonsSubTab,
-        librarySearch, setLibrarySearch
+        librarySearch, setLibrarySearch, isStatsLoading
     } = useReaderStore();
 
     const navigate = useNavigate();
@@ -320,7 +320,7 @@ export default function LibraryView() {
                     ) : (
                         <>
                             <ContinueStudyingWidget />
-                            <DailyGoalWidget />
+                            {isStatsLoading ? <DailyGoalSkeleton /> : <DailyGoalWidget />}
                         </>
                     )}
                 </div>

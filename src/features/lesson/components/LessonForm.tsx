@@ -9,7 +9,7 @@ interface LessonFormProps {
     setText: (text: string) => void;
     activeTab: 'title-text' | 'resources' | 'clips';
     setActiveTab: (tab: 'title-text' | 'resources' | 'clips') => void;
-    currentLang: { name: string; flag: string };
+    currentLang: { name: string; countryCode: string };
     selectedLevel: string;
     setSelectedLevel: (level: string) => void;
     selectedCourseId: string;
@@ -47,7 +47,9 @@ export default function LessonForm({
             <div className="flex items-center gap-2 px-6 py-3 border-b border-gray-100">
                 {/* Language (Read-only) */}
                 <div className="border border-gray-300 rounded px-2 py-1.5 text-xs text-gray-700 bg-gray-100 flex items-center gap-1.5 min-w-[110px] cursor-default">
-                    <span>{currentLang.flag}</span>
+                    <div className="w-5 h-4 rounded-sm overflow-hidden shrink-0 flex items-center justify-center">
+                        <img src={`https://flagcdn.com/${currentLang.countryCode}.svg`} alt={currentLang.name} className="w-full h-full object-cover" />
+                    </div>
                     <span>{currentLang.name}</span>
                 </div>
 

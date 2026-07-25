@@ -33,16 +33,18 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
     const [lessonData] = await db.select({
       lesson: lessons,
       course: courses,
-      isRTL: languages.is_RTL
+      isRTL: languages.is_RTL,
+      authorName: users.username
     })
       .from(lessons)
       .innerJoin(courses, eq(lessons.course_id, courses.id))
       .innerJoin(languages, eq(courses.language_code, languages.code))
+      .leftJoin(users, eq(courses.owner_id, users.id))
       .where(eq(lessons.id, lessonId));
 
     if (!lessonData) return res.status(404).json({ error: "Lesson or Course metadata not found" });
 
-    const { lesson, course, isRTL } = lessonData;
+    const { lesson, course, isRTL, authorName } = lessonData;
     const userId = req.user!.id;
 
     // Auto-Enroll the user in this course (Ignored if already exists)
@@ -154,14 +156,21 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       isRTL: isRTL || false,
       totalCoins: langRecord?.total_coins || 0,
       totalKnownWords: langRecord!.total_known_words,
+      courseId: course.id,
       courseTitle: course.title,
       courseLevel: course.level,
       lessonTitle: lesson.title,
       lessonImg: lesson.image_url,
       lessonAudio: lesson.audio_url,
+      lessonDuration: lesson.duration || 0,
+      authorName: authorName || 'LingQ',
+      readTimes: userProgress?.read_times || 0,
+      totalListenedSec: userProgress?.total_listened_sec || 0,
       highestPageRead: userProgress?.highest_page_read ?? 0,
       prevLessonId,
-      nextLessonId
+      nextLessonId,
+      lessonIndex: currentIndex + 1,
+      courseLessonsCount: courseLessons.length
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal Error";
@@ -334,6 +343,7 @@ router.put('/:id/progress', authenticate, async (req: AuthRequest, res) => {
         total_listened_sec: previousListenedSec + (listeningSec || 0),
         highest_page_read: (highestPageRead !== undefined) ? highestPageRead : (existing.highest_page_read || 0),
         is_completed: preservedCompleted,
+        read_times: (existing.read_times || 0) + (wordsRead || 0),
         ...(isActivity ? { last_read_at: new Date() } : {})
       }).where(eq(userLessonProgress.id, existing.id));
     } else {
@@ -348,6 +358,7 @@ router.put('/:id/progress', authenticate, async (req: AuthRequest, res) => {
         total_listened_sec: listeningSec || 0,
         highest_page_read: highestPageRead ?? 0,
         is_completed: isCompleted || false,
+        read_times: wordsRead || 0,
         ...(isActivity ? { last_read_at: new Date() } : {})
       });
     }

@@ -17,7 +17,7 @@ interface ManualImportFormProps {
 
 export default function ManualImportForm({ languageCode, allCourses, onShowCourseModal, importLesson }: ManualImportFormProps) {
     const navigate = useNavigate();
-    const currentLang = LANG_MAP[languageCode] || { name: languageCode.toUpperCase(), flag: '🌐' };
+    const currentLang = LANG_MAP[languageCode] || { name: languageCode.toUpperCase(), countryCode: 'un' };
 
     // Form state
     const [title, setTitle] = useState('');

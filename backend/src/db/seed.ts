@@ -4,15 +4,25 @@ import { languages } from './schema.js';
 async function seed() {
   console.log('🌱 Seeding database...');
   try {
-    await db.insert(languages).values([
-      { code: 'en', name: 'English' },
-      { code: 'de', name: 'German' },
-      { code: 'fa', name: 'Persian', is_RTL: true },
-      { code: 'ar', name: 'Arabic', is_RTL: true },
-      { code: 'es', name: 'Spanish' }
-    ]).onConflictDoNothing(); // Prevent error if they already exist
+    // Known RTL language codes
+    const rtlCodes = new Set(['ar', 'fa', 'he', 'ur']);
 
-    console.log('✅ Languages seeded successfully!');
+    // Fetch from LingQ API v2
+    const response = await fetch('https://www.lingq.com/api/v2/languages/');
+    if (!response.ok) {
+      throw new Error(`Failed to fetch LingQ API: ${response.statusText}`);
+    }
+
+    const apiLanguages = await response.json();
+    
+    // Map API data to our schema format
+    const languagesToInsert = apiLanguages.map((lang: any) => ({
+      code: lang.code,
+      name: lang.title,
+      is_RTL: rtlCodes.has(lang.code)
+    }));
+
+    await db.insert(languages).values(languagesToInsert).onConflictDoNothing();
 
     // Add more seeding here as needed for MVP 1 stabilization
     // (e.g., default courses, phrases, etc.)
