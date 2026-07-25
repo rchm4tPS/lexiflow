@@ -4,14 +4,14 @@ import type { Token, Phrase } from '../../../types/reader';
 
 interface PhraseGroupProps {
   phrase: Phrase;
-  isSelected: boolean;
-  onPhraseClick: (e: React.MouseEvent) => void;
+  onPhraseClick: (phraseId: string, e: React.MouseEvent) => void;
   children: React.ReactNode;
   depth?: number;
 }
 
 // --- THE NEW PHRASE WRAPPER ---
-export function PhraseGroup({ phrase, isSelected, onPhraseClick, children, depth = 0 }: PhraseGroupProps) {
+export function PhraseGroup({ phrase, onPhraseClick, children, depth = 0 }: PhraseGroupProps) {
+  const isSelected = useReaderStore(state => state.selectedId === phrase.id);
   const stage = phrase?.stage || 1;
 
   // Orange gradient logic
@@ -37,7 +37,7 @@ export function PhraseGroup({ phrase, isSelected, onPhraseClick, children, depth
 
   return (
     <span
-      onClick={onPhraseClick}
+      onClick={(e) => onPhraseClick(phrase.id, e)}
       style={bgStyle}
       className={`inline rounded-md px-1 -mx-1 cursor-pointer transition-all duration-200 ${outlineClass} ${highlightClass}`}
     >
@@ -49,12 +49,12 @@ export function PhraseGroup({ phrase, isSelected, onPhraseClick, children, depth
 
 interface WordTokenProps {
   token: Token;
-  isSelected: boolean;
-  onClick: (e: React.MouseEvent) => void;
+  onClick: (tokenId: string, e: React.MouseEvent) => void;
+  isRTL: boolean;
 }
 
-export default function WordToken({ token, isSelected, onClick }: WordTokenProps) {
-  const { isRTL } = useReaderStore();
+const WordToken = React.memo(function WordToken({ token, onClick, isRTL }: WordTokenProps) {
+  const isSelected = useReaderStore(state => state.selectedId === token.id || !!state.draftPhraseRange?.includes(token.id));
 
   if (token.isNewline) return <br />;
 
@@ -85,11 +85,13 @@ export default function WordToken({ token, isSelected, onClick }: WordTokenProps
   return (
     <span
       data-token-id={token.id} // Essential for Drag-to-Select
-      onClick={onClick}
+      onClick={(e) => onClick(token.id, e)}
       style={wordBgStyle}
       className={`cursor-pointer px-0.75 rounded mx-0.75 ${isRTL ? 'my-4' : 'my-3'} transition-all duration-50 inline-block ${highlightClass} hover:ring-1 ring-amber-400`}
     >
       {token.text}
     </span>
   );
-}
+});
+
+export default WordToken;

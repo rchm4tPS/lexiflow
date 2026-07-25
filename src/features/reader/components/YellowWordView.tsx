@@ -62,26 +62,31 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
     const [showDicts, setShowDicts] = useState(false);
     const [noteVal, setNoteVal] = useState(word.notes || "");
 
-    const handleMeaningChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (word.id) {
+    const [meaningInput, setMeaningInput] = useState(word.meaning || "");
+
+    useEffect(() => {
+        setMeaningInput(word.meaning || "");
+    }, [word.meaning]);
+
+    const handleMeaningBlur = () => {
+        if (word.id && meaningInput !== word.meaning) {
             onUpdateStage({
                 id: word.id,
                 stage,
-                meaning: e.target.value,
+                meaning: meaningInput,
                 tags,
                 notes: noteVal
             });
         }
     };
-
-
     const cleanWord = (word.text || '')
         .replace(/[.,?!„”":;/]/g, '')
         .replace(/(?<!\p{L})'|'(?!\p{L})/gu, '');
 
     useEffect(() => {
         if (word.text) {
-            speak(word.text, languageCode);
+            const timer = setTimeout(() => speak(word.text, languageCode), 10);
+            return () => clearTimeout(timer);
         }
     }, [word.id, word.text, languageCode]);
 
@@ -206,8 +211,10 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                 <UKFlag />
                 <input
                     type="text"
-                    value={word.meaning || ""}
-                    onChange={handleMeaningChange}
+                    value={meaningInput}
+                    onChange={(e) => setMeaningInput(e.target.value)}
+                    onBlur={handleMeaningBlur}
+                    onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                     disabled={isIgnored}
                     className="flex-1 outline-none text-gray-800 font-medium ml-2 text-[15px]"
                     placeholder='Type in the meaning of the word here'
@@ -230,6 +237,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                             onClick={() => {
                                 if (word.id) {
                                     onUpdateStage({ id: word.id, stage, meaning: m.text, tags, notes: noteVal });
+                                    setMeaningInput(m.text);
                                 }
                             }}
                             className="bg-[#3a92fb] text-white px-2 py-1.5 lg:py-1.5 lg:px-3 xl:px-3 xl:py-2 rounded-md cursor-pointer flex justify-between gap-2 items-center shadow-sm hover:bg-blue-600 transition"
@@ -268,7 +276,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                 onChange={(e) => setNoteVal(e.target.value)}
                 onBlur={() => {
                     if (noteVal !== (word.notes || "") && word.id) {
-                        onUpdateStage({ id: word.id, stage, meaning: word.meaning, tags, notes: noteVal });
+                        onUpdateStage({ id: word.id, stage, meaning: meaningInput, tags, notes: noteVal });
                     }
                 }}
             ></textarea>
@@ -280,7 +288,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                             key={num}
                             onClick={() => {
                                 if (word.id) {
-                                    onUpdateStage({ id: word.id, stage: num, meaning: word.meaning, tags, notes: noteVal });
+                                    onUpdateStage({ id: word.id, stage: num, meaning: meaningInput, tags, notes: noteVal });
                                 }
                             }}
                             className={`w-10 h-8 font-bold text-sm flex items-center justify-center border-r border-gray-100 last:border-0 
@@ -292,7 +300,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                     <button
                         onClick={() => {
                             if (word.id) {
-                                onUpdateStage({ id: word.id, stage: 5, meaning: word.meaning, tags, notes: noteVal });
+                                onUpdateStage({ id: word.id, stage: 5, meaning: meaningInput, tags, notes: noteVal });
                             }
                         }}
                         className={`w-10 h-8 flex items-center justify-center border-l border-gray-200 transition-colors
@@ -304,7 +312,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                         <button
                             onClick={() => {
                                 if (word.id) {
-                                    onUpdateStage({ id: word.id, stage: 6, meaning: word.meaning, tags, notes: noteVal });
+                                    onUpdateStage({ id: word.id, stage: 6, meaning: meaningInput, tags, notes: noteVal });
                                 }
                             }}
                             className={`w-10 h-8 flex items-center justify-center transition-colors

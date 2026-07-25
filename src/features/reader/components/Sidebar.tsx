@@ -3,6 +3,7 @@ import QuickStartGuide from './QuickStartGuide';
 import BlueWordView from './BlueWordView';
 import YellowWordView from './YellowWordView';
 import type { SidebarItem, UpdatePayload } from '../../../types/reader';
+import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
 
 interface SidebarProps {
@@ -12,7 +13,10 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ word, onUpdateStage, onCreatePhrase }: SidebarProps) {
-    const { sidebarPosition, clickPos } = useReaderStore();
+    const { sidebarPosition, clickPos } = useReaderStore(useShallow(state => ({
+        sidebarPosition: state.sidebarPosition,
+        clickPos: state.clickPos
+    })));
     // FIX: Safely coerce the stage to a Number, defaulting to 0.
     // This catches instances where JSON/State causes stage to be undefined or a string
     const currentStage = word ? Number(word.stage || 0) : 0;

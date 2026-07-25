@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { X, Headphones } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
 
 interface LessonInfoModalProps {
@@ -21,7 +22,20 @@ export default function LessonInfoModal({ onClose }: LessonInfoModalProps) {
     totalListenedSec,
     sessionListeningTicks,
     sessionWordsRead,
-  } = useReaderStore();
+  } = useReaderStore(useShallow(state => ({
+    lessonTitle: state.lessonTitle,
+    lessonImg: state.lessonImg,
+    courseId: state.courseId,
+    courseLevel: state.courseLevel,
+    languageCode: state.languageCode,
+    tokens: state.tokens,
+    lessonDuration: state.lessonDuration,
+    authorName: state.authorName,
+    readTimes: state.readTimes,
+    totalListenedSec: state.totalListenedSec,
+    sessionListeningTicks: state.sessionListeningTicks,
+    sessionWordsRead: state.sessionWordsRead,
+  })));
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);

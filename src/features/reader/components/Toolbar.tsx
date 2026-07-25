@@ -1,9 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
 import { Play, Pause, Square } from 'lucide-react';
 
 export default function Toolbar() {
-    const { tokens, phrases, handlePageAdvance, currentPage, showSummary, isRTL, lessonAudio, incrementListeningTicks, totalPages, columnMapping } = useReaderStore();
+    const { tokens, phrases, handlePageAdvance, currentPage, showSummary, isRTL, lessonAudio, incrementListeningTicks, totalPages, columnMapping } = useReaderStore(useShallow(state => ({
+        tokens: state.tokens, phrases: state.phrases, handlePageAdvance: state.handlePageAdvance,
+        currentPage: state.currentPage, showSummary: state.showSummary, isRTL: state.isRTL,
+        lessonAudio: state.lessonAudio, incrementListeningTicks: state.incrementListeningTicks,
+        totalPages: state.totalPages, columnMapping: state.columnMapping
+    })));
     
     // Count of unique LingQs (stage 1, 2, 3) in the lesson
     const uniqueLingQs = new Set(

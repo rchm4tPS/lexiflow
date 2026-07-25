@@ -41,17 +41,20 @@ export default function MorphingPageDots({
             </button>
             
             {total <= 10 ? (
-                Array.from({ length: total }).map((_, i) => (
-                    <div
-                        key={i}
-                        onClick={() => onChange?.(i)}
-                        className={`cursor-pointer transition-all duration-300 ease-in-out rounded-full ${
-                            i === activeIndex
-                                ? 'w-6 h-3 bg-gray-400' 
-                                : 'w-3 h-3 bg-gray-200 hover:bg-gray-300' 
-                        }`}
-                    />
-                ))
+                Array.from({ length: total }).map((_, idx) => {
+                    const i = isRTL ? total - 1 - idx : idx;
+                    return (
+                        <div
+                            key={i}
+                            onClick={() => onChange?.(i)}
+                            className={`cursor-pointer transition-all duration-300 ease-in-out rounded-full ${
+                                i === activeIndex
+                                    ? 'w-6 h-3 bg-gray-400' 
+                                    : 'w-3 h-3 bg-gray-200 hover:bg-gray-300' 
+                            }`}
+                        />
+                    );
+                })
             ) : (
                 <div className="flex items-center justify-center px-2 w-fit gap-1.5" dir="ltr">
                     <input 

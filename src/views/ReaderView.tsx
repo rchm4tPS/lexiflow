@@ -1,4 +1,5 @@
 import { useParams } from "react-router-dom";
+import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from "../store/useReaderStore";
 import { useKeyboardShortcuts } from "../features/reader/hooks/useKeyboardShortcuts";
 import { useEffect, useMemo } from "react";
@@ -14,7 +15,6 @@ export default function ReaderView() {
 
     const {
         fetchLesson, syncLessonProgress,
-        // courseLevel
         courseId, courseTitle, lessonTitle, lessonImg,
         tokens, phrases,
         selectedId, draftPhraseRange,
@@ -22,7 +22,16 @@ export default function ReaderView() {
         clearSelection,
         showSummary, showModal, showLessonInfoModal, setShowLessonInfoModal,
         isSidebarVisible
-    } = useReaderStore();
+    } = useReaderStore(useShallow(state => ({
+        fetchLesson: state.fetchLesson, syncLessonProgress: state.syncLessonProgress,
+        courseId: state.courseId, courseTitle: state.courseTitle, lessonTitle: state.lessonTitle, lessonImg: state.lessonImg,
+        tokens: state.tokens, phrases: state.phrases,
+        selectedId: state.selectedId, draftPhraseRange: state.draftPhraseRange,
+        updateStage: state.updateStage, createPhrase: state.createPhrase,
+        clearSelection: state.clearSelection,
+        showSummary: state.showSummary, showModal: state.showModal, showLessonInfoModal: state.showLessonInfoModal, setShowLessonInfoModal: state.setShowLessonInfoModal,
+        isSidebarVisible: state.isSidebarVisible
+    })));
 
     useKeyboardShortcuts();
 

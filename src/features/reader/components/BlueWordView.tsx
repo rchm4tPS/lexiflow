@@ -30,10 +30,11 @@ const BlueWordView = ({ word, onUpdateStage, onCreatePhrase }: BlueWordViewProps
         .replace(/[.,?!„”":;/]/g, '')
         .replace(/(?<!\p{L})'|'(?!\p{L})/gu, '');
 
-    // Auto-play audio when word changes
+    // Auto-play audio when word changes (non-blocking)
     useEffect(() => {
         if (cleanWord) {
-            speak(cleanWord, languageCode);
+            const timer = setTimeout(() => speak(cleanWord, languageCode), 10);
+            return () => clearTimeout(timer);
         }
     }, [cleanWord, languageCode]);
 

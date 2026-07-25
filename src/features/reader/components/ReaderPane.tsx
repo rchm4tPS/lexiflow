@@ -2,6 +2,7 @@ import React, { type ReactNode, useRef, useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settings, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
 import SummaryView from './LessonEnd/SummaryView';
 import CompletionModal from './LessonEnd/CompletionModal';
@@ -43,18 +44,52 @@ interface ReaderPaneProps {
   lessonImg?: string | null;
 }
 
-export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonImg }: ReaderPaneProps) {
+const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lessonTitle, lessonImg }: ReaderPaneProps) {
   const {
     showSummary, setShowSummary, showModal, setModal,
-    tokens, phrases, currentPage, selectedId, draftPhraseRange,
-    selectItem, setDraftPhrase, isRTL, languageCode,
+    tokens, phrases, currentPage, draftPhraseRange,
+    setDraftPhrase, isRTL, languageCode,
     handlePageAdvance, activeLessonId, syncLessonProgress,
     isLoadingLesson, readerMode, toggleReaderMode, totalPages, columnMapping, setSidebarPosition, setClickPos,
     lessonIndex, courseLessonsCount, prevLessonId, nextLessonId, setShowLessonInfoModal, initialTokenIndex,
     isStatsLoading, lessonAudio, toggleSidebar, isSidebarVisible
-  } = useReaderStore();
+  } = useReaderStore(useShallow(state => ({
+    showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
+    tokens: state.tokens, phrases: state.phrases, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
+    setDraftPhrase: state.setDraftPhrase, isRTL: state.isRTL, languageCode: state.languageCode,
+    handlePageAdvance: state.handlePageAdvance, activeLessonId: state.activeLessonId, syncLessonProgress: state.syncLessonProgress,
+    isLoadingLesson: state.isLoadingLesson, readerMode: state.readerMode, toggleReaderMode: state.toggleReaderMode, totalPages: state.totalPages, columnMapping: state.columnMapping, setSidebarPosition: state.setSidebarPosition, setClickPos: state.setClickPos,
+    lessonIndex: state.lessonIndex, courseLessonsCount: state.courseLessonsCount, prevLessonId: state.prevLessonId, nextLessonId: state.nextLessonId, setShowLessonInfoModal: state.setShowLessonInfoModal, initialTokenIndex: state.initialTokenIndex,
+    isStatsLoading: state.isStatsLoading, lessonAudio: state.lessonAudio, toggleSidebar: state.toggleSidebar, isSidebarVisible: state.isSidebarVisible
+  })));
   const location = useLocation();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // --- STABLE CALLBACKS FOR WORD TOKENS ---
+  const handleWordClick = React.useCallback((tokenId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const state = useReaderStore.getState();
+    const screenWidth = window.innerWidth;
+    state.setSidebarPosition(e.clientX > screenWidth / 2 ? 'left' : 'right');
+    state.setClickPos({ x: e.clientX, y: e.clientY });
+    state.selectItem(tokenId);
+    if (state.readerMode === 'sentence') {
+      const globalIndex = state.tokens.findIndex(t => t.id === tokenId);
+      if (globalIndex !== -1) {
+        state.setInitialTokenIndex(globalIndex);
+      }
+    }
+  }, []);
+
+  const handlePhraseClick = React.useCallback((phraseId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if ((window.getSelection()?.toString().trim().length ?? 0) > 0) return;
+    const state = useReaderStore.getState();
+    const screenWidth = window.innerWidth;
+    state.setSidebarPosition(e.clientX > screenWidth / 2 ? 'left' : 'right');
+    state.setClickPos({ x: e.clientX, y: e.clientY });
+    state.selectItem(phraseId);
+  }, []);
 
   // --- NEW: Dropdown State ---
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -391,10 +426,10 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
     let draftStartIndex = -1;
     let draftEndIndex = -1;
 
+    const tokenIds = new Set(tokensList.map(t => t.id));
+
     if (isTopLevel && draftPhraseRange && draftPhraseRange.length > 0) {
-      const allDraftTokensPresent = draftPhraseRange.every((id: string) =>
-        tokensList.some(t => t.id === id)
-      );
+      const allDraftTokensPresent = draftPhraseRange.every((id: string) => tokenIds.has(id));
 
       if (allDraftTokensPresent) {
         hasDraftPhrase = true;
@@ -422,7 +457,7 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
 
     // Find the longest saved phrase that fits entirely within the current tokens
     const validPhrases = availablePhrases.filter(p =>
-      p.range.length > 0 && p.range.every((id: string) => tokensList.some(t => t.id === id))
+      p.range.length > 0 && p.range.every((id: string) => tokenIds.has(id))
     );
 
     if (validPhrases.length === 0) {
@@ -437,14 +472,8 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
             {!(readerMode === 'sentence' && token.isNewline) && (
               <WordToken
                 token={token}
-                isSelected={selectedId === token.id || !!draftPhraseRange?.includes(token.id)}
-                onClick={(e: React.MouseEvent) => {
-                  e.stopPropagation();
-                  const screenWidth = window.innerWidth;
-                  setSidebarPosition(e.clientX > screenWidth / 2 ? 'left' : 'right');
-                  setClickPos({ x: e.clientX, y: e.clientY });
-                  selectItem(token.id);
-                }}
+                isRTL={isRTL}
+                onClick={handleWordClick}
               />
             )}
             {shouldBreak && <div style={{ breakAfter: 'column', height: 0, width: '100%' }} />}
@@ -473,15 +502,7 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
           key={outermostPhrase.id}
           phrase={outermostPhrase}
           depth={depth}
-          isSelected={selectedId === outermostPhrase.id}
-          onPhraseClick={(e: React.MouseEvent) => {
-            e.stopPropagation();
-            if ((window.getSelection()?.toString().trim().length ?? 0) > 0) return;
-            const screenWidth = window.innerWidth;
-            setSidebarPosition(e.clientX > screenWidth / 2 ? 'left' : 'right');
-            setClickPos({ x: e.clientX, y: e.clientY });
-            selectItem(outermostPhrase.id);
-          }}
+          onPhraseClick={handlePhraseClick}
         >
           {/* Recursively render whatever is inside this phrase, passing phrase context */}
           {renderTree(inside, remainingPhrases, false, outermostPhrase.id, depth + 1)}
@@ -502,6 +523,33 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
   }
 
   const stillHasBlueWords = tokens.some(w => w.isLearnable && (w.stage ?? 0) === 0)
+
+  const renderedTree = React.useMemo(() => {
+    if (isLoadingLesson || tokens.length === 0) return null;
+    return (
+      <>
+        <div className={`hidden xl:flex mb-2 lg:mb-4 mt-1 lg:mt-2 ${isRTL ? 'border-b' : ''}`} style={{ breakInside: 'avoid' }}>
+          <div className={`rounded-lg ${lessonImg ? '' : ' bg-gradient-to-tr from-green-200 to-blue-300'} w-24 h-24 lg:w-32.5 lg:h-35 content-center text-center shrink-0`}>
+            {
+              !lessonImg
+                ? <div className="w-full h-full flex items-center justify-center text-blue-400 text-4xl lg:text-6xl">📖</div>
+                : <img className="object-cover rounded-lg w-full h-full" src={lessonImg} />
+            }
+          </div>
+          <div className={`flex-col p-2 lg:p-3 max-w-[80%] ${isRTL ? 'border-gray-400 xl:h-38' : ''}`}>
+            {courseId ? (
+              <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</Link>
+            ) : (
+              <p className="text-[#4F8EF8] text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</p>
+            )}
+            <p className={`text-[#454646] text-[20px] lg:text-[30px] font-extrabold line-clamp-2 ${isRTL ? 'leading-normal' : 'leading-tight'} lg:leading-13`}>{lessonTitle}</p>
+          </div>
+        </div>
+        {renderTree(tokens, phrases, true)}
+      </>
+    );
+  }, [tokens, phrases, courseId, languageCode, courseTitle, lessonImg, lessonTitle, isRTL, handleWordClick, handlePhraseClick, readerMode, draftPhraseRange, isLoadingLesson]);
+
 
   return (
     <div
@@ -814,25 +862,7 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
                 <ReaderSkeleton />
               ) : (
                 <>
-                  <div className={`hidden xl:flex mb-2 lg:mb-4 mt-1 lg:mt-2 ${isRTL ? 'border-b' : ''}`} style={{ breakInside: 'avoid' }}>
-                    <div className={`rounded-lg ${lessonImg ? '' : ' bg-gradient-to-tr from-green-200 to-blue-300'} w-24 h-24 lg:w-32.5 lg:h-35 content-center text-center shrink-0`}>
-                      {
-                        !lessonImg
-                          ? <div className="w-full h-full flex items-center justify-center text-blue-400 text-4xl lg:text-6xl">📖</div>
-                          : <img className="object-cover rounded-lg w-full h-full" src={lessonImg} />
-                      }
-                    </div>
-                    <div className={`flex-col p-2 lg:p-3 max-w-[80%] ${isRTL ? 'border-gray-400 xl:h-38' : ''}`}>
-                      {courseId ? (
-                        <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</Link>
-                      ) : (
-                        <p className="text-[#4F8EF8] text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</p>
-                      )}
-                      <p className={`text-[#454646] text-[20px] lg:text-[30px] font-extrabold line-clamp-2 ${isRTL ? 'leading-normal' : 'leading-tight'} lg:leading-13`}>{lessonTitle}</p>
-                    </div>
-                  </div>
-                  {/* Start the recursive build! Pass isTopLevel=true for first call */}
-                  {renderTree(tokens, phrases, true)}
+                  {renderedTree}
                 </>
               )}
             </div>
@@ -913,4 +943,6 @@ export default function ReaderPane({ courseId, courseTitle, lessonTitle, lessonI
       )}
     </div>
   );
-}
+});
+
+export default ReaderPane;
