@@ -204,10 +204,21 @@ interface ReaderState {
   setAudioTimestamps: (timestamps: { start: number; end: number }[] | null) => void;
   setActiveSentenceIndex: (index: number | null) => void;
   setIsAudioPlaying: (playing: boolean) => void;
+  syncPageWithinSentence: (sentenceIndex: number, timeFraction: number) => void;
 
   // Sentence View — per-sentence inline translation reveal (independent of the Translation drawer)
   revealedSentenceIndices: Set<number>;
   toggleSentenceReveal: (index: number) => void;
+
+  // Reader Settings (drawer)
+  fontSize: number;
+  fontFamily: string;
+  lineHeight: number;
+  showSettingsDrawer: boolean;
+  setFontSize: (size: number) => void;
+  setFontFamily: (font: string) => void;
+  setLineHeight: (height: number) => void;
+  setShowSettingsDrawer: (show: boolean) => void;
 }
 
 export const useReaderStore = create<ReaderState>((set, get) => ({
@@ -321,11 +332,29 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   setActiveSentenceIndex: (index) => {
     set({ activeSentenceIndex: index });
     if (index === null) return;
+    get().syncPageWithinSentence(index, 0);
+  },
+  // A sentence can span multiple pages (Sentence View forces a page break per sentence,
+  // but Paragraph View pages are laid out by column width and don't respect sentence
+  // boundaries at all). We can't just jump to the sentence's *first* page and stop —
+  // once playback progresses past that page's last token, the page needs to keep
+  // advancing through every page the sentence spans. `timeFraction` (0..1 progress
+  // through the sentence's [start,end] window) picks which of the sentence's tokens
+  // "should" be visible right now, and we page to wherever that token lives.
+  syncPageWithinSentence: (sentenceIndex, timeFraction) => {
     const { tokens, columnMapping, currentPage, setPage } = get();
-    const idsInSentence = new Set(tokens.filter(t => t.sentencePageIndex === index).map(t => t.id));
-    if (idsInSentence.size === 0) return;
+    const tokensInSentence = tokens.filter(t => t.sentencePageIndex === sentenceIndex);
+    if (tokensInSentence.length === 0) return;
+
+    const clampedFraction = Math.min(1, Math.max(0, timeFraction));
+    const targetIndex = Math.min(
+      tokensInSentence.length - 1,
+      Math.floor(clampedFraction * tokensInSentence.length)
+    );
+    const targetTokenId = tokensInSentence[targetIndex].id;
+
     for (const [page, ids] of Object.entries(columnMapping)) {
-      if (ids.some(id => idsInSentence.has(id))) {
+      if (ids.includes(targetTokenId)) {
         const pageNum = Number(page);
         if (pageNum !== currentPage) setPage(pageNum);
         return;
@@ -343,6 +372,40 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       return { revealedSentenceIndices: next };
     });
   },
+
+  // Reader Settings defaults
+  fontSize: 16,
+  fontFamily: 'nunito',
+  lineHeight: 1.75,
+  showSettingsDrawer: false,
+  setFontSize: async (size) => {
+    set({ fontSize: size });
+    try {
+      await apiClient('/auth/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify({ readerSettings: { fontSize: size } })
+      });
+    } catch (err) { console.error('Failed to save font size preference', err); }
+  },
+  setFontFamily: async (font) => {
+    set({ fontFamily: font });
+    try {
+      await apiClient('/auth/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify({ readerSettings: { fontFamily: font } })
+      });
+    } catch (err) { console.error('Failed to save font family preference', err); }
+  },
+  setLineHeight: async (height) => {
+    set({ lineHeight: height });
+    try {
+      await apiClient('/auth/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify({ readerSettings: { lineHeight: height } })
+      });
+    } catch (err) { console.error('Failed to save line height preference', err); }
+  },
+  setShowSettingsDrawer: (show) => set({ showSettingsDrawer: show }),
 
   incrementListeningTicks: (amount: number) => {
     set((s) => ({
@@ -474,6 +537,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         enrolledLanguages: initUserData.enrolledLanguages || [],
         isStatsLoading: false,
         dailyGoalTier: initUserData.dailyGoalTier || 'calm',
+        fontSize: initUserData.preferences?.readerSettings?.fontSize ?? 16,
+        fontFamily: initUserData.preferences?.readerSettings?.fontFamily ?? 'nunito',
+        lineHeight: initUserData.preferences?.readerSettings?.lineHeight ?? 1.75,
         hasFulfilledToday: (initUserData.totalDailyLingqs >= getTier(initUserData.dailyGoalTier).lingqGoal) &&
           (initUserData.totalDailyListeningSec >= getTier(initUserData.dailyGoalTier).listenMinGoal * 60)
       });

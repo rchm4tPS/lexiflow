@@ -52,18 +52,20 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     setDraftPhrase, isRTL, languageCode,
     handlePageAdvance, activeLessonId, syncLessonProgress,
     isLoadingLesson, readerMode, toggleReaderMode, totalPages, columnMapping, setSidebarPosition, setClickPos,
-    lessonIndex, courseLessonsCount, prevLessonId, nextLessonId, setShowLessonInfoModal, initialTokenIndex,
+    lessonIndex, courseLessonsCount, prevLessonId, nextLessonId, setShowLessonInfoModal, setShowSettingsDrawer, initialTokenIndex,
     isStatsLoading, lessonAudio, toggleSidebar, isSidebarVisible,
-    translationData, revealedSentenceIndices, isLoadingTranslation
+    translationData, revealedSentenceIndices, isLoadingTranslation,
+    fontSize, fontFamily, lineHeight
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
     lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
     setDraftPhrase: state.setDraftPhrase, isRTL: state.isRTL, languageCode: state.languageCode,
     handlePageAdvance: state.handlePageAdvance, activeLessonId: state.activeLessonId, syncLessonProgress: state.syncLessonProgress,
     isLoadingLesson: state.isLoadingLesson, readerMode: state.readerMode, toggleReaderMode: state.toggleReaderMode, totalPages: state.totalPages, columnMapping: state.columnMapping, setSidebarPosition: state.setSidebarPosition, setClickPos: state.setClickPos,
-    lessonIndex: state.lessonIndex, courseLessonsCount: state.courseLessonsCount, prevLessonId: state.prevLessonId, nextLessonId: state.nextLessonId, setShowLessonInfoModal: state.setShowLessonInfoModal, initialTokenIndex: state.initialTokenIndex,
+    lessonIndex: state.lessonIndex, courseLessonsCount: state.courseLessonsCount, prevLessonId: state.prevLessonId, nextLessonId: state.nextLessonId, setShowLessonInfoModal: state.setShowLessonInfoModal, setShowSettingsDrawer: state.setShowSettingsDrawer, initialTokenIndex: state.initialTokenIndex,
     isStatsLoading: state.isStatsLoading, lessonAudio: state.lessonAudio, toggleSidebar: state.toggleSidebar, isSidebarVisible: state.isSidebarVisible,
-    translationData: state.translationData, revealedSentenceIndices: state.revealedSentenceIndices, isLoadingTranslation: state.isLoadingTranslation
+    translationData: state.translationData, revealedSentenceIndices: state.revealedSentenceIndices, isLoadingTranslation: state.isLoadingTranslation,
+    fontSize: state.fontSize, fontFamily: state.fontFamily, lineHeight: state.lineHeight
   })));
 
   const tokens = useReaderStore.getState().tokens;
@@ -287,7 +289,29 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         mapping[colIndex].push(id);
       });
 
-      // Calculate total pages based on actual tokens, ignoring empty trailing scroll width
+      // Calculate total pages based on actual tokens, ignoring empty trailing scroll width.
+      // When font size/line height changes, CSS columns reflow and tokens near the boundary
+      // can get assigned to a trailing column that's essentially empty (a boundary artifact).
+      // Collapse such trailing near-empty columns to prevent a blank last page.
+      // Loop until convergence — merges can cascade if a column absorbs tokens from a merged
+      // column and itself becomes a boundary artifact (e.g. ±1 font size changes).
+      while (true) {
+        const entries = Object.entries(mapping);
+        if (entries.length <= 1) break;
+        const lastEntry = entries[entries.length - 1];
+        const prevEntry = entries[entries.length - 2];
+        const lastTokens = lastEntry[1];
+        const prevTokens = prevEntry[1];
+        // If the last column has ≤ 2 tokens and the previous column has at least 2x more,
+        // it's a boundary rounding artifact — merge it back and re-check.
+        if (lastTokens.length <= 2 && prevTokens.length > lastTokens.length * 2) {
+          prevEntry[1].push(...lastTokens);
+          delete mapping[Number(lastEntry[0])];
+          continue;
+        }
+        break;
+      }
+
       const maxColIndex = Object.keys(mapping).length > 0
         ? Math.max(...Object.keys(mapping).map(Number))
         : 0;
@@ -335,7 +359,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     const resizeObserver = new ResizeObserver(() => measure());
     resizeObserver.observe(container);
     return () => resizeObserver.disconnect();
-  }, [isLoadingLesson, tokens, isRTL, readerMode, columnWidthPx]);
+  }, [isLoadingLesson, tokens, isRTL, readerMode, columnWidthPx, fontSize, fontFamily, lineHeight]);
 
   React.useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
@@ -749,7 +773,13 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                         </>
                       )}
                     </div>
-                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                    <div
+                      className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={() => {
+                        setShowSettingsDrawer(true);
+                        closeDropdown();
+                      }}
+                    >
                       <Settings className="w-5 h-5 text-gray-400" />
                       <span>Settings</span>
                     </div>
@@ -889,7 +919,13 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                         </>
                       )}
                     </div>
-                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                    <div
+                      className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={() => {
+                        setShowSettingsDrawer(true);
+                        closeDropdown();
+                      }}
+                    >
                       <Settings className="w-5 h-5 text-gray-400" />
                       <span>Settings</span>
                     </div>
@@ -921,8 +957,15 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
           <div className={`w-full min-h-0 overflow-hidden relative ${readerMode === 'sentence' ? 'shrink-0' : 'flex-1'} ${isRTL ? 'pt-1 pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pb-4 lg:pb-6 px-3 lg:px-5'}`}>
             <div
               ref={scrollContainerRef}
-              className={`w-full ${readerMode === 'sentence' ? 'h-auto' : 'h-full'} ${isRTL ? 'text-[clamp(1.2rem,4vw,1.75rem)]' : 'text-[clamp(1.1rem,3.5vw,1.5rem)]'} leading-7 lg:leading-8 text-gray-800 font-medium transition-transform duration-300`}
+              className={`w-full ${readerMode === 'sentence' ? 'h-auto' : 'h-full'} text-gray-800 font-medium transition-transform duration-300`}
               style={{
+                fontSize: `${fontSize}px`,
+                fontFamily: fontFamily === 'farsi'
+                  ? '"Parastoo", "Tahoma", "Courier New", serif'
+                  : fontFamily === 'farsi-trad'
+                    ? '"LingqFont", serif'
+                    : '"Nunito", sans-serif',
+                lineHeight,
                 columnWidth: columnWidthPx > 0 ? `${columnWidthPx}px` : 'auto',
                 columnGap: '3rem',
                 columnFill: 'auto',
@@ -943,7 +986,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
           {/* SENTENCE VIEW: inline per-sentence translation reveal */}
           {readerMode === 'sentence' && !isLoadingLesson && currentSentenceIndex !== null && (
-            <div className="shrink-0 px-3 lg:px-5 pt-2 pb-2">
+            <div className="flex-1 px-3 lg:px-5 pt-2 pb-2">
               <button
                 onClick={() => handleToggleSentenceTranslation(currentSentenceIndex)}
                 className="flex items-center gap-1.5 text-[#3a92fb] hover:text-blue-600 text-sm font-semibold cursor-pointer transition"

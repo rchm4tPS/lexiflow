@@ -83,11 +83,17 @@ export default function Toolbar() {
             }
 
             // --- Read-along sync: find which sentence is currently playing ---
-            const { audioTimestamps, activeSentenceIndex, setActiveSentenceIndex } = useReaderStore.getState();
+            const { audioTimestamps, activeSentenceIndex, setActiveSentenceIndex, syncPageWithinSentence } = useReaderStore.getState();
             if (audioTimestamps) {
                 const idx = audioTimestamps.findIndex(t => time >= t.start && time < t.end);
                 if (idx !== activeSentenceIndex) {
                     setActiveSentenceIndex(idx === -1 ? null : idx);
+                } else if (idx !== -1) {
+                    // Same sentence as last tick — it may span multiple pages, so keep
+                    // advancing the page as playback progresses through it.
+                    const { start, end } = audioTimestamps[idx];
+                    const fraction = end > start ? (time - start) / (end - start) : 0;
+                    syncPageWithinSentence(idx, fraction);
                 }
             }
         }

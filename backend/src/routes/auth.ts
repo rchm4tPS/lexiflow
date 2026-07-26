@@ -484,15 +484,33 @@ router.get('/languages', async (req, res) => {
 router.patch('/preferences', authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
-    const { targetLanguage } = req.body;
+    const { targetLanguage, readerSettings } = req.body;
 
-    if (!targetLanguage) return res.status(400).json({ error: 'targetLanguage is required' });
+    if (!targetLanguage && !readerSettings) {
+      return res.status(400).json({ error: 'targetLanguage or readerSettings is required' });
+    }
+
+    const existing = await db.select({ preferences: users.preferences }).from(users).where(eq(users.id, userId));
+    const currentPrefs = (existing[0]?.preferences || { targetLanguage: '' }) as { targetLanguage: string; readerSettings?: { fontSize: number; fontFamily: string; lineHeight: number } };
+
+    const newPreferences: { targetLanguage: string; readerSettings?: { fontSize: number; fontFamily: string; lineHeight: number } } = {
+      targetLanguage: targetLanguage || currentPrefs.targetLanguage,
+    };
+
+    if (readerSettings) {
+      const existingSettings = currentPrefs.readerSettings || { fontSize: 16, fontFamily: 'nunito', lineHeight: 1.75 };
+      newPreferences.readerSettings = {
+        fontSize: readerSettings.fontSize ?? existingSettings.fontSize,
+        fontFamily: readerSettings.fontFamily ?? existingSettings.fontFamily,
+        lineHeight: readerSettings.lineHeight ?? existingSettings.lineHeight,
+      };
+    }
 
     await db.update(users)
-      .set({ preferences: { targetLanguage } })
+      .set({ preferences: newPreferences })
       .where(eq(users.id, userId));
 
-    res.json({ success: true, targetLanguage });
+    res.json({ success: true, ...(targetLanguage ? { targetLanguage } : {}), ...(readerSettings ? { readerSettings: newPreferences.readerSettings } : {}) });
   } catch (error: unknown) {
     res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
   }

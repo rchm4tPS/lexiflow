@@ -9,6 +9,7 @@ import ReaderPane from "../features/reader/components/ReaderPane";
 import Sidebar from "../features/reader/components/Sidebar";
 import CompletionModal from "../features/reader/components/LessonEnd/CompletionModal";
 import LessonInfoModal from "../features/reader/components/LessonInfoModal";
+import SettingsDrawer from "../features/reader/components/SettingsDrawer";
 
 export default function ReaderView() {
     const { lessonId } = useParams();
@@ -22,6 +23,7 @@ export default function ReaderView() {
         updateStage, createPhrase,
         clearSelection,
         showSummary, showModal, showLessonInfoModal, setShowLessonInfoModal,
+        showSettingsDrawer,
         isSidebarVisible, isLoadingLesson, lessonStructureHash,
         showTranslation, translationData, isLoadingTranslation, translationError, setShowTranslation
     } = useReaderStore(useShallow(state => ({
@@ -30,6 +32,7 @@ export default function ReaderView() {
         updateStage: state.updateStage, createPhrase: state.createPhrase,
         clearSelection: state.clearSelection,
         showSummary: state.showSummary, showModal: state.showModal, showLessonInfoModal: state.showLessonInfoModal, setShowLessonInfoModal: state.setShowLessonInfoModal,
+        showSettingsDrawer: state.showSettingsDrawer,
         isSidebarVisible: state.isSidebarVisible, isLoadingLesson: state.isLoadingLesson, lessonStructureHash: state.lessonStructureHash,
         showTranslation: state.showTranslation,
         translationData: state.translationData,
@@ -84,6 +87,7 @@ export default function ReaderView() {
         <div className="flex flex-col h-[calc(100dvh-48px)] lg:h-[calc(100vh-64px)] max-w-7xl w-full mx-auto p-0 lg:p-4" onClick={clearSelection}>
             {showModal && <CompletionModal />}
             {showLessonInfoModal && <LessonInfoModal onClose={() => setShowLessonInfoModal(false)} />}
+            {showSettingsDrawer && <SettingsDrawer />}
             <div className="order-2 lg:order-1 z-20"><Toolbar /></div>
             <div className="order-1 lg:order-2 flex flex-row grow min-h-0 bg-white lg:shadow-lg lg:border border-gray-200 lg:rounded-lg overflow-hidden relative">
                 <ReaderPane
