@@ -18,9 +18,8 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
     const isIgnored = stage === 6;
     const isPhrase = !!word.isPhrase;
 
-    const { words, isRTL, languageCode, fetchHints, activeWordHints, fetchUserTags, userTags, clearSelection } = useReaderStore(
+    const { isRTL, languageCode, fetchHints, activeWordHints, fetchUserTags, userTags, clearSelection } = useReaderStore(
         useShallow((state) => ({
-            words: state.tokens,
             selectedWordId: state.selectedId,
             isRTL: state.isRTL,
             languageCode: state.languageCode,
@@ -35,6 +34,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
 
     const contextWords = useMemo(() => {
         if (!word || !word.id) return [];
+        const words = useReaderStore.getState().tokens;
 
         if (isPhrase && 'range' in word && word.range && word.range.length > 0) {
             const firstIdx = words.findIndex(w => w.id === word.range![0]);
@@ -50,7 +50,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
         const idx = words.findIndex(w => w.id === word.id);
         if (idx === -1) return [];
         return words.slice(Math.max(0, idx - 3), idx + 4);
-    }, [word, words, isPhrase]);
+    }, [word.id, 'range' in word ? word.range : undefined, isPhrase]);
 
     const bgTheme = isPhrase ? 'bg-orange-50 border-orange-100' : 'bg-[#fdfaf2] border-yellow-100';
     const highlightTheme = isPhrase ? 'bg-orange-500' : 'bg-[#fde05f]';

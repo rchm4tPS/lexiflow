@@ -47,8 +47,10 @@ interface ReaderState {
   isLoadingHints: boolean;
 
   tokens: Token[];
+  tokenMap: Record<string, Token>;
   dbPhrases: DbPhrase[]; // Stores raw phrases from DB (could be refined further if needed)
   phrases: Phrase[];   // Calculated instances mapping over tokens
+  phraseMap: Record<string, Phrase>;
   languageCode: string;
   isStatsLoading: boolean;
   availableLanguages: SupportedLanguage[];
@@ -181,6 +183,8 @@ interface ReaderState {
   setClickPos: (pos: { x: number, y: number } | null) => void;
   isSidebarVisible: boolean;
   toggleSidebar: () => void;
+
+  lessonStructureHash: number;
 }
 
 export const useReaderStore = create<ReaderState>((set, get) => ({
@@ -219,12 +223,16 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   isSidebarVisible: true,
   toggleSidebar: () => set(state => ({ isSidebarVisible: !state.isSidebarVisible })),
 
+  lessonStructureHash: 0,
+
   activeWordHints: [],
   isLoadingHints: false,
 
   tokens: [],
+  tokenMap: {},
   dbPhrases: [],
   phrases: [],
+  phraseMap: {},
   languageCode: '',
   isStatsLoading: false,
   availableLanguages: [],
@@ -694,22 +702,30 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         // the session if we are re-fetching the same lesson.
         const isSameLesson = state.activeLessonId === lessonId;
 
-        return {
-          activeLessonId: lessonId,
-          courseId: data.courseId || null,
-          courseTitle: data.courseTitle,
-          courseLevel: data.courseLevel,
-          lessonTitle: data.lessonTitle,
-          lessonImg: data.lessonImg,
-          lessonAudio: data.lessonAudio || null,
-          lessonDuration: data.lessonDuration || 0,
-          authorName: data.authorName || 'LingQ',
-          readTimes: data.readTimes || 0,
-          totalListenedSec: data.totalListenedSec || 0,
-          tokens: tokensWithSentencePaging,
-          dbPhrases: data.phrases || [],
-          phrases: instances,
-          languageCode: data.languageCode || 'en',
+          const tokenMap: Record<string, Token> = {};
+          tokensWithSentencePaging.forEach(t => { tokenMap[t.id] = t; });
+          
+          const phraseMap: Record<string, Phrase> = {};
+          instances.forEach(p => { phraseMap[p.id] = p; });
+
+          return {
+            activeLessonId: lessonId,
+            courseId: data.courseId || null,
+            courseTitle: data.courseTitle,
+            courseLevel: data.courseLevel,
+            lessonTitle: data.lessonTitle,
+            lessonImg: data.lessonImg,
+            lessonAudio: data.lessonAudio || null,
+            lessonDuration: data.lessonDuration || 0,
+            authorName: data.authorName || 'LingQ',
+            readTimes: data.readTimes || 0,
+            totalListenedSec: data.totalListenedSec || 0,
+            tokens: tokensWithSentencePaging,
+            tokenMap,
+            dbPhrases: data.phrases || [],
+            phrases: instances,
+            phraseMap,
+            languageCode: data.languageCode || 'en',
           isRTL: data.isRTL || false,
           totalCoins: data.totalCoins || 0,
           totalKnownWords: data.totalKnownWords || 0,
@@ -733,6 +749,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           sessionListeningTicks: isSameLesson ? state.sessionListeningTicks : 0,
           sessionDailyLingqs: isSameLesson ? state.sessionDailyLingqs : 0,
           sessionDailyLingqsLearned: isSameLesson ? state.sessionDailyLingqsLearned : 0,
+          lessonStructureHash: Date.now(),
         }
       });
 
@@ -824,9 +841,14 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         p.id === targetDbId ? { ...p, stage: newStage, meaning: meaning !== undefined ? meaning : p.meaning, phrase_tags: formattedTagsStr, notes: notes !== undefined ? notes : p.notes } as DbPhrase : p
       );
 
+      const newPhraseInstances = buildPhraseInstances(state.tokens, updatedDbPhrases);
+      const newPhraseMap = { ...state.phraseMap };
+      newPhraseInstances.forEach(p => { newPhraseMap[p.id] = p; });
+
       set({
         dbPhrases: updatedDbPhrases,
-        phrases: buildPhraseInstances(state.tokens, updatedDbPhrases),
+        phrases: newPhraseInstances,
+        phraseMap: newPhraseMap,
         userTags: Array.from(newTagsCache)
       });
 
@@ -879,9 +901,10 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       // Update daily stats optimistically
       get().updateDailyStats({ created: lingqDelta, learned: knownDelta });
 
+      const newTokenMap = { ...state.tokenMap };
       const updatedTokens = state.tokens.map(t => {
         if (t.isLearnable && t.text.toLowerCase() === targetText) {
-          return {
+          const newT = {
             ...t,
             stage: newStage,
             status: newStatus,
@@ -890,6 +913,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
             word_tags: finalTags,
             notes: notes !== undefined ? notes : t.notes
           };
+          newTokenMap[t.id] = newT;
+          return newT;
         }
         return t;
       });
@@ -898,7 +923,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       finalTags.forEach((t: string) => newTagsCache.add(t));
 
       set({
-        tokens: updatedTokens as Token[], userTags: Array.from(newTagsCache),
+        tokens: updatedTokens as Token[], 
+        tokenMap: newTokenMap,
+        userTags: Array.from(newTagsCache),
         totalCoins: Math.max(0, state.totalCoins + coinDelta),
         totalKnownWords: state.totalKnownWords + knownDelta,
       });
@@ -1034,12 +1061,17 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         p.dbId === res.phrase.id && p.range.includes(firstWordId)
       );
 
+      const newPhraseMap = { ...state.phraseMap };
+      newPhraseInstances.forEach(p => { newPhraseMap[p.id] = p; });
+
       set({
         dbPhrases: updatedDbPhrases,
         phrases: newPhraseInstances,
+        phraseMap: newPhraseMap,
         draftPhraseRange: null,
         selectedId: selectedInstance ? selectedInstance.id : null,
-        totalCoins: state.totalCoins + 5
+        totalCoins: state.totalCoins + 5,
+        lessonStructureHash: Date.now(),
       });
 
       // Increment daily LingQ count for the new phrase

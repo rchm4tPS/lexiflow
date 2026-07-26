@@ -7,16 +7,47 @@ import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
 
 interface SidebarProps {
-    word: SidebarItem | null;
     onUpdateStage: (payload: UpdatePayload) => void;
     onCreatePhrase: (range: string[], meaning: string) => void;
 }
 
-export default function Sidebar({ word, onUpdateStage, onCreatePhrase }: SidebarProps) {
+export default function Sidebar({ onUpdateStage, onCreatePhrase }: SidebarProps) {
     const { sidebarPosition, clickPos } = useReaderStore(useShallow(state => ({
         sidebarPosition: state.sidebarPosition,
         clickPos: state.clickPos
     })));
+
+    const word = useReaderStore(state => {
+        if (state.draftPhraseRange) {
+            const wordTokenIds = state.draftPhraseRange.filter(id => {
+                const t = state.tokenMap[id];
+                return t && !t.isNewline && !!t.text.match(/\p{L}/u);
+            });
+            const existingPhrase = Object.values(state.phraseMap).find(p =>
+                p.range.length === wordTokenIds.length && 
+                p.range.every((id: string, idx: number) => id === wordTokenIds[idx])
+            );
+            if (existingPhrase) return { ...existingPhrase, isPhrase: true as const };
+            
+            const phraseTokens = state.draftPhraseRange.map(id => state.tokenMap[id]).filter(Boolean);
+            return {
+                isDraft: true as const,
+                text: phraseTokens.map(t => t.text).join(' '),
+                stage: 0,
+                range: state.draftPhraseRange,
+                isPhrase: false as const
+            } as SidebarItem;
+        }
+
+        if (state.selectedId) {
+            if (state.selectedId.includes('_')) {
+                const p = state.phraseMap[state.selectedId];
+                return (p ? { ...p, isPhrase: true as const } : null) as SidebarItem | null;
+            }
+            return (state.tokenMap[state.selectedId] || null) as SidebarItem | null;
+        }
+        return null;
+    });
     // FIX: Safely coerce the stage to a Number, defaulting to 0.
     // This catches instances where JSON/State causes stage to be undefined or a string
     const currentStage = word ? Number(word.stage || 0) : 0;

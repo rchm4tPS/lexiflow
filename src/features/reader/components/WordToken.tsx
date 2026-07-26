@@ -1,17 +1,20 @@
 import React from 'react';
 import { useReaderStore } from '../../../store/useReaderStore';
-import type { Token, Phrase } from '../../../types/reader';
 
 interface PhraseGroupProps {
-  phrase: Phrase;
+  phraseId: string;
   onPhraseClick: (phraseId: string, e: React.MouseEvent) => void;
   children: React.ReactNode;
   depth?: number;
 }
 
 // --- THE NEW PHRASE WRAPPER ---
-export function PhraseGroup({ phrase, onPhraseClick, children, depth = 0 }: PhraseGroupProps) {
-  const isSelected = useReaderStore(state => state.selectedId === phrase.id);
+export function PhraseGroup({ phraseId, onPhraseClick, children, depth = 0 }: PhraseGroupProps) {
+  const phrase = useReaderStore(React.useCallback(state => state.phraseMap[phraseId], [phraseId]));
+  const isSelected = useReaderStore(state => state.selectedId === phraseId);
+  
+  if (!phrase) return <>{children}</>;
+  
   const stage = phrase?.stage || 1;
 
   // Orange gradient logic
@@ -37,7 +40,7 @@ export function PhraseGroup({ phrase, onPhraseClick, children, depth = 0 }: Phra
 
   return (
     <span
-      onClick={(e) => onPhraseClick(phrase.id, e)}
+      onClick={(e) => onPhraseClick(phraseId, e)}
       style={bgStyle}
       className={`inline rounded-md px-1 -mx-1 cursor-pointer transition-all duration-200 ${outlineClass} ${highlightClass}`}
     >
@@ -48,13 +51,16 @@ export function PhraseGroup({ phrase, onPhraseClick, children, depth = 0 }: Phra
 }
 
 interface WordTokenProps {
-  token: Token;
+  tokenId: string;
   onClick: (tokenId: string, e: React.MouseEvent) => void;
   isRTL: boolean;
 }
 
-const WordToken = React.memo(function WordToken({ token, onClick, isRTL }: WordTokenProps) {
-  const isSelected = useReaderStore(state => state.selectedId === token.id || !!state.draftPhraseRange?.includes(token.id));
+const WordToken = React.memo(function WordToken({ tokenId, onClick, isRTL }: WordTokenProps) {
+  const token = useReaderStore(React.useCallback(state => state.tokenMap[tokenId], [tokenId]));
+  const isSelected = useReaderStore(state => state.selectedId === tokenId || !!state.draftPhraseRange?.includes(tokenId));
+
+  if (!token) return null;
 
   if (token.isNewline) return <br />;
 

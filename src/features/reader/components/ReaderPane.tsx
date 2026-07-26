@@ -47,7 +47,7 @@ interface ReaderPaneProps {
 const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lessonTitle, lessonImg }: ReaderPaneProps) {
   const {
     showSummary, setShowSummary, showModal, setModal,
-    tokens, phrases, currentPage, draftPhraseRange,
+    lessonStructureHash, currentPage, draftPhraseRange,
     setDraftPhrase, isRTL, languageCode,
     handlePageAdvance, activeLessonId, syncLessonProgress,
     isLoadingLesson, readerMode, toggleReaderMode, totalPages, columnMapping, setSidebarPosition, setClickPos,
@@ -55,13 +55,16 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     isStatsLoading, lessonAudio, toggleSidebar, isSidebarVisible
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
-    tokens: state.tokens, phrases: state.phrases, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
+    lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
     setDraftPhrase: state.setDraftPhrase, isRTL: state.isRTL, languageCode: state.languageCode,
     handlePageAdvance: state.handlePageAdvance, activeLessonId: state.activeLessonId, syncLessonProgress: state.syncLessonProgress,
     isLoadingLesson: state.isLoadingLesson, readerMode: state.readerMode, toggleReaderMode: state.toggleReaderMode, totalPages: state.totalPages, columnMapping: state.columnMapping, setSidebarPosition: state.setSidebarPosition, setClickPos: state.setClickPos,
     lessonIndex: state.lessonIndex, courseLessonsCount: state.courseLessonsCount, prevLessonId: state.prevLessonId, nextLessonId: state.nextLessonId, setShowLessonInfoModal: state.setShowLessonInfoModal, initialTokenIndex: state.initialTokenIndex,
     isStatsLoading: state.isStatsLoading, lessonAudio: state.lessonAudio, toggleSidebar: state.toggleSidebar, isSidebarVisible: state.isSidebarVisible
   })));
+
+  const tokens = useReaderStore.getState().tokens;
+  const phrases = useReaderStore.getState().phrases;
   const location = useLocation();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -471,7 +474,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
           <React.Fragment key={token.id}>
             {!(readerMode === 'sentence' && token.isNewline) && (
               <WordToken
-                token={token}
+                tokenId={token.id}
                 isRTL={isRTL}
                 onClick={handleWordClick}
               />
@@ -500,7 +503,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         {renderTree(before, remainingPhrases, false, phraseContext, depth)}
         <PhraseGroup
           key={outermostPhrase.id}
-          phrase={outermostPhrase}
+          phraseId={outermostPhrase.id}
           depth={depth}
           onPhraseClick={handlePhraseClick}
         >
@@ -522,7 +525,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     );
   }
 
-  const stillHasBlueWords = tokens.some(w => w.isLearnable && (w.stage ?? 0) === 0)
+  const stillHasBlueWords = useReaderStore(state => state.tokens.some(w => w.isLearnable && (w.stage ?? 0) === 0));
 
   const renderedTree = React.useMemo(() => {
     if (isLoadingLesson || tokens.length === 0) return null;
@@ -548,7 +551,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         {renderTree(tokens, phrases, true)}
       </>
     );
-  }, [tokens, phrases, courseId, languageCode, courseTitle, lessonImg, lessonTitle, isRTL, handleWordClick, handlePhraseClick, readerMode, draftPhraseRange, isLoadingLesson]);
+  }, [lessonStructureHash, courseId, languageCode, courseTitle, lessonImg, lessonTitle, isRTL, handleWordClick, handlePhraseClick, readerMode, draftPhraseRange, isLoadingLesson]);
 
 
   return (

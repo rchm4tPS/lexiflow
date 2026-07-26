@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
 import { Play, Pause, Square } from 'lucide-react';
@@ -11,18 +11,20 @@ export default function Toolbar() {
         totalPages: state.totalPages, columnMapping: state.columnMapping
     })));
     
-    // Count of unique LingQs (stage 1, 2, 3) in the lesson
-    const uniqueLingQs = new Set(
-        tokens
-            .filter(w => w.isLearnable && (w.stage ?? 0) > 0 && (w.stage ?? 0) < 4)
-            .map(w => w.text.toLowerCase())
-    );
-    const uniquePhrases = new Set(
-        phrases
-            .filter(p => (p.stage ?? 0) > 0 && (p.stage ?? 0) < 4)
-            .map(p => p.text.toLowerCase())
-    );
-    const reviewCount = uniqueLingQs.size + uniquePhrases.size;
+    const reviewCount = useMemo(() => {
+        // Count of unique LingQs (stage 1, 2, 3) in the lesson
+        const uniqueLingQs = new Set(
+            tokens
+                .filter(w => w.isLearnable && (w.stage ?? 0) > 0 && (w.stage ?? 0) < 4)
+                .map(w => w.text.toLowerCase())
+        );
+        const uniquePhrases = new Set(
+            phrases
+                .filter(p => (p.stage ?? 0) > 0 && (p.stage ?? 0) < 4)
+                .map(p => p.text.toLowerCase())
+        );
+        return uniqueLingQs.size + uniquePhrases.size;
+    }, [tokens, phrases]);
 
     const audioRef = useRef<HTMLAudioElement>(null);
     const [audioState, setAudioState] = useState<'stopped' | 'playing' | 'paused'>('stopped');
@@ -125,16 +127,16 @@ export default function Toolbar() {
         return !learnableOnPage.some(w => (w.stage ?? 0) === 0);
     };
 
-    // The checklist turns green when there are NO learnable tokens with stage 0
-    const isLessonProcessed = !tokens.some(w => (w.isLearnable === true) && (w.stage ?? 0) === 0);
-
-    // Count only unique texts of learnable blue words (stage === 0)
-    const uniqueBlueWords = new Set(
-        tokens
-          .filter(w => w.isLearnable === true && (w.stage ?? 0) === 0)
-          .map(w => w.text.toLowerCase())
-    );
-    const blueCount = uniqueBlueWords.size;
+    const { isLessonProcessed, blueCount } = useMemo(() => {
+        const processed = !tokens.some(w => (w.isLearnable === true) && (w.stage ?? 0) === 0);
+        
+        const uniqueBlueWords = new Set(
+            tokens
+              .filter(w => w.isLearnable === true && (w.stage ?? 0) === 0)
+              .map(w => w.text.toLowerCase())
+        );
+        return { isLessonProcessed: processed, blueCount: uniqueBlueWords.size };
+    }, [tokens]);
 
     return (
         <div className="bg-[#f0f3f6] lg:rounded-lg shadow-sm flex flex-col relative border-t lg:border border-[#d8dee4] h-fit lg:mb-1" onClick={(e) => e.stopPropagation()}>

@@ -2,13 +2,12 @@ import { useParams } from "react-router-dom";
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from "../store/useReaderStore";
 import { useKeyboardShortcuts } from "../features/reader/hooks/useKeyboardShortcuts";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import Toolbar from "../features/reader/components/Toolbar";
 import ReaderPane from "../features/reader/components/ReaderPane";
 import Sidebar from "../features/reader/components/Sidebar";
 import CompletionModal from "../features/reader/components/LessonEnd/CompletionModal";
 import LessonInfoModal from "../features/reader/components/LessonInfoModal";
-import type { SidebarItem } from "../types/reader";
 
 export default function ReaderView() {
     const { lessonId } = useParams();
@@ -16,21 +15,17 @@ export default function ReaderView() {
     const {
         fetchLesson, syncLessonProgress,
         courseId, courseTitle, lessonTitle, lessonImg,
-        tokens, phrases,
-        selectedId, draftPhraseRange,
         updateStage, createPhrase,
         clearSelection,
         showSummary, showModal, showLessonInfoModal, setShowLessonInfoModal,
-        isSidebarVisible
+        isSidebarVisible, isLoadingLesson, lessonStructureHash
     } = useReaderStore(useShallow(state => ({
         fetchLesson: state.fetchLesson, syncLessonProgress: state.syncLessonProgress,
         courseId: state.courseId, courseTitle: state.courseTitle, lessonTitle: state.lessonTitle, lessonImg: state.lessonImg,
-        tokens: state.tokens, phrases: state.phrases,
-        selectedId: state.selectedId, draftPhraseRange: state.draftPhraseRange,
         updateStage: state.updateStage, createPhrase: state.createPhrase,
         clearSelection: state.clearSelection,
         showSummary: state.showSummary, showModal: state.showModal, showLessonInfoModal: state.showLessonInfoModal, setShowLessonInfoModal: state.setShowLessonInfoModal,
-        isSidebarVisible: state.isSidebarVisible
+        isSidebarVisible: state.isSidebarVisible, isLoadingLesson: state.isLoadingLesson, lessonStructureHash: state.lessonStructureHash
     })));
 
     useKeyboardShortcuts();
@@ -50,45 +45,7 @@ export default function ReaderView() {
         };
     }, [fetchLesson, lessonId, syncLessonProgress]);
 
-    // Compute activeItem for Sidebar
-    const activeItem = useMemo(() => {
-        if (draftPhraseRange) {
-            // 1. Filter draftPhraseRange to only include word tokens (no spaces/newlines)
-            // This is required because p.range excludes non-word tokens!
-            const wordTokenIds = tokens
-                .filter(t => draftPhraseRange.includes(t.id) && !t.isNewline && !!t.text.match(/\p{L}/u))
-                .map(t => t.id);
-
-            // 2. Check if this highlight matches an existing phrase
-            const existingPhrase = phrases.find(p =>
-                p.range.length === wordTokenIds.length && 
-                p.range.every((id: string, idx: number) => id === wordTokenIds[idx])
-            );
-
-            if (existingPhrase) return { ...existingPhrase, isPhrase: true as const };
-
-            // 2. Otherwise, it's a new Blue Draft
-            const phraseTokens = tokens.filter(t => draftPhraseRange.includes(t.id));
-            return {
-                isDraft: true as const,
-                text: phraseTokens.map(t => t.text).join(' '),
-                stage: 0,
-                range: draftPhraseRange,
-                isPhrase: false as const
-            } as SidebarItem;
-        }
-
-        if (selectedId) {
-            if (selectedId.includes('_')) {
-                const p = phrases.find(p => p.id === selectedId);
-                return (p ? { ...p, isPhrase: true as const } : null) as SidebarItem | null;
-            }
-            return (tokens.find(t => t.id === selectedId) || null) as SidebarItem | null;
-        }
-        return null;
-    }, [selectedId, draftPhraseRange, tokens, phrases]);
-
-    if (tokens.length === 0) {
+    if (isLoadingLesson || !lessonStructureHash) {
         return <div className="h-full flex items-center justify-center font-bold text-gray-400">Loading Lesson Content...</div>;
     }
 
@@ -105,7 +62,7 @@ export default function ReaderView() {
                     lessonImg={lessonImg}
                 />
                 {!showSummary && isSidebarVisible && (
-                    <Sidebar word={activeItem} onUpdateStage={updateStage} onCreatePhrase={createPhrase} />
+                    <Sidebar onUpdateStage={updateStage} onCreatePhrase={createPhrase} />
                 )}
             </div>
         </div>
