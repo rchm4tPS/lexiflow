@@ -2,7 +2,8 @@ import { useParams } from "react-router-dom";
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from "../store/useReaderStore";
 import { useKeyboardShortcuts } from "../features/reader/hooks/useKeyboardShortcuts";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { X } from "lucide-react";
 import Toolbar from "../features/reader/components/Toolbar";
 import ReaderPane from "../features/reader/components/ReaderPane";
 import Sidebar from "../features/reader/components/Sidebar";
@@ -11,6 +12,7 @@ import LessonInfoModal from "../features/reader/components/LessonInfoModal";
 
 export default function ReaderView() {
     const { lessonId } = useParams();
+    const [isDrawerClosing, setIsDrawerClosing] = useState(false);
 
     const {
         fetchLesson, syncLessonProgress,
@@ -18,14 +20,20 @@ export default function ReaderView() {
         updateStage, createPhrase,
         clearSelection,
         showSummary, showModal, showLessonInfoModal, setShowLessonInfoModal,
-        isSidebarVisible, isLoadingLesson, lessonStructureHash
+        isSidebarVisible, isLoadingLesson, lessonStructureHash,
+        showTranslation, translationData, isLoadingTranslation, translationError, setShowTranslation
     } = useReaderStore(useShallow(state => ({
         fetchLesson: state.fetchLesson, syncLessonProgress: state.syncLessonProgress,
         courseId: state.courseId, courseTitle: state.courseTitle, lessonTitle: state.lessonTitle, lessonImg: state.lessonImg,
         updateStage: state.updateStage, createPhrase: state.createPhrase,
         clearSelection: state.clearSelection,
         showSummary: state.showSummary, showModal: state.showModal, showLessonInfoModal: state.showLessonInfoModal, setShowLessonInfoModal: state.setShowLessonInfoModal,
-        isSidebarVisible: state.isSidebarVisible, isLoadingLesson: state.isLoadingLesson, lessonStructureHash: state.lessonStructureHash
+        isSidebarVisible: state.isSidebarVisible, isLoadingLesson: state.isLoadingLesson, lessonStructureHash: state.lessonStructureHash,
+        showTranslation: state.showTranslation,
+        translationData: state.translationData,
+        isLoadingTranslation: state.isLoadingTranslation,
+        translationError: state.translationError,
+        setShowTranslation: state.setShowTranslation
     })));
 
     useKeyboardShortcuts();
@@ -45,6 +53,14 @@ export default function ReaderView() {
         };
     }, [fetchLesson, lessonId, syncLessonProgress]);
 
+    const handleCloseTranslation = () => {
+        setIsDrawerClosing(true);
+        setTimeout(() => {
+            setShowTranslation(false);
+            setIsDrawerClosing(false);
+        }, 280);
+    };
+
     if (isLoadingLesson || !lessonStructureHash) {
         return <div className="h-full flex items-center justify-center font-bold text-gray-400">Loading Lesson Content...</div>;
     }
@@ -61,10 +77,66 @@ export default function ReaderView() {
                     lessonTitle={lessonTitle}
                     lessonImg={lessonImg}
                 />
-                {!showSummary && isSidebarVisible && (
-                    <Sidebar onUpdateStage={updateStage} onCreatePhrase={createPhrase} />
-                )}
+            {!showSummary && (isSidebarVisible || showTranslation) && (
+                <Sidebar
+                    onUpdateStage={updateStage}
+                    onCreatePhrase={createPhrase}
+                    showTranslation={showTranslation}
+                    translationData={translationData}
+                    isLoadingTranslation={isLoadingTranslation}
+                    translationError={translationError}
+                    onCloseTranslation={handleCloseTranslation}
+                />
+            )}
             </div>
+
+            {/* Translation Drawer — shown on viewports < xl (1280px) when sidebar is not visible */}
+            {showTranslation && (
+                <div
+                    className={`xl:hidden fixed inset-0 z-[110] bg-black/60 flex items-end justify-center ${isDrawerClosing ? 'animate-fade-out-drawer' : 'animate-fade-in-drawer'}`}
+                    onClick={handleCloseTranslation}
+                >
+                    <div
+                        className={`w-full max-w-2xl ${isDrawerClosing ? 'animate-slide-down' : 'animate-slide-up'}`}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="bg-white w-full max-h-[75vh] rounded-t-2xl shadow-2xl flex flex-col overflow-hidden">
+                            {/* Drawer Handle */}
+                            <div className="flex justify-center pt-3 pb-1 shrink-0">
+                                <div className="w-10 h-1 rounded-full bg-gray-300" />
+                            </div>
+                            {/* Header */}
+                            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
+                                <h3 className="font-extrabold text-lg text-[#3a92fb]">Translation</h3>
+                                <button
+                                    onClick={handleCloseTranslation}
+                                    className="p-1.5 hover:bg-gray-100 rounded-full transition cursor-pointer"
+                                >
+                                    <X className="w-5 h-5 text-gray-500" />
+                                </button>
+                            </div>
+                            {/* Content */}
+                            <div className="flex-1 overflow-y-auto px-5 py-4">
+                                {isLoadingTranslation ? (
+                                    <div className="space-y-3">
+                                        {[1, 2, 3, 4].map((i) => (
+                                            <div key={i} className="h-5 bg-gray-200 animate-shimmer rounded w-full" />
+                                        ))}
+                                    </div>
+                                ) : translationError ? (
+                                    <div className="text-red-500 text-sm">{translationError}</div>
+                                ) : (
+                                    <div className="text-gray-800 text-[15px] leading-relaxed font-medium">
+                                        {(translationData ?? '').split('\n').map((sentence: string, idx: number) => (
+                                            <p key={idx} className="mb-3">{sentence}</p>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

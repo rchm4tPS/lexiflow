@@ -4,6 +4,7 @@ import Swal from 'sweetalert2';
 import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settings, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
+import { apiClient } from '../../../api/client';
 import SummaryView from './LessonEnd/SummaryView';
 import CompletionModal from './LessonEnd/CompletionModal';
 import WordToken, { PhraseGroup } from './WordToken';
@@ -142,16 +143,16 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
   const handleDownloadAudio = () => {
     if (!lessonAudio) {
-      Swal.fire({ 
-        icon: 'info', 
-        title: 'No Audio', 
-        text: 'There is no audio available for this lesson.', 
-        confirmButtonColor: '#3890fc' 
+      Swal.fire({
+        icon: 'info',
+        title: 'No Audio',
+        text: 'There is no audio available for this lesson.',
+        confirmButtonColor: '#3890fc'
       });
       closeDropdown();
       return;
     }
-    
+
     // Direct link fallback, since we can't fetch it due to strict CORS on CDN
     // The downloaded file might carry the CDN's raw filename
     const fallbackLink = document.createElement('a');
@@ -162,6 +163,62 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     fallbackLink.click();
     document.body.removeChild(fallbackLink);
     closeDropdown();
+  };
+
+  // --- Fetch Translation — proxied via backend (uses LingQ API with server-side LINGQ_TOKEN) ---
+  const fetchTranslation = async () => {
+    const { activeLessonId } = useReaderStore.getState();
+    if (!activeLessonId) return;
+
+    useReaderStore.getState().setIsLoadingTranslation(true);
+    useReaderStore.getState().setTranslationError(null);
+    useReaderStore.getState().setTranslationData('');
+    // Open the panel immediately so the loading skeleton is visible
+    useReaderStore.getState().setShowTranslation(true);
+    closeDropdown();
+
+    try {
+      const response = await apiClient(`/library/lingq-translation/${activeLessonId}`);
+
+      if (!response || !response.translation) {
+        throw new Error('Invalid response from server.');
+      }
+
+      const xmlText: string = response.translation;
+
+      // Parse XML — each <span> represents one sentence.
+      // Prefer <data code="en" type="..."> which is a full clean sentence translation.
+      // Fallback to <cwtd code="en"> which has per-word translations separated by "|".
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+
+      const spans = xmlDoc.querySelectorAll('span');
+      const sentences: string[] = [];
+
+      spans.forEach((span) => {
+        // <data code="en" type="gemini|chatgpt|..."> — clean full sentence
+        const dataTag = span.querySelector('data[code="en"]');
+        if (dataTag?.textContent?.trim()) {
+          sentences.push(dataTag.textContent.trim());
+          return;
+        }
+
+        // Fallback: <cwtd code="en"> — join words, strip "|" separators
+        const cwtdTag = span.querySelector('cwtd[code="en"]');
+        if (cwtdTag?.textContent?.trim()) {
+          const text = cwtdTag.textContent.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim();
+          if (text) sentences.push(text);
+        }
+      });
+
+      useReaderStore.getState().setTranslationData(sentences.join('\n'));
+    } catch (error: unknown) {
+      console.error('Failed to fetch translation:', error);
+      const msg = error instanceof Error ? error.message : 'Failed to load translation. Please try again.';
+      useReaderStore.getState().setTranslationError(msg);
+    } finally {
+      useReaderStore.getState().setIsLoadingTranslation(false);
+    }
   };
 
   const closeQuickStart = () => {
@@ -242,8 +299,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       });
 
       // Calculate total pages based on actual tokens, ignoring empty trailing scroll width
-      const maxColIndex = Object.keys(mapping).length > 0 
-        ? Math.max(...Object.keys(mapping).map(Number)) 
+      const maxColIndex = Object.keys(mapping).length > 0
+        ? Math.max(...Object.keys(mapping).map(Number))
         : 0;
       const newTotalPages = Math.max(1, maxColIndex + 1);
 
@@ -293,7 +350,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
   React.useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
-    
+
     const handleSelectionChange = () => {
       clearTimeout(timeout);
       timeout = setTimeout(() => {
@@ -318,16 +375,16 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             if (rangeCount >= 2 && rangeCount <= 9) {
               const selectedTokenIds = tokens.slice(start, end + 1).map(t => t.id);
               const isValid = !tokens.slice(start, end + 1).some(t => t.isNewline);
-              
+
               if (isValid) {
                 const range = selection.getRangeAt(0);
                 const rect = range.getBoundingClientRect();
                 const screenWidth = window.innerWidth;
-                
+
                 useReaderStore.getState().setSidebarPosition(rect.left > screenWidth / 2 ? 'left' : 'right');
                 useReaderStore.getState().setClickPos({ x: rect.right, y: rect.bottom });
                 useReaderStore.getState().setDraftPhrase(selectedTokenIds);
-                
+
                 setTimeout(() => selection.removeAllRanges(), 150);
               }
             }
@@ -385,7 +442,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         if (idx1 !== -1 && idx2 !== -1) {
           const start = Math.min(idx1, idx2);
           const end = Math.max(idx1, idx2);
-          
+
           const selectedTokens = tokens.slice(start, end + 1);
           const learnableCount = selectedTokens.filter(t => t.isLearnable).length;
 
@@ -627,11 +684,11 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                           {isRTL ? <ChevronRight className="w-5 h-5 text-gray-300" /> : <ChevronLeft className="w-5 h-5 text-gray-300" />}
                         </Link>
                       ) : <div className="w-8" />}
-                      
+
                       <span className="text-[13px] font-semibold text-gray-400" dir="ltr">
                         {lessonIndex} / {courseLessonsCount || lessonIndex}
                       </span>
-                      
+
                       {nextLessonId ? (
                         <Link to={`/me/${languageCode}/reader/${nextLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
                           {isRTL ? <ChevronLeft className="w-5 h-5 text-gray-300" /> : <ChevronRight className="w-5 h-5 text-gray-300" />}
@@ -642,7 +699,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
                   {/* Menu Items */}
                   <div className="flex flex-col py-2 px-2 text-[14.5px] font-medium opacity-90" dir="ltr">
-                    <div 
+                    <div
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={() => {
                         setShowLessonInfoModal(true);
@@ -652,21 +709,27 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                       <Info className="w-5 h-5 text-gray-400" />
                       <span>Lesson Info</span>
                     </div>
-                    <div 
+                    <div
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={handleDownloadAudio}
                     >
                       <Download className="w-5 h-5 text-gray-400" />
                       <span>Download Audio</span>
                     </div>
-                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                    <div
+                      className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={() => {
+                        fetchTranslation();
+                        setIsDropdownOpen(false);
+                      }}
+                    >
                       <Languages className="w-5 h-5 text-gray-400" />
                       <span>Show Translation</span>
                     </div>
-                    
+
                     <div className="h-px w-full bg-gray-700/50 my-2" />
-                    
-                    <div 
+
+                    <div
                       className="hidden xl:flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={() => {
                         toggleSidebar();
@@ -689,7 +752,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                       <Settings className="w-5 h-5 text-gray-400" />
                       <span>Settings</span>
                     </div>
-                    <div 
+                    <div
                       className="xl:hidden flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={handleQuickStart}
                     >
@@ -761,11 +824,11 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                           {isRTL ? <ChevronRight className="w-5 h-5 text-gray-300" /> : <ChevronLeft className="w-5 h-5 text-gray-300" />}
                         </Link>
                       ) : <div className="w-8" />}
-                      
+
                       <span className="text-[13px] font-semibold text-gray-400" dir="ltr">
                         {lessonIndex} / {courseLessonsCount || lessonIndex}
                       </span>
-                      
+
                       {nextLessonId ? (
                         <Link to={`/me/${languageCode}/reader/${nextLessonId}`} className="p-1.5 hover:bg-white/10 rounded-full transition cursor-pointer">
                           {isRTL ? <ChevronLeft className="w-5 h-5 text-gray-300" /> : <ChevronRight className="w-5 h-5 text-gray-300" />}
@@ -776,7 +839,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
                   {/* Menu Items */}
                   <div className="flex flex-col py-2 px-2 text-[14.5px] font-medium opacity-90" dir="ltr">
-                    <div 
+                    <div
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={() => {
                         setShowLessonInfoModal(true);
@@ -786,21 +849,27 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                       <Info className="w-5 h-5 text-gray-400" />
                       <span>Lesson Info</span>
                     </div>
-                    <div 
+                    <div
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={handleDownloadAudio}
                     >
                       <Download className="w-5 h-5 text-gray-400" />
                       <span>Download Audio</span>
                     </div>
-                    <div className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition">
+                    <div
+                      className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={() => {
+                        fetchTranslation();
+                        setIsDropdownOpen(false);
+                      }}
+                    >
                       <Languages className="w-5 h-5 text-gray-400" />
                       <span>Show Translation</span>
                     </div>
-                    
+
                     <div className="h-px w-full bg-gray-700/50 my-2" />
-                    
-                    <div 
+
+                    <div
                       className="hidden xl:flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={() => {
                         toggleSidebar();
@@ -823,7 +892,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                       <Settings className="w-5 h-5 text-gray-400" />
                       <span>Settings</span>
                     </div>
-                    <div 
+                    <div
                       className="xl:hidden flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={handleQuickStart}
                     >
@@ -870,10 +939,10 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
               )}
             </div>
           </div>
-          
+
           {/* MORPHING PAGE DOTS FOR MOBILE/TABLET (< 1024px) */}
           <div className="flex lg:hidden w-full justify-center pb-4 shrink-0" dir="ltr">
-             <MorphingPageDots total={totalPages} activeIndex={currentPage} onChange={handlePageAdvance} isRTL={isRTL} />
+            <MorphingPageDots total={totalPages} activeIndex={currentPage} onChange={handlePageAdvance} isRTL={isRTL} />
           </div>
         </div>
 
@@ -905,22 +974,22 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       </div>
 
       {showQuickStartDrawer && (
-        <div 
-          className={`fixed inset-0 z-[110] bg-black/60 flex items-end justify-center sm:items-center sm:p-4 ${isQuickStartClosing ? 'animate-fade-out-drawer' : 'animate-fade-in-drawer'}`} 
+        <div
+          className={`fixed inset-0 z-[110] bg-black/60 flex items-end justify-center sm:items-center sm:p-4 ${isQuickStartClosing ? 'animate-fade-out-drawer' : 'animate-fade-in-drawer'}`}
           onClick={closeQuickStart}
         >
-          <div 
-            className={`w-full max-w-md ${isQuickStartClosing ? 'animate-slide-down sm:animate-none' : 'animate-slide-up sm:animate-none'}`} 
+          <div
+            className={`w-full max-w-md ${isQuickStartClosing ? 'animate-slide-down sm:animate-none' : 'animate-slide-up sm:animate-none'}`}
             onClick={e => e.stopPropagation()}
           >
-            <div 
+            <div
               className="bg-white w-full max-h-[85vh] sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden"
-              style={{ 
+              style={{
                 transform: dragY > 0 ? `translateY(${dragY}px)` : undefined,
                 transition: dragY > 0 ? 'none' : 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
               }}
             >
-              <div 
+              <div
                 className="flex justify-between items-center p-4 border-b border-gray-100 bg-white shrink-0 relative sm:cursor-default cursor-grab active:cursor-grabbing select-none"
                 style={{ touchAction: 'none' }}
                 onTouchStart={e => handleDragStart(e.touches[0].clientY)}

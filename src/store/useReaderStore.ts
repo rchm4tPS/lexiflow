@@ -29,7 +29,7 @@ interface ReaderState {
   courseLessonsCount: number;
 
   guidedCourses: Course[];
-  activeCourseDetails: CourseDetail | null; 
+  activeCourseDetails: CourseDetail | null;
   activeLessonId: string | null;
   prevLessonId: string | null;
   nextLessonId: string | null;
@@ -122,7 +122,7 @@ interface ReaderState {
   fetchMyCoursesDropdown: () => Promise<void>;
   createCourse: (title: string, level: string, description?: string, imageUrl?: string, isPublic?: boolean) => Promise<Course | undefined>;
   importLesson: (courseId: string, title: string, rawText: string, imageUrl?: string, description?: string, audioUrl?: string, isPublic?: boolean, audioDuration?: number, originalUrl?: string) => Promise<string | null>;
-  
+
   fetchLingqRecommendedCourses: (apiKey?: string) => Promise<any[]>;
   fetchLingqCourseLessons: (courseId: string, apiKey?: string) => Promise<any>;
   fetchLingqImportedIds: () => Promise<{ importedIds: number[], importedToday: number, maxQuota: number }>;
@@ -167,7 +167,7 @@ interface ReaderState {
   sessionDailyLingqs: number;
   sessionDailyLingqsLearned: number;
   pageEnterTime: number;
-  
+
   // Dynamic CSS Pagination State
   totalPages: number;
   columnMapping: Record<number, string[]>;
@@ -185,6 +185,16 @@ interface ReaderState {
   toggleSidebar: () => void;
 
   lessonStructureHash: number;
+
+  // Translation State
+  showTranslation: boolean;
+  translationData: string;
+  isLoadingTranslation: boolean;
+  translationError: string | null;
+  setShowTranslation: (show: boolean) => void;
+  setTranslationData: (data: string) => void;
+  setIsLoadingTranslation: (loading: boolean) => void;
+  setTranslationError: (error: string | null) => void;
 }
 
 export const useReaderStore = create<ReaderState>((set, get) => ({
@@ -263,7 +273,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   sessionDailyLingqs: 0,
   sessionDailyLingqsLearned: 0,
   pageEnterTime: Date.now(),
-  
+
   totalPages: 1,
   columnMapping: {},
 
@@ -282,6 +292,14 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   initialTokenIndex: null,
   setInitialTokenIndex: (idx) => set({ initialTokenIndex: idx }),
 
+  showTranslation: false,
+  translationData: '',
+  isLoadingTranslation: false,
+  translationError: null,
+  setShowTranslation: (show) => set({ showTranslation: show }),
+  setTranslationData: (data) => set({ translationData: data }),
+  setIsLoadingTranslation: (loading) => set({ isLoadingTranslation: loading }),
+  setTranslationError: (error) => set({ translationError: error }),
 
   incrementListeningTicks: (amount: number) => {
     set((s) => ({
@@ -332,9 +350,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     if (state.languageCode === code) return;
 
     console.log(`Syncing store language with URL: ${code}`);
-    
+
     // Aggressively reset language-specific state
-    set({ 
+    set({
       languageCode: code,
       isStatsLoading: true,
       totalCoins: 0,
@@ -382,11 +400,11 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   initializeUserState: async (id: string, lang?: string) => {
     try {
       const cacheBuster = `t=${Date.now()}`;
-      const endpoint = lang 
-        ? `/auth/info/${id}?lang=${lang}&${cacheBuster}` 
+      const endpoint = lang
+        ? `/auth/info/${id}?lang=${lang}&${cacheBuster}`
         : `/auth/info/${id}?${cacheBuster}`;
       const initUserData = await apiClient(endpoint);
-      
+
       // Prevent race conditions: if the user rapidly switched languages, 
       // the store's languageCode will no longer match the lang we just fetched.
       // In that case, we discard this stale response.
@@ -435,13 +453,13 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         sessionDailyLingqsLearned: state.sessionDailyLingqsLearned + learned,
         // sessionWordsRead is updated by setPage, and UI sums it with totalDailyWordsRead
         // We only add other metrics here for live feedback
-        last7DaysStats: state.last7DaysStats.map((s, i) => 
-          i === state.last7DaysStats.length - 1 
+        last7DaysStats: state.last7DaysStats.map((s, i) =>
+          i === state.last7DaysStats.length - 1
             ? { ...s, created: s.created + created, learned: s.learned + learned, listening: s.listening + listening, words: s.words + words }
             : s
         ),
-        last30DaysStats: state.last30DaysStats.map((s, i) => 
-          i === state.last30DaysStats.length - 1 
+        last30DaysStats: state.last30DaysStats.map((s, i) =>
+          i === state.last30DaysStats.length - 1
             ? { ...s, created: s.created + created, learned: s.learned + learned, listening: s.listening + listening, words: s.words + words }
             : s
         )
@@ -702,30 +720,30 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         // the session if we are re-fetching the same lesson.
         const isSameLesson = state.activeLessonId === lessonId;
 
-          const tokenMap: Record<string, Token> = {};
-          tokensWithSentencePaging.forEach(t => { tokenMap[t.id] = t; });
-          
-          const phraseMap: Record<string, Phrase> = {};
-          instances.forEach(p => { phraseMap[p.id] = p; });
+        const tokenMap: Record<string, Token> = {};
+        tokensWithSentencePaging.forEach(t => { tokenMap[t.id] = t; });
 
-          return {
-            activeLessonId: lessonId,
-            courseId: data.courseId || null,
-            courseTitle: data.courseTitle,
-            courseLevel: data.courseLevel,
-            lessonTitle: data.lessonTitle,
-            lessonImg: data.lessonImg,
-            lessonAudio: data.lessonAudio || null,
-            lessonDuration: data.lessonDuration || 0,
-            authorName: data.authorName || 'LingQ',
-            readTimes: data.readTimes || 0,
-            totalListenedSec: data.totalListenedSec || 0,
-            tokens: tokensWithSentencePaging,
-            tokenMap,
-            dbPhrases: data.phrases || [],
-            phrases: instances,
-            phraseMap,
-            languageCode: data.languageCode || 'en',
+        const phraseMap: Record<string, Phrase> = {};
+        instances.forEach(p => { phraseMap[p.id] = p; });
+
+        return {
+          activeLessonId: lessonId,
+          courseId: data.courseId || null,
+          courseTitle: data.courseTitle,
+          courseLevel: data.courseLevel,
+          lessonTitle: data.lessonTitle,
+          lessonImg: data.lessonImg,
+          lessonAudio: data.lessonAudio || null,
+          lessonDuration: data.lessonDuration || 0,
+          authorName: data.authorName || 'LingQ',
+          readTimes: data.readTimes || 0,
+          totalListenedSec: data.totalListenedSec || 0,
+          tokens: tokensWithSentencePaging,
+          tokenMap,
+          dbPhrases: data.phrases || [],
+          phrases: instances,
+          phraseMap,
+          languageCode: data.languageCode || 'en',
           isRTL: data.isRTL || false,
           totalCoins: data.totalCoins || 0,
           totalKnownWords: data.totalKnownWords || 0,
@@ -785,10 +803,10 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   markTokensAsRead: (tokenIds) => {
     const { readTokenIds, sessionWordsRead, updateDailyStats, tokens } = get();
-    
+
     let newWordsAdded = 0;
     const newReadTokens = new Set(readTokenIds);
-    
+
     tokenIds.forEach(id => {
       if (!newReadTokens.has(id)) {
         // Double check if token is learnable
@@ -923,7 +941,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       finalTags.forEach((t: string) => newTagsCache.add(t));
 
       set({
-        tokens: updatedTokens as Token[], 
+        tokens: updatedTokens as Token[],
         tokenMap: newTokenMap,
         userTags: Array.from(newTagsCache),
         totalCoins: Math.max(0, state.totalCoins + coinDelta),
@@ -1084,12 +1102,12 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   syncLessonProgress: async (lessonId, isCompleted, incrementReadTime, triggerRecalculateStats) => {
-    const { 
-      tokens, 
-      currentPage, 
+    const {
+      tokens,
+      currentPage,
       activeLessonId,
-      sessionListeningTicks, 
-      sessionWordsRead, 
+      sessionListeningTicks,
+      sessionWordsRead,
       sessionDailyLingqs,
       sessionDailyLingqsLearned
     } = get();
@@ -1131,15 +1149,15 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       // 1. Session variables are ALREADY optimistically accrued into `totalDaily...` by `updateDailyStats` dynamically!
       // Therefore, we solely evaluate streaks off the immediate state and zero out the session payload blocks strictly.
       const currentLoc = get();
-      
+
       const tier = getTier(currentLoc.dailyGoalTier);
       const isFulfilled = (currentLoc.totalDailyLingqs >= tier.lingqGoal) &&
-                          (currentLoc.totalDailyListeningSec >= (tier.listenMinGoal * 60));
+        (currentLoc.totalDailyListeningSec >= (tier.listenMinGoal * 60));
 
       set({
         hasFulfilledToday: currentLoc.hasFulfilledToday || isFulfilled,
         totalStreaks: (currentLoc.hasFulfilledToday === false && isFulfilled === true) ? currentLoc.totalStreaks + 1 : currentLoc.totalStreaks,
-        
+
         readTimes: currentLoc.readTimes + sessionWordsRead,
         totalListenedSec: currentLoc.totalListenedSec + sessionListeningTicks,
 
@@ -1335,7 +1353,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     try {
       const { languageCode } = get();
       const token = localStorage.getItem('lingq_token');
-      
+
       const queryParams = new URLSearchParams({ lang: languageCode });
       if (apiKey) queryParams.append('apiKey', apiKey);
 
@@ -1347,7 +1365,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       });
 
       if (!response.ok) throw new Error("Failed to fetch LingQ recommended courses");
-      
+
       const data = await response.json();
       return data.results || [];
     } catch (err: unknown) {
@@ -1360,7 +1378,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     try {
       const { languageCode } = get();
       const token = localStorage.getItem('lingq_token');
-      
+
       const queryParams = new URLSearchParams({ lang: languageCode, courseId: String(courseId) });
       if (apiKey) queryParams.append('apiKey', apiKey);
 
@@ -1372,7 +1390,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       });
 
       if (!response.ok) throw new Error("Failed to fetch LingQ course lessons");
-      
+
       const data = await response.json();
       return data;
     } catch (err: unknown) {
@@ -1402,7 +1420,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     try {
       const { languageCode } = get();
       const token = localStorage.getItem('lingq_token');
-      
+
       const response = await fetch(`${BASE_URL}/library/lingq-import-selected`, {
         method: 'POST',
         headers: {
@@ -1413,8 +1431,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       });
 
       if (!response.ok) {
-         const errorData = await response.json();
-         throw new Error(errorData.error || "Failed to import selected lessons.");
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to import selected lessons.");
       }
 
       const result = await response.json();

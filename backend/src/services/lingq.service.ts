@@ -120,4 +120,22 @@ export class LingqImportService {
 
     return { success: true, count: selectedLessons.length, results };
   }
+
+  // Proxy the LingQ lesson text/translation endpoint — uses LINGQ_TOKEN from env
+  static async fetchLessonTranslation(languageCode: string, lingqLessonId: number): Promise<string> {
+    const apiKey = process.env.LINGQ_TOKEN;
+    if (!apiKey) throw new Error('LINGQ_TOKEN is not configured on the server.');
+
+    const headers = {
+      'Authorization': `Token ${apiKey}`,
+      'Accept': 'application/json'
+    };
+
+    // LingQ API returns JSON: { "text": "<article>...</article>" }
+    const url = `${this.BASE_URL}/languages/${languageCode}/lessons/${lingqLessonId}/text/`;
+    const res = await axios.get(url, { headers });
+    const xmlText: string = res.data?.text;
+    if (!xmlText) throw new Error('LingQ API returned no text field.');
+    return xmlText;
+  }
 }

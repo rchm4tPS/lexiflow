@@ -1,4 +1,5 @@
 import React from 'react';
+import { X } from 'lucide-react';
 import QuickStartGuide from './QuickStartGuide';
 import BlueWordView from './BlueWordView';
 import YellowWordView from './YellowWordView';
@@ -9,9 +10,22 @@ import { useReaderStore } from '../../../store/useReaderStore';
 interface SidebarProps {
     onUpdateStage: (payload: UpdatePayload) => void;
     onCreatePhrase: (range: string[], meaning: string) => void;
+    showTranslation?: boolean;
+    translationData?: string;
+    isLoadingTranslation?: boolean;
+    translationError?: string | null;
+    onCloseTranslation?: () => void;
 }
 
-export default function Sidebar({ onUpdateStage, onCreatePhrase }: SidebarProps) {
+export default function Sidebar({
+    onUpdateStage,
+    onCreatePhrase,
+    showTranslation,
+    translationData,
+    isLoadingTranslation,
+    translationError,
+    onCloseTranslation,
+}: SidebarProps) {
     const { sidebarPosition, clickPos } = useReaderStore(useShallow(state => ({
         sidebarPosition: state.sidebarPosition,
         clickPos: state.clickPos
@@ -24,11 +38,11 @@ export default function Sidebar({ onUpdateStage, onCreatePhrase }: SidebarProps)
                 return t && !t.isNewline && !!t.text.match(/\p{L}/u);
             });
             const existingPhrase = Object.values(state.phraseMap).find(p =>
-                p.range.length === wordTokenIds.length && 
+                p.range.length === wordTokenIds.length &&
                 p.range.every((id: string, idx: number) => id === wordTokenIds[idx])
             );
             if (existingPhrase) return { ...existingPhrase, isPhrase: true as const };
-            
+
             const phraseTokens = state.draftPhraseRange.map(id => state.tokenMap[id]).filter(Boolean);
             return {
                 isDraft: true as const,
@@ -95,7 +109,9 @@ export default function Sidebar({ onUpdateStage, onCreatePhrase }: SidebarProps)
 
     const positionClasses = isDynamicOverlay ? "" : "lg:absolute lg:top-0 lg:bottom-0 xl:relative";
     const sideClasses = isDynamicOverlay ? "" : (sidebarPosition === 'left' ? 'lg:left-0' : 'lg:right-0');
-    const visibilityClasses = !word ? "hidden xl:flex" : "flex";
+    // Sidebar is hidden on mobile/tablet (<xl) unless a word is actively selected.
+    // Translation on <xl is handled by the drawer in ReaderView instead.
+    const visibilityClasses = !word ? 'hidden xl:flex' : 'flex';
 
     return (
         <div className={`${baseClasses} ${positionClasses} ${sideClasses} ${visibilityClasses}`}
@@ -107,9 +123,42 @@ export default function Sidebar({ onUpdateStage, onCreatePhrase }: SidebarProps)
                 }
                 e.stopPropagation();
             }}>
-            {!word && <QuickStartGuide />}
+            {!word && !showTranslation && <QuickStartGuide />}
+
+            {/* Translation View */}
+            {showTranslation && (
+                <div className="flex flex-col h-full min-h-0 bg-white overflow-hidden">
+                    <div className="flex items-center justify-between p-4 border-b border-gray-200 shrink-0">
+                        <h3 className="font-extrabold text-lg text-[#3a92fb]">Translation</h3>
+                        <button
+                            onClick={onCloseTranslation}
+                            className="p-1.5 hover:bg-gray-100 rounded-full transition cursor-pointer"
+                        >
+                            <X className="w-5 h-5 text-gray-500" />
+                        </button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4">
+                        {isLoadingTranslation ? (
+                            <div className="space-y-2">
+                                {[1, 2, 3].map((i) => (
+                                    <div key={i} className="h-10 bg-gray-200 animate-shimmer rounded w-full" />
+                                ))}
+                            </div>
+                        ) : translationError ? (
+                            <div className="text-red-500 text-sm">{translationError}</div>
+                        ) : (
+                            <div className="text-gray-800 text-[15px] leading-relaxed font-medium">
+                                {(translationData ?? '').split('\n').filter(Boolean).map((sentence: string, idx: number) => (
+                                    <p key={idx} className="mb-3">{sentence}</p>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* Logic: stage 0 is blue */}
-            {word && currentStage === 0 && (
+            {!showTranslation && word && currentStage === 0 && (
                 <BlueWordView
                     key={word.id || 'draft'}
                     word={word}
@@ -118,7 +167,7 @@ export default function Sidebar({ onUpdateStage, onCreatePhrase }: SidebarProps)
                 />
             )}
             {/* Logic: stage 1-6 is yellow/known/ignored */}
-            {word && currentStage > 0 && (
+            {!showTranslation && word && currentStage > 0 && (
                 <YellowWordView key={word.id} word={word} onUpdateStage={onUpdateStage} />
             )}
         </div>
