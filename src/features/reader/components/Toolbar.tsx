@@ -53,8 +53,12 @@ export default function Toolbar() {
         if (audioState === 'playing') {
             audioRef.current.pause();
             setAudioState('paused');
+            useReaderStore.getState().setIsAudioPlaying(false);
         } else {
-            audioRef.current.play().then(() => setAudioState('playing')).catch(e => console.error("Playback failed", e));
+            audioRef.current.play().then(() => {
+                setAudioState('playing');
+                useReaderStore.getState().setIsAudioPlaying(true);
+            }).catch(e => console.error("Playback failed", e));
         }
     };
 
@@ -64,15 +68,27 @@ export default function Toolbar() {
             audioRef.current.currentTime = 0;
             setAudioState('stopped');
             setCurrentTime(0);
+            useReaderStore.getState().setIsAudioPlaying(false);
+            useReaderStore.getState().setActiveSentenceIndex(null);
         }
     };
 
     const handleTimeUpdate = () => {
         if (audioRef.current) {
-            setCurrentTime(audioRef.current.currentTime);
+            const time = audioRef.current.currentTime;
+            setCurrentTime(time);
             // Fallback: update duration if onLoadedMetadata missed firing
             if (audioRef.current.duration && duration !== audioRef.current.duration) {
                 setDuration(audioRef.current.duration);
+            }
+
+            // --- Read-along sync: find which sentence is currently playing ---
+            const { audioTimestamps, activeSentenceIndex, setActiveSentenceIndex } = useReaderStore.getState();
+            if (audioTimestamps) {
+                const idx = audioTimestamps.findIndex(t => time >= t.start && time < t.end);
+                if (idx !== activeSentenceIndex) {
+                    setActiveSentenceIndex(idx === -1 ? null : idx);
+                }
             }
         }
     };

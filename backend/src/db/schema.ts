@@ -98,7 +98,7 @@ export const lessons = sqliteTable("lessons", {
 export const lessonContent = sqliteTable("lesson_content", {
   lesson_id: text("lesson_id").primaryKey().references(() => lessons.id, { onDelete: "cascade" }),
   raw_text: text("raw_text").notNull(),
-  audio_timestamps: text("audio_timestamps", { mode: "json" }), 
+  audio_timestamps: text("audio_timestamps", { mode: "json" }).$type<{ start: number; end: number }[]>(),
 });
 
 export const userLessonProgress = sqliteTable("user_lesson_progress", {
@@ -162,6 +162,18 @@ export const externalHintsCache = sqliteTable("external_hints_cache", {
   last_updated: integer("last_updated", { mode: "timestamp" }).$defaultFn(() => new Date()),
 }, (t) => ({
   pk: primaryKey({ columns: [t.word, t.language_code] }),
+}));
+
+// Global cache-aside for LingQ's /text/ endpoint, keyed by LingQ's own lesson id.
+// Shared across every user/course that imports the same LingQ lesson.
+export const lingqTranslationCache = sqliteTable("lingq_translation_cache", {
+  lingq_lesson_id: integer("lingq_lesson_id").notNull(),
+  language_code: text("language_code").notNull(),
+  sentences: text("sentences", { mode: "json" }).$type<string[]>().notNull(),
+  timestamps: text("timestamps", { mode: "json" }).$type<{ start: number; end: number }[]>().notNull(),
+  cached_at: integer("cached_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.lingq_lesson_id, t.language_code] }),
 }));
 
 export const vocabTransitions = sqliteTable("vocab_transitions", {

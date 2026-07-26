@@ -163,6 +163,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       lessonImg: lesson.image_url,
       lessonAudio: lesson.audio_url,
       lessonDuration: lesson.duration || 0,
+      audioTimestamps: content.audio_timestamps || null,
       authorName: authorName || 'LingQ',
       readTimes: userProgress?.read_times || 0,
       totalListenedSec: userProgress?.total_listened_sec || 0,

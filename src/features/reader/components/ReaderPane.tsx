@@ -53,7 +53,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     handlePageAdvance, activeLessonId, syncLessonProgress,
     isLoadingLesson, readerMode, toggleReaderMode, totalPages, columnMapping, setSidebarPosition, setClickPos,
     lessonIndex, courseLessonsCount, prevLessonId, nextLessonId, setShowLessonInfoModal, initialTokenIndex,
-    isStatsLoading, lessonAudio, toggleSidebar, isSidebarVisible
+    isStatsLoading, lessonAudio, toggleSidebar, isSidebarVisible,
+    translationData, revealedSentenceIndices, isLoadingTranslation
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
     lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
@@ -61,7 +62,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     handlePageAdvance: state.handlePageAdvance, activeLessonId: state.activeLessonId, syncLessonProgress: state.syncLessonProgress,
     isLoadingLesson: state.isLoadingLesson, readerMode: state.readerMode, toggleReaderMode: state.toggleReaderMode, totalPages: state.totalPages, columnMapping: state.columnMapping, setSidebarPosition: state.setSidebarPosition, setClickPos: state.setClickPos,
     lessonIndex: state.lessonIndex, courseLessonsCount: state.courseLessonsCount, prevLessonId: state.prevLessonId, nextLessonId: state.nextLessonId, setShowLessonInfoModal: state.setShowLessonInfoModal, initialTokenIndex: state.initialTokenIndex,
-    isStatsLoading: state.isStatsLoading, lessonAudio: state.lessonAudio, toggleSidebar: state.toggleSidebar, isSidebarVisible: state.isSidebarVisible
+    isStatsLoading: state.isStatsLoading, lessonAudio: state.lessonAudio, toggleSidebar: state.toggleSidebar, isSidebarVisible: state.isSidebarVisible,
+    translationData: state.translationData, revealedSentenceIndices: state.revealedSentenceIndices, isLoadingTranslation: state.isLoadingTranslation
   })));
 
   const tokens = useReaderStore.getState().tokens;
@@ -166,52 +168,30 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   };
 
   // --- Fetch Translation — proxied via backend (uses LingQ API with server-side LINGQ_TOKEN) ---
-  const fetchTranslation = async () => {
+  const fetchTranslation = async (openDrawer: boolean = true) => {
     const { activeLessonId } = useReaderStore.getState();
     if (!activeLessonId) return;
 
     useReaderStore.getState().setIsLoadingTranslation(true);
     useReaderStore.getState().setTranslationError(null);
-    useReaderStore.getState().setTranslationData('');
-    // Open the panel immediately so the loading skeleton is visible
-    useReaderStore.getState().setShowTranslation(true);
-    closeDropdown();
+    useReaderStore.getState().setTranslationData([]);
+    if (openDrawer) {
+      // Open the panel immediately so the loading skeleton is visible
+      useReaderStore.getState().setShowTranslation(true);
+      closeDropdown();
+    }
 
     try {
       const response = await apiClient(`/library/lingq-translation/${activeLessonId}`);
 
-      if (!response || !response.translation) {
+      if (!response || !Array.isArray(response.sentences)) {
         throw new Error('Invalid response from server.');
       }
 
-      const xmlText: string = response.translation;
-
-      // Parse XML — each <span> represents one sentence.
-      // Prefer <data code="en" type="..."> which is a full clean sentence translation.
-      // Fallback to <cwtd code="en"> which has per-word translations separated by "|".
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
-
-      const spans = xmlDoc.querySelectorAll('span');
-      const sentences: string[] = [];
-
-      spans.forEach((span) => {
-        // <data code="en" type="gemini|chatgpt|..."> — clean full sentence
-        const dataTag = span.querySelector('data[code="en"]');
-        if (dataTag?.textContent?.trim()) {
-          sentences.push(dataTag.textContent.trim());
-          return;
-        }
-
-        // Fallback: <cwtd code="en"> — join words, strip "|" separators
-        const cwtdTag = span.querySelector('cwtd[code="en"]');
-        if (cwtdTag?.textContent?.trim()) {
-          const text = cwtdTag.textContent.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim();
-          if (text) sentences.push(text);
-        }
-      });
-
-      useReaderStore.getState().setTranslationData(sentences.join('\n'));
+      useReaderStore.getState().setTranslationData(response.sentences);
+      if (Array.isArray(response.timestamps)) {
+        useReaderStore.getState().setAudioTimestamps(response.timestamps);
+      }
     } catch (error: unknown) {
       console.error('Failed to fetch translation:', error);
       const msg = error instanceof Error ? error.message : 'Failed to load translation. Please try again.';
@@ -219,6 +199,15 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     } finally {
       useReaderStore.getState().setIsLoadingTranslation(false);
     }
+  };
+
+  // --- Sentence View: toggle inline translation reveal for a single sentence on the current page ---
+  const handleToggleSentenceTranslation = (sentenceIndex: number) => {
+    const { translationData, toggleSentenceReveal } = useReaderStore.getState();
+    if (translationData.length === 0) {
+      fetchTranslation(false);
+    }
+    toggleSentenceReveal(sentenceIndex);
   };
 
   const closeQuickStart = () => {
@@ -584,6 +573,18 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
   const stillHasBlueWords = useReaderStore(state => state.tokens.some(w => w.isLearnable && (w.stage ?? 0) === 0));
 
+  // Sentence View: every token on the current page belongs to the same sentence (see the
+  // column-break logic in renderTree below), so the first mapped token's index is enough.
+  const currentSentenceIndex = React.useMemo(() => {
+    if (readerMode !== 'sentence') return null;
+    const idsOnPage = columnMapping[currentPage] || [];
+    for (const id of idsOnPage) {
+      const t = tokens.find(tk => tk.id === id);
+      if (t?.sentencePageIndex !== undefined) return t.sentencePageIndex;
+    }
+    return null;
+  }, [readerMode, columnMapping, currentPage, tokens]);
+
   const renderedTree = React.useMemo(() => {
     if (isLoadingLesson || tokens.length === 0) return null;
     return (
@@ -917,10 +918,10 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         </div>
 
         <div className={`flex flex-col mt-2 lg:mt-4 grow min-w-0 min-h-0 ${isRTL ? 'font-farsi-trad' : 'font-nunito'} relative bg-white rounded-md`}>
-          <div className={`w-full flex-1 min-h-0 overflow-hidden relative ${isRTL ? 'pt-1 pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pb-4 lg:pb-6 px-3 lg:px-5'}`}>
+          <div className={`w-full min-h-0 overflow-hidden relative ${readerMode === 'sentence' ? 'shrink-0' : 'flex-1'} ${isRTL ? 'pt-1 pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pb-4 lg:pb-6 px-3 lg:px-5'}`}>
             <div
               ref={scrollContainerRef}
-              className={`w-full h-full ${isRTL ? 'text-[clamp(1.2rem,4vw,1.75rem)]' : 'text-[clamp(1.1rem,3.5vw,1.5rem)]'} leading-7 lg:leading-8 text-gray-800 font-medium transition-transform duration-300`}
+              className={`w-full ${readerMode === 'sentence' ? 'h-auto' : 'h-full'} ${isRTL ? 'text-[clamp(1.2rem,4vw,1.75rem)]' : 'text-[clamp(1.1rem,3.5vw,1.5rem)]'} leading-7 lg:leading-8 text-gray-800 font-medium transition-transform duration-300`}
               style={{
                 columnWidth: columnWidthPx > 0 ? `${columnWidthPx}px` : 'auto',
                 columnGap: '3rem',
@@ -939,6 +940,28 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
               )}
             </div>
           </div>
+
+          {/* SENTENCE VIEW: inline per-sentence translation reveal */}
+          {readerMode === 'sentence' && !isLoadingLesson && currentSentenceIndex !== null && (
+            <div className="shrink-0 px-3 lg:px-5 pt-2 pb-2">
+              <button
+                onClick={() => handleToggleSentenceTranslation(currentSentenceIndex)}
+                className="flex items-center gap-1.5 text-[#3a92fb] hover:text-blue-600 text-sm font-semibold cursor-pointer transition"
+              >
+                <Languages className="w-4 h-4" />
+                {revealedSentenceIndices.has(currentSentenceIndex) ? 'Hide Translation' : 'Show Translation'}
+              </button>
+              {revealedSentenceIndices.has(currentSentenceIndex) && (
+                <div className="mt-1.5 text-gray-600 text-[15px] leading-relaxed">
+                  {isLoadingTranslation ? (
+                    <div className="h-5 bg-gray-200 animate-shimmer rounded w-2/3" />
+                  ) : (
+                    translationData[currentSentenceIndex] || 'Translation unavailable for this sentence.'
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* MORPHING PAGE DOTS FOR MOBILE/TABLET (< 1024px) */}
           <div className="flex lg:hidden w-full justify-center pb-4 shrink-0" dir="ltr">

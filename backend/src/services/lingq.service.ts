@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { db } from '../db/index.js';
-import { courses, lessons, userLanguages } from '../db/schema.js';
+import { courses, lessons, userLanguages, lessonContent, lingqTranslationCache } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { parseAndSaveLessonContent } from '../utils/lessonParser.js';
+import { parseLingqTranslationXml, type ParsedTranslation } from '../utils/translationParser.js';
 
 
 export class LingqImportService {
@@ -114,7 +115,15 @@ export class LingqImportService {
 
       // 4. Parse Content
       await parseAndSaveLessonContent(newLesson.id, fullText, languageCode, userId, true);
-      
+
+      // 5. Pre-fetch and cache the translation/audio-timestamps (non-fatal — some lessons
+      // have no translation available, and import must still succeed either way).
+      try {
+        await this.fetchAndCacheTranslationForLesson(newLesson.id);
+      } catch (e) {
+        console.warn(`Could not pre-cache translation for lesson ${newLesson.id}:`, e);
+      }
+
       results.push({ lessonId: newLesson.id, title: newLesson.title });
     }
 
@@ -137,5 +146,53 @@ export class LingqImportService {
     const xmlText: string = res.data?.text;
     if (!xmlText) throw new Error('LingQ API returned no text field.');
     return xmlText;
+  }
+
+  // Global cache-aside lookup, keyed by LingQ's own lesson id — shared by every user/lesson
+  // that imports the same LingQ lesson, so we hit LingQ's /text/ endpoint at most once per lesson ever.
+  static async getOrFetchTranslation(lingqLessonId: number, languageCode: string): Promise<ParsedTranslation> {
+    const [cached] = await db.select().from(lingqTranslationCache).where(and(
+      eq(lingqTranslationCache.lingq_lesson_id, lingqLessonId),
+      eq(lingqTranslationCache.language_code, languageCode)
+    ));
+
+    if (cached) {
+      return { sentences: cached.sentences, timestamps: cached.timestamps };
+    }
+
+    const xmlText = await this.fetchLessonTranslation(languageCode, lingqLessonId);
+    const parsed = parseLingqTranslationXml(xmlText);
+
+    await db.insert(lingqTranslationCache).values({
+      lingq_lesson_id: lingqLessonId,
+      language_code: languageCode,
+      sentences: parsed.sentences,
+      timestamps: parsed.timestamps,
+    }).onConflictDoNothing();
+
+    return parsed;
+  }
+
+  // Per-lesson wrapper: resolves our internal lesson to its LingQ ids, fetches/reuses the
+  // global translation cache, and write-throughs a denormalized copy into lesson_content.audio_timestamps
+  // so the reader page can read timing without an extra join.
+  static async fetchAndCacheTranslationForLesson(lessonDbId: string): Promise<ParsedTranslation | null> {
+    const [lessonData] = await db.select({
+      lingq_id: lessons.lingq_id,
+      language_code: courses.language_code,
+    })
+      .from(lessons)
+      .innerJoin(courses, eq(lessons.course_id, courses.id))
+      .where(eq(lessons.id, lessonDbId));
+
+    if (!lessonData?.lingq_id) return null;
+
+    const result = await this.getOrFetchTranslation(lessonData.lingq_id, lessonData.language_code);
+
+    await db.update(lessonContent)
+      .set({ audio_timestamps: result.timestamps })
+      .where(eq(lessonContent.lesson_id, lessonDbId));
+
+    return result;
   }
 }

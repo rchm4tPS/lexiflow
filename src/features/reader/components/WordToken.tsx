@@ -59,14 +59,21 @@ interface WordTokenProps {
 const WordToken = React.memo(function WordToken({ tokenId, onClick, isRTL }: WordTokenProps) {
   const token = useReaderStore(React.useCallback(state => state.tokenMap[tokenId], [tokenId]));
   const isSelected = useReaderStore(state => state.selectedId === tokenId || !!state.draftPhraseRange?.includes(tokenId));
+  const isDimmed = useReaderStore(React.useCallback(state => {
+    if (!state.isAudioPlaying || state.activeSentenceIndex === null) return false;
+    const sentenceIdx = state.tokenMap[tokenId]?.sentencePageIndex;
+    return sentenceIdx === undefined || sentenceIdx !== state.activeSentenceIndex;
+  }, [tokenId]));
 
   if (!token) return null;
 
   if (token.isNewline) return <br />;
 
+  const dimClass = isDimmed ? "opacity-30" : "";
+
   if (token.isLearnable === false) {
     return (
-      <span className={`px-0.5 ${isRTL ? 'my-4' : 'my-3'} inline-block text-gray-800`}>
+      <span className={`px-0.5 ${isRTL ? 'my-4' : 'my-3'} inline-block text-gray-800 transition-opacity duration-150 ${dimClass}`}>
         {token.text}
       </span>
     );
@@ -93,7 +100,7 @@ const WordToken = React.memo(function WordToken({ tokenId, onClick, isRTL }: Wor
       data-token-id={token.id} // Essential for Drag-to-Select
       onClick={(e) => onClick(token.id, e)}
       style={wordBgStyle}
-      className={`cursor-pointer px-0.75 rounded mx-0.75 ${isRTL ? 'my-4' : 'my-3'} transition-all duration-50 inline-block ${highlightClass} hover:ring-1 ring-amber-400`}
+      className={`cursor-pointer px-0.75 rounded mx-0.75 ${isRTL ? 'my-4' : 'my-3'} transition-all duration-150 inline-block ${highlightClass} ${dimClass} hover:ring-1 ring-amber-400`}
     >
       {token.text}
     </span>

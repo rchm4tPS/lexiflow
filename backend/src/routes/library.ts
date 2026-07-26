@@ -787,34 +787,19 @@ router.post('/lingq-import-selected', authenticate, async (req: AuthRequest, res
   }
 });
 
-// 13. Fetch LingQ lesson translation (proxied through our backend with LINGQ_TOKEN)
+// 13. Fetch LingQ lesson translation — served from the global translation cache when
+// available (populated at import time), otherwise fetched from LingQ once and cached for everyone.
 router.get('/lingq-translation/:lessonId', authenticate, async (req: AuthRequest, res) => {
   try {
     const { lessonId } = req.params;
 
-    // Look up the lesson in our DB to get its lingq_id and language_code
-    const [lessonData] = await db.select({
-      lingq_id: lessons.lingq_id,
-      language_code: courses.language_code,
-    })
-      .from(lessons)
-      .innerJoin(courses, eq(lessons.course_id, courses.id))
-      .where(eq(lessons.id, String(lessonId)));
+    const result = await LingqImportService.fetchAndCacheTranslationForLesson(String(lessonId));
 
-    if (!lessonData) {
-      return res.status(404).json({ error: 'Lesson not found.' });
+    if (!result) {
+      return res.status(404).json({ error: 'Translation unavailable for this lesson.' });
     }
 
-    if (!lessonData.lingq_id) {
-      return res.status(404).json({ error: 'This lesson does not have a LingQ ID. Translation is unavailable.' });
-    }
-
-    const xmlText = await LingqImportService.fetchLessonTranslation(
-      lessonData.language_code,
-      lessonData.lingq_id
-    );
-
-    res.json({ translation: xmlText });
+    res.json(result);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Internal Error';
     res.status(500).json({ error: message });

@@ -11,7 +11,7 @@ interface SidebarProps {
     onUpdateStage: (payload: UpdatePayload) => void;
     onCreatePhrase: (range: string[], meaning: string) => void;
     showTranslation?: boolean;
-    translationData?: string;
+    translationData?: string[];
     isLoadingTranslation?: boolean;
     translationError?: string | null;
     onCloseTranslation?: () => void;
@@ -148,7 +148,7 @@ export default function Sidebar({
                             <div className="text-red-500 text-sm">{translationError}</div>
                         ) : (
                             <div className="text-gray-800 text-[15px] leading-relaxed font-medium">
-                                {(translationData ?? '').split('\n').filter(Boolean).map((sentence: string, idx: number) => (
+                                {(translationData ?? []).map((sentence: string, idx: number) => (
                                     <p key={idx} className="mb-3">{sentence}</p>
                                 ))}
                             </div>

@@ -2,7 +2,7 @@ import { useParams } from "react-router-dom";
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from "../store/useReaderStore";
 import { useKeyboardShortcuts } from "../features/reader/hooks/useKeyboardShortcuts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import Toolbar from "../features/reader/components/Toolbar";
 import ReaderPane from "../features/reader/components/ReaderPane";
@@ -13,6 +13,8 @@ import LessonInfoModal from "../features/reader/components/LessonInfoModal";
 export default function ReaderView() {
     const { lessonId } = useParams();
     const [isDrawerClosing, setIsDrawerClosing] = useState(false);
+    const [dragY, setDragY] = useState(0);
+    const dragStartY = useRef<number | null>(null);
 
     const {
         fetchLesson, syncLessonProgress,
@@ -61,6 +63,19 @@ export default function ReaderView() {
         }, 280);
     };
 
+    const handleDragStart = (clientY: number) => dragStartY.current = clientY;
+    const handleDragMove = (clientY: number) => {
+        if (dragStartY.current === null) return;
+        const diff = clientY - dragStartY.current;
+        if (diff > 0) setDragY(diff);
+    };
+    const handleDragEnd = () => {
+        if (dragStartY.current === null) return;
+        if (dragY > 80) handleCloseTranslation();
+        dragStartY.current = null;
+        setDragY(0);
+    };
+
     if (isLoadingLesson || !lessonStructureHash) {
         return <div className="h-full flex items-center justify-center font-bold text-gray-400">Loading Lesson Content...</div>;
     }
@@ -100,9 +115,25 @@ export default function ReaderView() {
                         className={`w-full max-w-2xl ${isDrawerClosing ? 'animate-slide-down' : 'animate-slide-up'}`}
                         onClick={e => e.stopPropagation()}
                     >
-                        <div className="bg-white w-full max-h-[75vh] rounded-t-2xl shadow-2xl flex flex-col overflow-hidden">
+                        <div
+                            className="bg-white w-full max-h-[75vh] rounded-t-2xl shadow-2xl flex flex-col overflow-hidden"
+                            style={{
+                                transform: dragY > 0 ? `translateY(${dragY}px)` : undefined,
+                                transition: dragY > 0 ? 'none' : 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+                            }}
+                        >
                             {/* Drawer Handle */}
-                            <div className="flex justify-center pt-3 pb-1 shrink-0">
+                            <div
+                                className="flex justify-center pt-3 pb-1 shrink-0 cursor-grab active:cursor-grabbing select-none"
+                                style={{ touchAction: 'none' }}
+                                onTouchStart={e => handleDragStart(e.touches[0].clientY)}
+                                onTouchMove={e => handleDragMove(e.touches[0].clientY)}
+                                onTouchEnd={handleDragEnd}
+                                onMouseDown={e => handleDragStart(e.clientY)}
+                                onMouseMove={e => handleDragMove(e.clientY)}
+                                onMouseUp={handleDragEnd}
+                                onMouseLeave={handleDragEnd}
+                            >
                                 <div className="w-10 h-1 rounded-full bg-gray-300" />
                             </div>
                             {/* Header */}
@@ -127,7 +158,7 @@ export default function ReaderView() {
                                     <div className="text-red-500 text-sm">{translationError}</div>
                                 ) : (
                                     <div className="text-gray-800 text-[15px] leading-relaxed font-medium">
-                                        {(translationData ?? '').split('\n').map((sentence: string, idx: number) => (
+                                        {(translationData ?? []).map((sentence: string, idx: number) => (
                                             <p key={idx} className="mb-3">{sentence}</p>
                                         ))}
                                     </div>

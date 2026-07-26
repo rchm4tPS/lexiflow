@@ -188,13 +188,26 @@ interface ReaderState {
 
   // Translation State
   showTranslation: boolean;
-  translationData: string;
+  translationData: string[];
   isLoadingTranslation: boolean;
   translationError: string | null;
   setShowTranslation: (show: boolean) => void;
-  setTranslationData: (data: string) => void;
+  setTranslationData: (data: string[]) => void;
   setIsLoadingTranslation: (loading: boolean) => void;
   setTranslationError: (error: string | null) => void;
+
+  // Audio-sync State — sentence-level start/end timestamps (seconds), aligned by index
+  // with each token's sentencePageIndex.
+  audioTimestamps: { start: number; end: number }[] | null;
+  activeSentenceIndex: number | null;
+  isAudioPlaying: boolean;
+  setAudioTimestamps: (timestamps: { start: number; end: number }[] | null) => void;
+  setActiveSentenceIndex: (index: number | null) => void;
+  setIsAudioPlaying: (playing: boolean) => void;
+
+  // Sentence View — per-sentence inline translation reveal (independent of the Translation drawer)
+  revealedSentenceIndices: Set<number>;
+  toggleSentenceReveal: (index: number) => void;
 }
 
 export const useReaderStore = create<ReaderState>((set, get) => ({
@@ -293,13 +306,43 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   setInitialTokenIndex: (idx) => set({ initialTokenIndex: idx }),
 
   showTranslation: false,
-  translationData: '',
+  translationData: [],
   isLoadingTranslation: false,
   translationError: null,
   setShowTranslation: (show) => set({ showTranslation: show }),
   setTranslationData: (data) => set({ translationData: data }),
   setIsLoadingTranslation: (loading) => set({ isLoadingTranslation: loading }),
   setTranslationError: (error) => set({ translationError: error }),
+
+  audioTimestamps: null,
+  activeSentenceIndex: null,
+  isAudioPlaying: false,
+  setAudioTimestamps: (timestamps) => set({ audioTimestamps: timestamps }),
+  setActiveSentenceIndex: (index) => {
+    set({ activeSentenceIndex: index });
+    if (index === null) return;
+    const { tokens, columnMapping, currentPage, setPage } = get();
+    const idsInSentence = new Set(tokens.filter(t => t.sentencePageIndex === index).map(t => t.id));
+    if (idsInSentence.size === 0) return;
+    for (const [page, ids] of Object.entries(columnMapping)) {
+      if (ids.some(id => idsInSentence.has(id))) {
+        const pageNum = Number(page);
+        if (pageNum !== currentPage) setPage(pageNum);
+        return;
+      }
+    }
+  },
+  setIsAudioPlaying: (playing) => set({ isAudioPlaying: playing }),
+
+  revealedSentenceIndices: new Set<number>(),
+  toggleSentenceReveal: (index) => {
+    set((state) => {
+      const next = new Set(state.revealedSentenceIndices);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return { revealedSentenceIndices: next };
+    });
+  },
 
   incrementListeningTicks: (amount: number) => {
     set((s) => ({
@@ -735,6 +778,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           lessonImg: data.lessonImg,
           lessonAudio: data.lessonAudio || null,
           lessonDuration: data.lessonDuration || 0,
+          audioTimestamps: data.audioTimestamps || null,
+          activeSentenceIndex: null,
+          revealedSentenceIndices: isSameLesson ? state.revealedSentenceIndices : new Set<number>(),
           authorName: data.authorName || 'LingQ',
           readTimes: data.readTimes || 0,
           totalListenedSec: data.totalListenedSec || 0,
