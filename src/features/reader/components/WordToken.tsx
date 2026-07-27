@@ -62,7 +62,7 @@ export function PhraseGroup({ phraseId, onPhraseClick, children, depth = 0 }: Ph
     <span
       onClick={(e) => onPhraseClick(phraseId, e)}
       style={bgStyle}
-      className={`inline rounded-md px-1 -mx-1 cursor-pointer transition-all duration-200 ${outlineClass} ${highlightClass} ${dimClass}`}
+      className={`inline rounded-md px-1 -mx-1 cursor-pointer transition-colors duration-200 ${outlineClass} ${highlightClass} ${dimClass}`}
     >
       {/* Render whatever the recursive tree hands down */}
       {children}
@@ -122,7 +122,7 @@ const WordToken = React.memo(function WordToken({ tokenId, onClick, isRTL }: Wor
       data-token-id={token.id} // Essential for Drag-to-Select
       onClick={(e) => onClick(token.id, e)}
       style={wordBgStyle}
-      className={`cursor-pointer px-0.75 rounded mx-0.75 transition-all duration-150 inline-block ${highlightClass} ${dimClass}${tokenMarginClass ? ` ${tokenMarginClass}` : ''}`}
+      className={`cursor-pointer px-0.75 rounded mx-0.75 transition-colors duration-150 inline-block ${highlightClass} ${dimClass}${tokenMarginClass ? ` ${tokenMarginClass}` : ''}`}
     >
       {token.text}
     </span>

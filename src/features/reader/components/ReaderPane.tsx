@@ -279,29 +279,14 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   }, [currentPage, columnMapping, initialTokenIndex]);
 
   // Measurement Engine
+  // --- RESTORED ORIGINAL WORKING ENGINE (WITH SAFEST LOGS) ---
   React.useLayoutEffect(() => {
     if (!scrollContainerRef.current || isLoadingLesson || tokens.length === 0) return;
 
     const container = scrollContainerRef.current;
 
-    // ─── DIAGNOSTIC: log which deps triggered this effect run ────────────────────
     const prev = layoutSettingsRef.current;
     const curr = { showMargins, fontSize, fontFamily, lineHeight };
-    console.log(
-      `%c[EFFECT FIRED] %cdeps snapshot`,
-      'color: #f59e0b; font-weight: bold', 'color: #666',
-      {
-        columnWidthPx,
-        showSettingsDrawer,
-        showMargins,
-        fontSize,
-        fontFamily,
-        lineHeight,
-        layoutChangedRef_before: layoutChangedRef.current,
-        prevSettings: prev,
-        currSettings: curr,
-      }
-    );
 
     const layoutChanged =
       prev.showMargins !== curr.showMargins ||
@@ -311,39 +296,17 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
     if (layoutChanged) {
       layoutSettingsRef.current = curr;
-      console.log(
-        `%c[LAYOUT CHANGED] %cdetected — calling setPagination(1,{}) and setting layoutChangedRef=true`,
-        'color: #ef4444; font-weight: bold', 'color: #666',
-        { prev, curr }
-      );
+      console.log('⚙️ [LAYOUT CHANGED] Settings updated:', { showMargins });
       useReaderStore.getState().setPagination(1, {});
       layoutChangedRef.current = true;
     }
 
-    // label for which call site fired measure() — helps trace rAF vs initial vs setTimeout
     let measureCallCount = 0;
     const measure = (caller = 'unknown') => {
       measureCallCount++;
       const containerRect = container.getBoundingClientRect();
 
-      console.log(
-        `%c[measure() #${measureCallCount}] %ccaller="${caller}"`,
-        'color: #3a92fb; font-weight: bold', 'color: #666',
-        {
-          columnWidthPx_closure: columnWidthPx,
-          containerWidth: containerRect.width.toFixed(1),
-          layoutChangedRef_now: layoutChangedRef.current,
-          domColumnWidth: container.style.columnWidth,
-          storeTotal: useReaderStore.getState().totalPages,
-          storePage: useReaderStore.getState().currentPage,
-        }
-      );
-
-      // When columnWidthPx is 0 (uninitialized) and no layout change is pending,
-      // prime it to the container width so CSS multi-column creates proper pixel-based
-      // column layout on the very next run.
       if (columnWidthPx === 0 && containerRect.width > 0 && !layoutChangedRef.current) {
-        console.log(`%c  → EARLY RETURN: priming columnWidthPx = ${containerRect.width.toFixed(1)}px`, 'color: #8b5cf6');
         setColumnWidthPx(containerRect.width);
         return;
       }
@@ -418,6 +381,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         }).length;
       };
 
+      const initialDetectedLastPage = trueLastPage;
+
       while (trueLastPage > 0) {
         const lastCount = countSigTokens(trueLastPage);
         if (lastCount === 0) { delete mapping[trueLastPage]; trueLastPage--; continue; }
@@ -428,69 +393,38 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       }
 
       const newTotalPages = Math.max(1, trueLastPage + 1);
+      const forceRefresh = layoutChangedRef.current;
+      layoutChangedRef.current = false;
 
-      const colBreakdown = Object.entries(mapping).map(([col, ids]) => {
-        const sigCount = allTokens.filter(t => ids.includes(t.id) && !t.isNewline && !!t.text?.trim()).length;
-        const lastTok = allTokens.find(t => t.id === ids[ids.length - 1]);
-        return `[Col ${col}: ${ids.length} tokens, ${sigCount} words | last: "${lastTok?.text || ''}"]`;
+      console.log(`📊 [MEASURE] caller="${caller}"`, {
+        initialDetectedLastPage,
+        calculatedNewTotalPages: newTotalPages,
+        lastWordTokenFound: lastSigTokInfo,
+        allColsDetected: Object.keys(mapping)
       });
 
-      // ─── DIAGNOSTIC: full measure result ──────────────────────────────────────
-      const forceRefresh = layoutChangedRef.current;
-      console.log(
-        `%c  [measure result] %cnewTotalPages=${newTotalPages} | trueLastPage=${trueLastPage} | forceRefresh=${forceRefresh}`,
-        'color: #10b981; font-weight: bold', 'color: #666',
-        {
-          containerWidth: freshContainerRect.width.toFixed(1),
-          columnWidthAndGap: columnWidthAndGap.toFixed(1),
-          lastWordToken: lastSigTokInfo,
-          colBreakdown,
-          storeTotal_before: useReaderStore.getState().totalPages,
-          storePage_before: useReaderStore.getState().currentPage,
-          columnWidthPx_closure: columnWidthPx,
-          freshContainerWidth: freshContainerRect.width,
-        }
-      );
-
-      layoutChangedRef.current = false; // clear before any setState calls
-
-      // ─── columnWidthPx update decision ────────────────────────────────────────
       if (newTotalPages === 1) {
         if (columnWidthPx !== 0) {
-          console.log(`%c  → setColumnWidthPx(0) [newTotalPages===1]`, 'color: #8b5cf6');
           setColumnWidthPx(0);
-        } else {
-          console.log(`%c  → columnWidthPx already 0, no state update`, 'color: #9ca3af');
         }
       } else {
         if (forceRefresh && columnWidthPx === freshContainerRect.width) {
-          console.log(
-            `%c  → FORCE CYCLE: setColumnWidthPx(0) then rAF setColumnWidthPx(${freshContainerRect.width.toFixed(1)}) [forceRefresh + same value]`,
-            'color: #f59e0b; font-weight: bold'
-          );
           setColumnWidthPx(0);
           requestAnimationFrame(() => {
             if (scrollContainerRef.current) {
-              console.log(`%c  → rAF: setColumnWidthPx(${freshContainerRect.width.toFixed(1)}) [force cycle restore]`, 'color: #f59e0b');
               setColumnWidthPx(freshContainerRect.width);
             }
           });
         } else if (columnWidthPx !== freshContainerRect.width) {
-          console.log(
-            `%c  → setColumnWidthPx(${freshContainerRect.width.toFixed(1)}) [value changed from ${columnWidthPx.toFixed(1)}]`,
-            'color: #8b5cf6'
-          );
           setColumnWidthPx(freshContainerRect.width);
-        } else {
-          console.log(`%c  → columnWidthPx already ${columnWidthPx.toFixed(1)}, no state update (forceRefresh=${forceRefresh})`, 'color: #9ca3af');
         }
       }
 
       let newColForAnchor = -1;
-      const { initialTokenIndex, tokens, setInitialTokenIndex } = useReaderStore.getState();
+      const { initialTokenIndex, tokens: storeTokens, setInitialTokenIndex } = useReaderStore.getState();
 
-      if (initialTokenIndex !== null && initialTokenIndex >= 0 && initialTokenIndex < tokens.length) {
-        const targetTokenId = tokens[initialTokenIndex].id;
+      if (initialTokenIndex !== null && initialTokenIndex >= 0 && initialTokenIndex < storeTokens.length) {
+        const targetTokenId = storeTokens[initialTokenIndex].id;
         for (const [col, ids] of Object.entries(mapping)) {
           if (ids.includes(targetTokenId)) { newColForAnchor = parseInt(col); break; }
         }
@@ -513,31 +447,19 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             ids.some((id, i) => id !== currentColumnMapping[Number(key)]?.[i])
         );
 
-      console.log(
-        `%c  [setPagination?] mappingChanged=${mappingChanged} | newTotalPages=${newTotalPages} | currentTotalPages=${currentTotalPages}`,
-        mappingChanged ? 'color: #ef4444; font-weight: bold' : 'color: #9ca3af'
-      );
-
       if (mappingChanged) {
-        console.log(`%c  → calling setPagination(${newTotalPages}, mapping)`, 'color: #ef4444; font-weight: bold');
+        console.log(`🚀 [STORE UPDATE] Total Pages: ${currentTotalPages} -> ${newTotalPages}`);
         useReaderStore.getState().setPagination(newTotalPages || 1, mapping);
-        console.log(
-          `%c  → after setPagination: store totalPages=${useReaderStore.getState().totalPages} | currentPage=${useReaderStore.getState().currentPage}`,
-          'color: #10b981'
-        );
       }
 
       const latestPage = useReaderStore.getState().currentPage;
       if (newColForAnchor !== -1 && newColForAnchor !== latestPage && newColForAnchor < (newTotalPages || 1)) {
-        console.log(`%c  → setPage(${newColForAnchor}) [anchor reflow]`, 'color: #8b5cf6');
         useReaderStore.getState().setPage(newColForAnchor);
       }
     };
 
-    // Initial measure
     measure('initial');
 
-    // Double-rAF pass: frame 1 lets React commit DOM styles, frame 2 lets browser complete multi-column paint
     let rafId2: number | null = null;
     const rafId1 = requestAnimationFrame(() => {
       if (scrollContainerRef.current) measure('rAF-1');
@@ -558,6 +480,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
     const resizeObserver = new ResizeObserver(() => measure('ResizeObserver'));
     resizeObserver.observe(container);
+
     return () => {
       cancelAnimationFrame(rafId1);
       if (rafId2 !== null) cancelAnimationFrame(rafId2);
@@ -565,7 +488,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       resizeObserver.disconnect();
     };
   }, [isLoadingLesson, tokens, isRTL, readerMode, columnWidthPx, showSettingsDrawer, showMargins, fontSize, fontFamily, lineHeight]);
-
+  
   React.useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
 
@@ -903,7 +826,11 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         {renderTree(tokens, phrases, true)}
       </>
     );
-  }, [lessonStructureHash, courseId, languageCode, courseTitle, lessonImg, lessonTitle, isRTL, handleWordClick, handlePhraseClick, readerMode, draftPhraseRange, isLoadingLesson]);
+  }, [
+    lessonStructureHash, courseId, languageCode, courseTitle, lessonImg, lessonTitle, 
+    isRTL, handleWordClick, handlePhraseClick, readerMode, draftPhraseRange, isLoadingLesson,
+    showMargins, fontSize, fontFamily, lineHeight // <--- PASTIKAN showMargins ADA DI SINI agar token tree re-render seketika!
+  ]);
 
 
   return (
@@ -1244,6 +1171,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         <div className={`flex flex-col mt-2 lg:mt-4 grow min-w-0 min-h-0 ${isRTL ? 'font-farsi-trad' : 'font-nunito'} relative bg-white rounded-md`}>
           <div className={`w-full min-h-0 overflow-hidden relative ${readerMode === 'sentence' ? 'shrink-0' : 'flex-1'} ${isRTL ? 'pt-1 pb-3 lg:pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pb-3 lg:pb-6 px-3 lg:px-5'}`}>
             <div
+              key={`reader-container-${showMargins}-${fontSize}-${fontFamily}-${lineHeight}`}
               ref={scrollContainerRef}
               className={`w-full ${readerMode === 'sentence' ? 'h-auto' : 'h-full'} text-gray-800 font-medium transition-transform duration-300`}
               style={{
