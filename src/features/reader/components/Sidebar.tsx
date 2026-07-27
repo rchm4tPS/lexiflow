@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import QuickStartGuide from './QuickStartGuide';
 import BlueWordView from './BlueWordView';
 import YellowWordView from './YellowWordView';
+import SettingsContent from './SettingsContent';
 import type { SidebarItem, UpdatePayload } from '../../../types/reader';
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
@@ -26,9 +27,11 @@ export default function Sidebar({
     translationError,
     onCloseTranslation,
 }: SidebarProps) {
-    const { sidebarPosition, clickPos } = useReaderStore(useShallow(state => ({
+    const { sidebarPosition, clickPos, showSettingsDrawer, setShowSettingsDrawer } = useReaderStore(useShallow(state => ({
         sidebarPosition: state.sidebarPosition,
-        clickPos: state.clickPos
+        clickPos: state.clickPos,
+        showSettingsDrawer: state.showSettingsDrawer,
+        setShowSettingsDrawer: state.setShowSettingsDrawer,
     })));
 
     const word = useReaderStore(useShallow((state): SidebarItem | null => {
@@ -110,7 +113,6 @@ export default function Sidebar({
     const positionClasses = isDynamicOverlay ? "" : "lg:absolute lg:top-0 lg:bottom-0 xl:relative";
     const sideClasses = isDynamicOverlay ? "" : (sidebarPosition === 'left' ? 'lg:left-0' : 'lg:right-0');
     // Sidebar is hidden on mobile/tablet (<xl) unless a word is actively selected.
-    // Translation on <xl is handled by the drawer in ReaderView instead.
     const visibilityClasses = !word ? 'hidden xl:flex' : 'flex';
 
     return (
@@ -123,11 +125,29 @@ export default function Sidebar({
                 }
                 e.stopPropagation();
             }}>
-            {!word && !showTranslation && <QuickStartGuide />}
+            {!word && !showTranslation && !showSettingsDrawer && <QuickStartGuide />}
 
-            {/* Translation View */}
+            {/* Reader Settings View (desktop / side pane) */}
+            {showSettingsDrawer && !word && !showTranslation && (
+                <div className="hidden xl:flex flex-col h-full min-h-0 bg-white overflow-hidden">
+                    <div className="flex items-center justify-between p-4 border-b border-gray-200 shrink-0">
+                        <h3 className="font-extrabold text-lg text-[#3a92fb]">Reader Settings</h3>
+                        <button
+                            onClick={() => setShowSettingsDrawer(false)}
+                            className="p-1.5 hover:bg-gray-100 rounded-full transition cursor-pointer"
+                        >
+                            <X className="w-5 h-5 text-gray-500" />
+                        </button>
+                    </div>
+                    <div className="flex-1 min-h-0 p-5 overflow-y-auto">
+                        <SettingsContent />
+                    </div>
+                </div>
+            )}
+
+            {/* Translation View (desktop / side pane only — mobile uses the portal in ReaderView) */}
             {showTranslation && (
-                <div className="flex flex-col h-full min-h-0 bg-white overflow-hidden">
+                <div className="hidden xl:flex flex-col h-full min-h-0 bg-white overflow-hidden">
                     <div className="flex items-center justify-between p-4 border-b border-gray-200 shrink-0">
                         <h3 className="font-extrabold text-lg text-[#3a92fb]">Translation</h3>
                         <button

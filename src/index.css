@@ -127,3 +127,33 @@ span[style*="rgba(255, 165, 0"] {
   );
   animation: shimmer 2s infinite;
 }
+
+/* Modern Slim Auto-Hide Scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.35) transparent;
+}
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.5);
+}
+::-webkit-scrollbar-button {
+  display: none;
+  height: 0;
+  width: 0;
+  background: transparent;
+  border: none;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

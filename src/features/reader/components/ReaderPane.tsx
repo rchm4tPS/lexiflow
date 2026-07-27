@@ -1,7 +1,7 @@
 import React, { type ReactNode, useRef, useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import Swal from 'sweetalert2';
-import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settings, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settings, ChevronLeft, ChevronRight, X, SquarePen } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
 import { apiClient } from '../../../api/client';
@@ -52,20 +52,20 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     setDraftPhrase, isRTL, languageCode,
     handlePageAdvance, activeLessonId, syncLessonProgress,
     isLoadingLesson, readerMode, toggleReaderMode, totalPages, columnMapping, setSidebarPosition, setClickPos,
-    lessonIndex, courseLessonsCount, prevLessonId, nextLessonId, setShowLessonInfoModal, setShowSettingsDrawer, initialTokenIndex,
+    lessonIndex, courseLessonsCount, prevLessonId, nextLessonId, setShowLessonInfoModal, showSettingsDrawer, setShowSettingsDrawer, initialTokenIndex,
     isStatsLoading, lessonAudio, toggleSidebar, isSidebarVisible,
     translationData, revealedSentenceIndices, isLoadingTranslation,
-    fontSize, fontFamily, lineHeight
+    fontSize, fontFamily, lineHeight, showMargins
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
     lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
     setDraftPhrase: state.setDraftPhrase, isRTL: state.isRTL, languageCode: state.languageCode,
     handlePageAdvance: state.handlePageAdvance, activeLessonId: state.activeLessonId, syncLessonProgress: state.syncLessonProgress,
     isLoadingLesson: state.isLoadingLesson, readerMode: state.readerMode, toggleReaderMode: state.toggleReaderMode, totalPages: state.totalPages, columnMapping: state.columnMapping, setSidebarPosition: state.setSidebarPosition, setClickPos: state.setClickPos,
-    lessonIndex: state.lessonIndex, courseLessonsCount: state.courseLessonsCount, prevLessonId: state.prevLessonId, nextLessonId: state.nextLessonId, setShowLessonInfoModal: state.setShowLessonInfoModal, setShowSettingsDrawer: state.setShowSettingsDrawer, initialTokenIndex: state.initialTokenIndex,
+    lessonIndex: state.lessonIndex, courseLessonsCount: state.courseLessonsCount, prevLessonId: state.prevLessonId, nextLessonId: state.nextLessonId, setShowLessonInfoModal: state.setShowLessonInfoModal, showSettingsDrawer: state.showSettingsDrawer, setShowSettingsDrawer: state.setShowSettingsDrawer, initialTokenIndex: state.initialTokenIndex,
     isStatsLoading: state.isStatsLoading, lessonAudio: state.lessonAudio, toggleSidebar: state.toggleSidebar, isSidebarVisible: state.isSidebarVisible,
     translationData: state.translationData, revealedSentenceIndices: state.revealedSentenceIndices, isLoadingTranslation: state.isLoadingTranslation,
-    fontSize: state.fontSize, fontFamily: state.fontFamily, lineHeight: state.lineHeight
+    fontSize: state.fontSize, fontFamily: state.fontFamily, lineHeight: state.lineHeight, showMargins: state.showMargins
   })));
 
   const tokens = useReaderStore.getState().tokens;
@@ -105,24 +105,12 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   const [isQuickStartClosing, setIsQuickStartClosing] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // --- NEW: Drawer Drag State ---
+  // --- NEW: Drawer Drag State (mirrors Translation panel pattern) ---
   const [dragY, setDragY] = useState(0);
   const dragStartY = useRef<number | null>(null);
 
-  const handleDragStart = (clientY: number) => {
-    if (window.innerWidth >= 640) return;
+  const handlePointerDown = (clientY: number) => {
     dragStartY.current = clientY;
-  };
-  const handleDragMove = (clientY: number) => {
-    if (window.innerWidth >= 640 || dragStartY.current === null) return;
-    const diff = clientY - dragStartY.current;
-    if (diff > 0) setDragY(diff);
-  };
-  const handleDragEnd = () => {
-    if (window.innerWidth >= 640 || dragStartY.current === null) return;
-    if (dragY > 80) closeQuickStart();
-    dragStartY.current = null;
-    setDragY(0);
   };
 
   const closeDropdown = () => {
@@ -144,6 +132,37 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   useEffect(() => {
     setIsDropdownOpen(false);
   }, [location.pathname]);
+
+  // --- Drawer drag-to-close (global window listeners, mirrors Translation panel) ---
+  useEffect(() => {
+    if (!showQuickStartDrawer) return;
+
+    const handlePointerMove = (e: MouseEvent | TouchEvent) => {
+      if (dragStartY.current === null) return;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+      const diff = clientY - dragStartY.current;
+      if (diff > 0) setDragY(diff);
+    };
+
+    const handlePointerUp = () => {
+      if (dragStartY.current === null) return;
+      if (dragY > 80) closeQuickStart();
+      dragStartY.current = null;
+      setDragY(0);
+    };
+
+    window.addEventListener('mousemove', handlePointerMove);
+    window.addEventListener('mouseup', handlePointerUp);
+    window.addEventListener('touchmove', handlePointerMove, { passive: true });
+    window.addEventListener('touchend', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handlePointerMove);
+      window.removeEventListener('mouseup', handlePointerUp);
+      window.removeEventListener('touchmove', handlePointerMove);
+      window.removeEventListener('touchend', handlePointerUp);
+    };
+  }, [showQuickStartDrawer, dragY]);
 
   const handleDownloadAudio = () => {
     if (!lessonAudio) {
@@ -229,6 +248,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   // --- NEW: CSS Columns Dynamic Layout State ---
   const anchorTokenRef = useRef<string | null>(null);
   const [columnWidthPx, setColumnWidthPx] = React.useState(0);
+  // Track previous layout settings to detect changes that require a full reflow reset
+  const layoutSettingsRef = React.useRef({ showMargins, fontSize, fontFamily, lineHeight });
 
   // Count of unique LingQs (stage 1, 2, 3) in the lesson
   const uniqueLingQs = new Set(
@@ -258,24 +279,53 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
     const container = scrollContainerRef.current;
 
+    // ─────────────────────────────────────────────────────────────────────────────
+    // LAYOUT CHANGE DETECTION — two-pass CSS column reset
+    // When any layout-affecting setting changes, we need to fully invalidate the
+    // browser's multi-column layout so it reflows from scratch with new content heights.
+    // We do this by cycling columnWidthPx: 0 → containerWidth → measure.
+    // ─────────────────────────────────────────────────────────────────────────────
+    const prev = layoutSettingsRef.current;
+    const curr = { showMargins, fontSize, fontFamily, lineHeight };
+    const layoutChanged =
+      prev.showMargins !== curr.showMargins ||
+      prev.fontSize !== curr.fontSize ||
+      prev.fontFamily !== curr.fontFamily ||
+      prev.lineHeight !== curr.lineHeight;
+
+    if (layoutChanged) {
+      layoutSettingsRef.current = curr;
+      // Pass 1: Reset to 'auto' (single column) so browser discards old column geometry
+      setColumnWidthPx(0);
+      return; // Early return — next effect run (triggered by columnWidthPx change) will prime to width
+    }
+
     const measure = () => {
       const containerRect = container.getBoundingClientRect();
 
-      // Fix: Update column width to exact pixels. CSS column-width does not support percentages (e.g. 100%).
-      if (columnWidthPx !== containerRect.width && containerRect.width > 0) {
+      // When columnWidthPx is 0 (uninitialized or just reset), prime it
+      // to the container width so CSS multi-column creates proper pixel-based
+      // column layout on the very next run.  This early return skips the
+      // expensive DOM measurement for this run (no DOM reads needed).
+      if (columnWidthPx === 0 && containerRect.width > 0) {
         setColumnWidthPx(containerRect.width);
-        return; // Wait for re-render so CSS columns actually flow horizontally
+        return;
       }
 
-      if (containerRect.width === 0) return;
+      // Temporarily clear CSS transform (translateX) so getBoundingClientRect reads
+      // un-shifted, raw column geometry regardless of current page index or LTR/RTL offset.
+      const origTransform = container.style.transform;
+      container.style.transform = 'none';
 
-      // Force a synchronous layout flush so that CSS multi-column reflows
-      // triggered by font-size/line-height changes are fully computed before
-      // we read token positions. Without this, getBoundingClientRect() can
-      // return stale positions from the previous column layout.
+      // Force invalidation and full horizontal reflow of Chromium / WebKit multi-column layout
+      const origColWidth = container.style.columnWidth;
+      container.style.columnWidth = 'auto';
       void container.offsetHeight;
+      container.style.columnWidth = origColWidth;
+      void container.scrollWidth;
 
-      const columnWidthAndGap = containerRect.width + 48; // 3rem gap = 48px
+      const freshContainerRect = container.getBoundingClientRect();
+      const columnWidthAndGap = freshContainerRect.width + 48; // 3rem gap = 48px
 
       const mapping: Record<number, string[]> = {};
       const tokenNodes = container.querySelectorAll('[data-token-id]');
@@ -284,16 +334,19 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         const id = node.getAttribute('data-token-id');
         if (!id) return;
         const rect = node.getBoundingClientRect();
-        const relativeLeft = rect.left - containerRect.left;
+        const relativeLeft = rect.left - freshContainerRect.left;
         let colIndex = Math.floor((relativeLeft + 5) / columnWidthAndGap);
         if (isRTL) {
-          const relativeRight = containerRect.right - rect.right;
+          const relativeRight = freshContainerRect.right - rect.right;
           colIndex = Math.floor((relativeRight + 5) / columnWidthAndGap);
         }
 
         if (!mapping[colIndex]) mapping[colIndex] = [];
         mapping[colIndex].push(id);
       });
+
+      // Restore original CSS transform for page rendering
+      container.style.transform = origTransform;
 
       // ── Determine true totalPages from the last SIGNIFICANT token's page ──────────────
       // CSS multi-column sometimes creates a trailing "orphan" column that contains:
@@ -310,39 +363,95 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         for (const id of ids) tokenToPage[id] = Number(col);
       }
 
-      // Helper: count significant (non-whitespace, non-newline) tokens for a given page index
-      const countSigTokens = (pageIdx: number): number => {
-        const pageIds = mapping[pageIdx] ?? [];
-        const idSet = new Set(pageIds);
-        return allTokens.filter(t => idSet.has(t.id) && !t.isNewline && !!t.text?.trim()).length;
+      // Helper: check if a token is a real word token (contains letters/digits),
+      // ignoring standalone punctuation tokens like '.', ',', '!', '?' that may overflow to a new column.
+      const isWordToken = (t: typeof allTokens[0]) => {
+        if (t.isNewline || !t.text?.trim()) return false;
+        return /[\p{L}\p{N}]/u.test(t.text);
       };
 
-      // Step 1: Walk backwards to find last significant token's page
+      // Step 1: Walk backwards to find last REAL WORD token's page
       let trueLastPage = 0;
+      let lastSigTokInfo: { id: string; text: string; col: number } | null = null;
       for (let i = allTokens.length - 1; i >= 0; i--) {
         const tok = allTokens[i];
-        if (tok.isNewline || !tok.text?.trim()) continue; // skip whitespace/newlines
+        if (!isWordToken(tok)) continue; // skip newlines, whitespace, and standalone punctuation (. , ! ?)
         if (tok.id in tokenToPage) {
           trueLastPage = tokenToPage[tok.id];
+          lastSigTokInfo = { id: tok.id, text: tok.text, col: trueLastPage };
           break;
         }
       }
 
-      // Step 2: Orphan detection — if the last page has < 20% of the previous page's
-      // significant tokens, it's a boundary artifact and should be merged.
-      // This handles the common case of 1-3 word tokens orphaned on a trailing column
-      // when font-size is at a reflow boundary (e.g. 23px: barely overflows to 3rd col).
+      // Step 2: Clean up ghost keys > trueLastPage (empty trailing whitespace columns)
+      for (const col of Object.keys(mapping).map(Number)) {
+        if (col > trueLastPage) {
+          delete mapping[col];
+        }
+      }
+
+      // Step 3: Cascade-merge near-empty trailing pages (boundary artifacts where
+      // only a few word tokens spilled past the last full column). Merges are
+      // applied when the trailing page holds fewer tokens than a generous
+      // fraction of the preceding page, repeated until convergence so a
+      // cascade of sparse trailing pages all gets eliminated at once.
+      const countSigTokens = (pageIdx: number): number => {
+        const ids = mapping[pageIdx];
+        if (!ids) return 0;
+        return ids.filter(id => {
+          const t = allTokens.find(tok => tok.id === id);
+          return t && isWordToken(t);
+        }).length;
+      };
+
       while (trueLastPage > 0) {
-        const sigOnLast = countSigTokens(trueLastPage);
-        const sigOnPrev = countSigTokens(trueLastPage - 1);
-        if (sigOnPrev > 0 && sigOnLast < sigOnPrev * 0.20) {
-          trueLastPage--; // merge orphan into previous page
+        const lastCount = countSigTokens(trueLastPage);
+        if (lastCount === 0) {
+          // Completely empty column — remove it and keep merging
+          delete mapping[trueLastPage];
+          trueLastPage--;
+          continue;
+        }
+        const prevCount = countSigTokens(trueLastPage - 1);
+        // Merge this trailing page if it holds at most ~10% of the tokens
+        // on the page before it (catching 2–token stragglers as well).
+        // The floor/ceil guards ensure small counts are treated as stragglers.
+        if (prevCount > 0 && lastCount <= Math.max(3, Math.floor(prevCount * 0.10))) {
+          // Near-empty trailing page — fold it into the previous page
+          delete mapping[trueLastPage];
+          trueLastPage--;
         } else {
           break;
         }
       }
 
       const newTotalPages = Math.max(1, trueLastPage + 1);
+
+      // Detailed per-column summary for browser console diagnostic
+      const colBreakdown = Object.entries(mapping).map(([col, ids]) => {
+        const sigCount = allTokens.filter(t => ids.includes(t.id) && !t.isNewline && !!t.text?.trim()).length;
+        const lastTokId = ids[ids.length - 1];
+        const lastTok = allTokens.find(t => t.id === lastTokId);
+        return `[Col ${col}: ${ids.length} tokens, ${sigCount} words | lastTok: "${lastTok?.text || ''}"]`;
+      });
+
+      console.log(`%c[measure()] %cfontSize: ${fontSize}px | lineHeight: ${lineHeight} | font: ${fontFamily}`, 'color: #3a92fb; font-weight: bold', 'color: #666');
+      console.log(`  ├─ containerWidth: ${containerRect.width.toFixed(1)}px | columnWidthAndGap: ${columnWidthAndGap.toFixed(1)}px`);
+      console.log(`  ├─ store currentPage: ${useReaderStore.getState().currentPage} | store totalPages: ${useReaderStore.getState().totalPages}`);
+      console.log(`  ├─ computed newTotalPages: ${newTotalPages} | trueLastPage (0-indexed): ${trueLastPage}`);
+      console.log(`  ├─ last word token: "${lastSigTokInfo?.text}" (id: ${lastSigTokInfo?.id}) → landed on Col ${lastSigTokInfo?.col}`);
+      console.log(`  └─ column breakdown:\n     ${colBreakdown.join('\n     ')}`);
+
+      // Update columnWidthPx based on newTotalPages to keep CSS columns in sync.
+      // Each logical page = 1 full-width CSS column.
+      // - newTotalPages === 1 → columnWidthPx = 0 (CSS columnWidth='auto', single column)
+      // - newTotalPages > 1  → columnWidthPx = containerRect.width (full-width columns)
+      // DO NOT set to a narrow value — that creates sub-columns inside each page.
+      if (newTotalPages === 1) {
+        setColumnWidthPx(0);
+      } else if (newTotalPages > 1 && columnWidthPx !== freshContainerRect.width) {
+        setColumnWidthPx(freshContainerRect.width);
+      }
 
       let newColForAnchor = -1;
       const { initialTokenIndex, tokens, setInitialTokenIndex } = useReaderStore.getState();
@@ -366,10 +475,6 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         }
       }
 
-      // Update global store only when the column mapping actually changed —
-      // prevents ResizeObserver-triggered infinite loops (each setPagination
-      // re-renders the component, which re-runs this effect, calling measure()
-      // again, which would re-enter this code with the same uncommitted mapping).
       const currentTotalPages = useReaderStore.getState().totalPages;
       const currentColumnMapping = useReaderStore.getState().columnMapping;
       const mappingChanged =
@@ -382,9 +487,12 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             ids.some((id, i) => id !== currentColumnMapping[Number(key)]?.[i])
         );
 
+      console.log(`  └─ mappingChanged: ${mappingChanged}`);
+
       if (mappingChanged) {
         // setPagination now clamps currentPage atomically — no extra setPage() needed here.
         useReaderStore.getState().setPagination(newTotalPages || 1, mapping);
+
       }
 
       // Anchor token may have reflowed to a different column after a font/line-height change.
@@ -398,15 +506,15 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     // Initial measure
     measure();
 
-    // rAF safety net: catches CSS multi-column reflow that finalises asynchronously
-    const rafId = requestAnimationFrame(() => {
+    // Double-rAF pass: frame 1 lets React commit DOM styles, frame 2 lets browser complete multi-column paint
+    let rafId2: number | null = null;
+    const rafId1 = requestAnimationFrame(() => {
       if (scrollContainerRef.current) measure();
+      rafId2 = requestAnimationFrame(() => {
+        if (scrollContainerRef.current) measure();
+      });
     });
 
-    // setTimeout(50) definitive safety net: fires after the browser has fully
-    // committed the new layout pass for the CSS multi-column engine.
-    // This is the last resort for cases where both the synchronous flush and the
-    // rAF are still reading the pre-reflow column positions.
     const timerId = setTimeout(() => {
       if (scrollContainerRef.current) measure();
     }, 50);
@@ -421,11 +529,12 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     const resizeObserver = new ResizeObserver(() => measure());
     resizeObserver.observe(container);
     return () => {
-      cancelAnimationFrame(rafId);
+      cancelAnimationFrame(rafId1);
+      if (rafId2 !== null) cancelAnimationFrame(rafId2);
       clearTimeout(timerId);
       resizeObserver.disconnect();
     };
-  }, [isLoadingLesson, tokens, isRTL, readerMode, columnWidthPx, fontSize, fontFamily, lineHeight]);
+  }, [isLoadingLesson, tokens, isRTL, readerMode, columnWidthPx, showSettingsDrawer, showMargins, fontSize, fontFamily, lineHeight]);
 
   React.useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
@@ -451,21 +560,50 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             const end = Math.max(idx1, idx2);
             const rangeCount = end - start + 1;
 
-            if (rangeCount >= 2 && rangeCount <= 9) {
-              const selectedTokenIds = tokens.slice(start, end + 1).map(t => t.id);
-              const isValid = !tokens.slice(start, end + 1).some(t => t.isNewline);
+            const selectedTokenIds = tokens.slice(start, end + 1).map(t => t.id);
 
-              if (isValid) {
-                const range = selection.getRangeAt(0);
-                const rect = range.getBoundingClientRect();
-                const screenWidth = window.innerWidth;
+            // Single token dragged — treat as click: replace browser highlight with app highlight
+            if (rangeCount === 1) {
+              selection.removeAllRanges();
+              if (id1) useReaderStore.getState().selectItem(id1);
+              return;
+            }
 
-                useReaderStore.getState().setSidebarPosition(rect.left > screenWidth / 2 ? 'left' : 'right');
-                useReaderStore.getState().setClickPos({ x: rect.right, y: rect.bottom });
-                useReaderStore.getState().setDraftPhrase(selectedTokenIds);
+            // All tokens of an existing saved phrase are included in the selection — select the whole phrase
+            // (same as clicking the phrase, so the blue ring sits properly on the orange div).
+            // We use a subset check because the user's drag may include whitespace tokens between words.
+            const currentPhrases = useReaderStore.getState().phrases;
+            // Extract only learnable word tokens from the selection (ignoring whitespace/newlines)
+            // so that extending an existing phrase with extra tokens is allowed (stacked phrases).
+            const selectedWordTokenIds = tokens.slice(start, end + 1)
+              .filter(t => t.isLearnable && !t.isNewline && t.text.match(/\p{L}/u))
+              .map(t => t.id);
+            const matchedPhrase = currentPhrases.find(p =>
+              p.range.length > 0 &&
+              p.range.every(id => selectedWordTokenIds.includes(id)) &&
+              selectedWordTokenIds.every(id => p.range.includes(id))
+            ) || null;
 
-                setTimeout(() => selection.removeAllRanges(), 150);
-              }
+            if (matchedPhrase) {
+              selection.removeAllRanges();
+              useReaderStore.getState().selectItem(matchedPhrase.id);
+              return;
+            }
+
+            // Original: create draft phrase for multi-token selections (2–9 learnable words)
+            const isValid = !tokens.slice(start, end + 1).some(t => t.isNewline);
+            const learnableCount = selectedWordTokenIds.length;
+
+            if (isValid && learnableCount >= 2 && learnableCount <= 9) {
+              const range = selection.getRangeAt(0);
+              const rect = range.getBoundingClientRect();
+              const screenWidth = window.innerWidth;
+
+              useReaderStore.getState().setSidebarPosition(rect.left > screenWidth / 2 ? 'left' : 'right');
+              useReaderStore.getState().setClickPos({ x: rect.right, y: rect.bottom });
+              useReaderStore.getState().setDraftPhrase(selectedTokenIds);
+
+              setTimeout(() => selection.removeAllRanges(), 150);
             }
           }
         }
@@ -522,24 +660,50 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
           const start = Math.min(idx1, idx2);
           const end = Math.max(idx1, idx2);
 
+          const rangeCount = end - start + 1;
           const selectedTokens = tokens.slice(start, end + 1);
-          const learnableCount = selectedTokens.filter(t => t.isLearnable).length;
+          const selectedTokenIds = selectedTokens.map(t => t.id);
 
-          // Limit phrase selection to 2-9 learnable words
-          if (learnableCount >= 2 && learnableCount <= 9) {
-            const selectedTokenIds = selectedTokens.map(t => t.id);
+          // Single token dragged — treat as click: replace browser highlight with app highlight
+          if (rangeCount === 1) {
+            selection.removeAllRanges();
+            if (id1) useReaderStore.getState().selectItem(id1);
+            return;
+          }
 
-            // Verify they don't cross page boundaries or newlines
-            const isValid = !selectedTokens.some(t => t.isNewline);
-            if (isValid) {
-              const screenWidth = window.innerWidth;
-              setSidebarPosition(e.clientX > screenWidth / 2 ? 'left' : 'right');
-              setClickPos({ x: e.clientX, y: e.clientY });
+          // All tokens of an existing saved phrase are included in the selection — select the whole phrase
+          // (same as clicking the phrase, so the blue ring sits properly on the orange div).
+          // We use a subset check because the user's drag may include whitespace tokens between words.
+          const currentPhrases = useReaderStore.getState().phrases;
+          // Extract only learnable word tokens from the selection (ignoring whitespace/newlines)
+          // so that extending an existing phrase with extra tokens is allowed (stacked phrases).
+          const selectedWordTokenIds = selectedTokens
+            .filter(t => t.isLearnable && !t.isNewline && t.text.match(/\p{L}/u))
+            .map(t => t.id);
+          const matchedPhrase = currentPhrases.find(p =>
+            p.range.length > 0 &&
+            p.range.every(id => selectedWordTokenIds.includes(id)) &&
+            selectedWordTokenIds.every(id => p.range.includes(id))
+          ) || null;
 
-              setDraftPhrase(selectedTokenIds);
-              // Delay clearing the browser highlight so onClick can detect the text selection and abort
-              setTimeout(() => selection.removeAllRanges(), 150);
-            }
+          if (matchedPhrase) {
+            selection.removeAllRanges();
+            useReaderStore.getState().selectItem(matchedPhrase.id);
+            return;
+          }
+
+          // Original: create draft phrase for multi-token selections (2–9 learnable words)
+          const learnableCount = selectedWordTokenIds.length;
+          const isValid = !selectedTokens.some(t => t.isNewline);
+
+          if (isValid && learnableCount >= 2 && learnableCount <= 9) {
+            const screenWidth = window.innerWidth;
+            setSidebarPosition(e.clientX > screenWidth / 2 ? 'left' : 'right');
+            setClickPos({ x: e.clientX, y: e.clientY });
+
+            setDraftPhrase(selectedTokenIds);
+            // Delay clearing the browser highlight so onClick can detect the text selection and abort
+            setTimeout(() => selection.removeAllRanges(), 150);
           }
         }
       }
@@ -571,9 +735,19 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       const allDraftTokensPresent = draftPhraseRange.every((id: string) => tokenIds.has(id));
 
       if (allDraftTokensPresent) {
-        hasDraftPhrase = true;
-        draftStartIndex = tokensList.findIndex(t => draftPhraseRange.includes(t.id));
-        draftEndIndex = tokensList.length - 1 - tokensList.slice().reverse().findIndex(t => draftPhraseRange.includes(t.id));
+        // Don't use DraftPhraseGroup wrapper if the selected tokens exactly form an existing saved phrase
+        // (same tokens, same set). When the draft extends beyond a saved phrase (stacked phrases),
+        // the DraftPhraseGroup wrapper must still be shown so the blue highlight covers A-C.
+        const belongsToSavedPhrase = availablePhrases.some(p =>
+          p.range.length > 0 &&
+          p.range.length === draftPhraseRange.length &&
+          p.range.every(id => draftPhraseRange.includes(id))
+        );
+        if (!belongsToSavedPhrase) {
+          hasDraftPhrase = true;
+          draftStartIndex = tokensList.findIndex(t => draftPhraseRange.includes(t.id));
+          draftEndIndex = tokensList.length - 1 - tokensList.slice().reverse().findIndex(t => draftPhraseRange.includes(t.id));
+        }
       }
     }
 
@@ -802,6 +976,15 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                     </div>
                     <div
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={() => {
+                        // TO DO: Close the dropdown, close the reader page, and move towards edit lesson page
+                      }}
+                    >
+                      <SquarePen className="w-5 h-5 text-gray-400" />
+                      <span>Edit Lesson</span>
+                    </div>
+                    <div
+                      className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={handleDownloadAudio}
                     >
                       <Download className="w-5 h-5 text-gray-400" />
@@ -948,6 +1131,15 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                     </div>
                     <div
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                      onClick={() => {
+                        // TO DO: Close the dropdown, close the reader page, and move towards edit lesson page
+                      }}
+                    >
+                      <SquarePen className="w-5 h-5 text-gray-400" />
+                      <span>Edit Lesson</span>
+                    </div>
+                    <div
+                      className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={handleDownloadAudio}
                     >
                       <Download className="w-5 h-5 text-gray-400" />
@@ -1020,11 +1212,12 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         </div>
 
         <div className={`flex flex-col mt-2 lg:mt-4 grow min-w-0 min-h-0 ${isRTL ? 'font-farsi-trad' : 'font-nunito'} relative bg-white rounded-md`}>
-          <div className={`w-full min-h-0 overflow-hidden relative ${readerMode === 'sentence' ? 'shrink-0' : 'flex-1'} ${isRTL ? 'pt-1 pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pb-4 lg:pb-6 px-3 lg:px-5'}`}>
+          <div className={`w-full min-h-0 overflow-hidden relative ${readerMode === 'sentence' ? 'shrink-0' : 'flex-1'} ${isRTL ? 'pt-1 pb-3 lg:pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pb-3 lg:pb-6 px-3 lg:px-5'}`}>
             <div
               ref={scrollContainerRef}
               className={`w-full ${readerMode === 'sentence' ? 'h-auto' : 'h-full'} text-gray-800 font-medium transition-transform duration-300`}
               style={{
+                direction: isRTL ? 'rtl' : 'ltr',
                 fontSize: `${fontSize}px`,
                 fontFamily: fontFamily === 'farsi'
                   ? '"Parastoo", "Tahoma", "Courier New", serif'
@@ -1123,14 +1316,10 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             >
               <div
                 className="flex justify-between items-center p-4 border-b border-gray-100 bg-white shrink-0 relative sm:cursor-default cursor-grab active:cursor-grabbing select-none"
+                dir="ltr"
                 style={{ touchAction: 'none' }}
-                onTouchStart={e => handleDragStart(e.touches[0].clientY)}
-                onTouchMove={e => handleDragMove(e.touches[0].clientY)}
-                onTouchEnd={handleDragEnd}
-                onMouseDown={e => handleDragStart(e.clientY)}
-                onMouseMove={e => handleDragMove(e.clientY)}
-                onMouseUp={handleDragEnd}
-                onMouseLeave={handleDragEnd}
+                onTouchStart={e => handlePointerDown(e.touches[0].clientY)}
+                onMouseDown={e => handlePointerDown(e.clientY)}
               >
                 <div className="sm:hidden absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1.5 bg-gray-200 rounded-full" />
                 <h3 className="font-extrabold text-lg text-[#3a92fb] mt-2 sm:mt-0">Quick Start Guide</h3>
@@ -1138,7 +1327,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                   <X className="w-5 h-5 text-gray-500" />
                 </button>
               </div>
-              <div className="overflow-y-auto grow bg-[#EEF9FF]">
+              <div className="overflow-y-auto grow bg-[#EEF9FF]" dir="ltr">
                 <QuickStartGuide />
               </div>
             </div>

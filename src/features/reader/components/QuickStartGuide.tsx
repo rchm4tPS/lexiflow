@@ -1,7 +1,7 @@
 import { Check } from '../../../components/common/Icons';
 
 const QuickStartGuide = () => (
-    <div className="flex flex-col rounded-xl shadow-[0_2px_10px_rgba(0,0,0,0.08)]  border border-gray-100 overflow-auto grow bg-[#EEF9FF] animate-fade-in p-6 m-2 text-gray-800 ">
+    <div dir="ltr" style={{ direction: 'ltr', textAlign: 'left' }} className="flex flex-col rounded-xl shadow-[0_2px_10px_rgba(0,0,0,0.08)]  border border-gray-100 overflow-auto grow bg-[#EEF9FF] animate-fade-in p-6 m-2 text-gray-800 ">
         <div className="flex items-center space-x-4 mb-6">
             <div className="w-18 h-18 bg-[#3a92fb] rounded-full flex items-center justify-center">
                 <svg className="w-12 h-12 text-yellow-400" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c5.514 0 10 4.486 10 10s-4.486 10-10 10-10-4.486-10-10 4.486-10 10-10zm0-2c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm-3.5 8c-.828 0-1.5.672-1.5 1.5s.672 1.5 1.5 1.5 1.5-.672 1.5-1.5-.672-1.5-1.5-1.5zm7 0c-.828 0-1.5.672-1.5 1.5s.672 1.5 1.5 1.5 1.5-.672 1.5-1.5-.672-1.5-1.5-1.5zm-3.5 8c-2.5 0-4.5-1.5-4.5-1.5l.5-.5s1.5 1 4 1 4-1 4-1l.5.5s-2 1.5-4.5 1.5z" /></svg>

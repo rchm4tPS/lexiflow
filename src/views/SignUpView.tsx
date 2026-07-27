@@ -145,7 +145,7 @@ export default function SignUpView() {
 
                 <div className="flex flex-col gap-2">
                   <label className="text-xs font-black text-gray-500 uppercase tracking-wider">Target Language</label>
-                  <div className="grid grid-cols-3 gap-2 max-h-52 overflow-y-auto pr-1 custom-scrollbar">
+                  <div className="grid grid-cols-3 gap-2 max-h-52 overflow-y-auto pr-1">
                     {LANGUAGES.map(l => (
                       <button
                         key={l.code}

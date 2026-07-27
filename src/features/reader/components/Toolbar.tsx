@@ -55,6 +55,7 @@ export default function Toolbar() {
             setAudioState('paused');
             useReaderStore.getState().setIsAudioPlaying(false);
         } else {
+            setCurrentTime(audioRef.current.currentTime);
             audioRef.current.play().then(() => {
                 setAudioState('playing');
                 useReaderStore.getState().setIsAudioPlaying(true);
@@ -65,7 +66,6 @@ export default function Toolbar() {
     const handleStop = () => {
         if (audioRef.current) {
             audioRef.current.pause();
-            audioRef.current.currentTime = 0;
             setAudioState('stopped');
             setCurrentTime(0);
             useReaderStore.getState().setIsAudioPlaying(false);

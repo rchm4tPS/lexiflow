@@ -14,8 +14,9 @@ export default function MorphingPageDots({
     const [inputVal, setInputVal] = useState((activeIndex + 1).toString());
 
     useEffect(() => {
-        setInputVal((activeIndex + 1).toString());
-    }, [activeIndex]);
+        const validPage = Math.max(1, Math.min(total, activeIndex + 1));
+        setInputVal(validPage.toString());
+    }, [activeIndex, total]);
 
     const handleInputSubmit = () => {
         let val = parseInt(inputVal);
@@ -30,11 +31,13 @@ export default function MorphingPageDots({
 
     if (total <= 1) return null;
 
+    const safeActiveIndex = Math.min(activeIndex, total - 1);
+
     return (
         <div className="flex items-center justify-center space-x-2">
             <button 
-                onClick={() => onChange?.(isRTL ? Math.min(total - 1, activeIndex + 1) : Math.max(0, activeIndex - 1))}
-                disabled={isRTL ? activeIndex === total - 1 : activeIndex === 0}
+                onClick={() => onChange?.(isRTL ? Math.min(total - 1, safeActiveIndex + 1) : Math.max(0, safeActiveIndex - 1))}
+                disabled={isRTL ? safeActiveIndex >= total - 1 : safeActiveIndex === 0}
                 className="text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed mx-1 transition-colors cursor-pointer"
             >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
@@ -48,7 +51,7 @@ export default function MorphingPageDots({
                             key={i}
                             onClick={() => onChange?.(i)}
                             className={`cursor-pointer transition-all duration-300 ease-in-out rounded-full ${
-                                i === activeIndex
+                                i === safeActiveIndex
                                     ? 'w-6 h-3 bg-gray-400' 
                                     : 'w-3 h-3 bg-gray-200 hover:bg-gray-300' 
                             }`}
@@ -74,8 +77,8 @@ export default function MorphingPageDots({
             )}
 
             <button 
-                onClick={() => onChange?.(isRTL ? Math.max(0, activeIndex - 1) : Math.min(total - 1, activeIndex + 1))}
-                disabled={isRTL ? activeIndex === 0 : activeIndex === total - 1}
+                onClick={() => onChange?.(isRTL ? Math.max(0, safeActiveIndex - 1) : Math.min(total - 1, safeActiveIndex + 1))}
+                disabled={isRTL ? safeActiveIndex === 0 : safeActiveIndex >= total - 1}
                 className="text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed mx-1 transition-colors cursor-pointer"
             >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>

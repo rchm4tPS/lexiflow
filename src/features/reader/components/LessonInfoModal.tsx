@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Headphones } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useShallow } from 'zustand/react/shallow';
@@ -95,9 +96,9 @@ export default function LessonInfoModal({ onClose }: LessonInfoModalProps) {
   const lingQsPct = uniqueWords ? Math.round((lingQs / uniqueWords) * 100) : 0;
   const knownPct = uniqueWords ? Math.round((knownWords / uniqueWords) * 100) : 0;
 
-  return (
+  return createPortal(
     <div 
-      className={`fixed inset-0 sm:bg-black/70 bg-black/60 z-[100] flex justify-center sm:p-4 md:p-8 items-end sm:items-center ${isClosing ? 'animate-fade-out-drawer' : 'animate-fade-in-drawer'}`}
+      className={`fixed inset-0 z-[110] bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4 text-left ${isClosing ? 'animate-fade-out-drawer' : 'animate-fade-in-drawer'}`}
       onClick={handleClose}
     >
       {/* Modal Animation Wrapper */}
@@ -254,6 +255,7 @@ export default function LessonInfoModal({ onClose }: LessonInfoModalProps) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

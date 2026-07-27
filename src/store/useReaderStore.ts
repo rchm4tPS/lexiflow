@@ -214,10 +214,12 @@ interface ReaderState {
   fontSize: number;
   fontFamily: string;
   lineHeight: number;
+  showMargins: boolean;
   showSettingsDrawer: boolean;
   setFontSize: (size: number) => void;
   setFontFamily: (font: string) => void;
   setLineHeight: (height: number) => void;
+  setShowMargins: (show: boolean) => void;
   setShowSettingsDrawer: (show: boolean) => void;
 }
 
@@ -377,6 +379,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   fontSize: 16,
   fontFamily: 'nunito',
   lineHeight: 1.75,
+  showMargins: true,
   showSettingsDrawer: false,
   setFontSize: async (size) => {
     set({ fontSize: size });
@@ -404,6 +407,15 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         body: JSON.stringify({ readerSettings: { lineHeight: height } })
       });
     } catch (err) { console.error('Failed to save line height preference', err); }
+  },
+  setShowMargins: async (show) => {
+    set({ showMargins: show });
+    try {
+      await apiClient('/auth/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify({ readerSettings: { showMargins: show } })
+      });
+    } catch (err) { console.error('Failed to save margins preference', err); }
   },
   setShowSettingsDrawer: (show) => set({ showSettingsDrawer: show }),
 
@@ -540,6 +552,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         fontSize: initUserData.preferences?.readerSettings?.fontSize ?? 16,
         fontFamily: initUserData.preferences?.readerSettings?.fontFamily ?? 'nunito',
         lineHeight: initUserData.preferences?.readerSettings?.lineHeight ?? 1.75,
+        showMargins: initUserData.preferences?.readerSettings?.showMargins ?? true,
         hasFulfilledToday: (initUserData.totalDailyLingqs >= getTier(initUserData.dailyGoalTier).lingqGoal) &&
           (initUserData.totalDailyListeningSec >= getTier(initUserData.dailyGoalTier).listenMinGoal * 60)
       });
@@ -944,7 +957,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     }
   },
 
-  selectItem: (id) => set({ selectedId: id, draftPhraseRange: null, isSidebarVisible: true }),
+  selectItem: (id) => set({ selectedId: id, draftPhraseRange: null, isSidebarVisible: true, showSettingsDrawer: false, showTranslation: false }),
 
   clearSelection: () => {
     set({ selectedId: null, draftPhraseRange: null, clickPos: null });
@@ -1123,7 +1136,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     }
   },
 
-  setDraftPhrase: (range) => set({ draftPhraseRange: range, selectedId: null, isSidebarVisible: true }),
+  setDraftPhrase: (range) => set({ draftPhraseRange: range, selectedId: null, isSidebarVisible: true, showSettingsDrawer: false, showTranslation: false }),
 
   createPhrase: async (range, meaning) => {
     const state = get();

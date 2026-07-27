@@ -15,7 +15,7 @@ export const users = sqliteTable("users", {
   username: text("username").notNull().unique(),
   password_hash: text("password_hash").notNull(),
   fullname: text("fullname"),
-  preferences: text("preferences", { mode: "json" }).$type<{ targetLanguage: string; readerSettings?: { fontSize: number; fontFamily: string; lineHeight: number } }>(), // Drizzle handles JSON stringification
+  preferences: text("preferences", { mode: "json" }).$type<{ targetLanguage: string; readerSettings?: { fontSize: number; fontFamily: string; lineHeight: number; showMargins: boolean } }>(), // Drizzle handles JSON stringification
 });
 
 

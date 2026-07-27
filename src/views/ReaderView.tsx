@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from "../store/useReaderStore";
 import { useKeyboardShortcuts } from "../features/reader/hooks/useKeyboardShortcuts";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import Toolbar from "../features/reader/components/Toolbar";
 import ReaderPane from "../features/reader/components/ReaderPane";
@@ -66,18 +67,41 @@ export default function ReaderView() {
         }, 280);
     };
 
-    const handleDragStart = (clientY: number) => dragStartY.current = clientY;
-    const handleDragMove = (clientY: number) => {
-        if (dragStartY.current === null) return;
-        const diff = clientY - dragStartY.current;
-        if (diff > 0) setDragY(diff);
+    const handleDragStart = (clientY: number) => {
+        dragStartY.current = clientY;
     };
-    const handleDragEnd = () => {
-        if (dragStartY.current === null) return;
-        if (dragY > 80) handleCloseTranslation();
-        dragStartY.current = null;
-        setDragY(0);
-    };
+
+    useEffect(() => {
+        const handlePointerMove = (e: MouseEvent | TouchEvent) => {
+            if (dragStartY.current === null) return;
+            const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+            const diff = clientY - dragStartY.current;
+            if (diff > 0) setDragY(diff);
+        };
+
+        const handlePointerUp = () => {
+            if (dragStartY.current === null) return;
+            if (dragY > 80) {
+                handleCloseTranslation();
+            }
+            dragStartY.current = null;
+            setDragY(0);
+        };
+
+        if (showTranslation) {
+            window.addEventListener('mousemove', handlePointerMove);
+            window.addEventListener('mouseup', handlePointerUp);
+            window.addEventListener('touchmove', handlePointerMove);
+            window.addEventListener('touchend', handlePointerUp);
+        }
+
+        return () => {
+            window.removeEventListener('mousemove', handlePointerMove);
+            window.removeEventListener('mouseup', handlePointerUp);
+            window.removeEventListener('touchmove', handlePointerMove);
+            window.removeEventListener('touchend', handlePointerUp);
+        };
+    }, [showTranslation, dragY]);
 
     if (isLoadingLesson || !lessonStructureHash) {
         return <div className="h-full flex items-center justify-center font-bold text-gray-400">Loading Lesson Content...</div>;
@@ -96,7 +120,7 @@ export default function ReaderView() {
                     lessonTitle={lessonTitle}
                     lessonImg={lessonImg}
                 />
-            {!showSummary && (isSidebarVisible || showTranslation) && (
+            {!showSummary && (isSidebarVisible || showTranslation || showSettingsDrawer) && (
                 <Sidebar
                     onUpdateStage={updateStage}
                     onCreatePhrase={createPhrase}
@@ -110,7 +134,7 @@ export default function ReaderView() {
             </div>
 
             {/* Translation Drawer — shown on viewports < xl (1280px) when sidebar is not visible */}
-            {showTranslation && (
+            {showTranslation && createPortal(
                 <div
                     className={`xl:hidden fixed inset-0 z-[110] bg-black/60 flex items-end justify-center ${isDrawerClosing ? 'animate-fade-out-drawer' : 'animate-fade-in-drawer'}`}
                     onClick={handleCloseTranslation}
@@ -131,12 +155,7 @@ export default function ReaderView() {
                                 className="flex justify-center pt-3 pb-1 shrink-0 cursor-grab active:cursor-grabbing select-none"
                                 style={{ touchAction: 'none' }}
                                 onTouchStart={e => handleDragStart(e.touches[0].clientY)}
-                                onTouchMove={e => handleDragMove(e.touches[0].clientY)}
-                                onTouchEnd={handleDragEnd}
                                 onMouseDown={e => handleDragStart(e.clientY)}
-                                onMouseMove={e => handleDragMove(e.clientY)}
-                                onMouseUp={handleDragEnd}
-                                onMouseLeave={handleDragEnd}
                             >
                                 <div className="w-10 h-1 rounded-full bg-gray-300" />
                             </div>
@@ -170,7 +189,8 @@ export default function ReaderView() {
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );

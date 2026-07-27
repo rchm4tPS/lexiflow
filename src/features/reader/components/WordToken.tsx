@@ -12,15 +12,21 @@ interface PhraseGroupProps {
 export function PhraseGroup({ phraseId, onPhraseClick, children, depth = 0 }: PhraseGroupProps) {
   const phrase = useReaderStore(React.useCallback(state => state.phraseMap[phraseId], [phraseId]));
   const isSelected = useReaderStore(state => state.selectedId === phraseId);
-  
+  const fontSize = useReaderStore(state => state.fontSize);
+  const lineHeight = useReaderStore(state => state.lineHeight);
+  const isAudioPlaying = useReaderStore(state => state.isAudioPlaying);
+  const activeSentenceIndex = useReaderStore(state => state.activeSentenceIndex);
+  const tokenMap = useReaderStore(state => state.tokenMap);
+
   if (!phrase) return <>{children}</>;
-  
+
   const stage = phrase?.stage || 1;
 
   // Orange gradient logic
   const opacities = [1, 0.8, 0.6, 0.4, 0.2];
   const opacity = (stage >= 1 && stage <= 5) ? opacities[stage - 1] : 0;
-  const vPadding = Math.max(0, 8 - depth * 4);
+  // Use font-size × line-height scaled padding so it grows when line-height increases
+  const vPadding = Math.max(3, Math.round(fontSize * lineHeight * 0.35 - depth * 2));
   const bgStyle: React.CSSProperties = stage <= 5 ? {
     backgroundColor: `rgba(255, 165, 0, ${opacity})`,
     WebkitBoxDecorationBreak: 'clone',
@@ -32,17 +38,31 @@ export function PhraseGroup({ phraseId, onPhraseClick, children, depth = 0 }: Ph
     paddingBottom: `${vPadding}px`,
   };
 
+  // Audio dimming: dim the phrase if none of its tokens are in the active sentence.
+  // If at least one token is in the active sentence, keep the phrase bright.
+  let isDimmed = false;
+  if (isAudioPlaying && activeSentenceIndex !== null && phrase.range.length > 0) {
+    isDimmed = phrase.range.every(id => {
+      const sentenceIdx = tokenMap[id]?.sentencePageIndex;
+      return sentenceIdx !== undefined && sentenceIdx !== activeSentenceIndex;
+    });
+  }
+
   // Known phrase outline
   const outlineClass = stage === 6 ? "border-2 border-gray-300" : "";
 
   // Seamless selection ring
   const highlightClass = isSelected ? "relative ring-2 ring-blue-500 shadow-md z-10" : "";
 
+  // Dimming class applies to the entire phrase container so the orange background
+  // and all text inside fade together when audio is on a different sentence.
+  const dimClass = isDimmed ? 'opacity-30' : '';
+
   return (
     <span
       onClick={(e) => onPhraseClick(phraseId, e)}
       style={bgStyle}
-      className={`inline rounded-md px-1 -mx-1 cursor-pointer transition-all duration-200 ${outlineClass} ${highlightClass}`}
+      className={`inline rounded-md px-1 -mx-1 cursor-pointer transition-all duration-200 ${outlineClass} ${highlightClass} ${dimClass}`}
     >
       {/* Render whatever the recursive tree hands down */}
       {children}
@@ -64,16 +84,18 @@ const WordToken = React.memo(function WordToken({ tokenId, onClick, isRTL }: Wor
     const sentenceIdx = state.tokenMap[tokenId]?.sentencePageIndex;
     return sentenceIdx === undefined || sentenceIdx !== state.activeSentenceIndex;
   }, [tokenId]));
+  const showMargins = useReaderStore(state => state.showMargins);
+
+  const tokenMarginClass = showMargins ? (isRTL ? 'my-4' : 'my-3') : undefined;
+  const dimClass = isDimmed ? 'opacity-30' : '';
 
   if (!token) return null;
 
   if (token.isNewline) return <br />;
 
-  const dimClass = isDimmed ? "opacity-30" : "";
-
   if (token.isLearnable === false) {
     return (
-      <span className={`px-0.5 ${isRTL ? 'my-4' : 'my-3'} inline-block text-gray-800 transition-opacity duration-150 ${dimClass}`}>
+      <span className={`px-0.5 inline-block text-gray-800 transition-opacity duration-150 ${dimClass}${tokenMarginClass ? ` ${tokenMarginClass}` : ''}`}>
         {token.text}
       </span>
     );
@@ -100,7 +122,7 @@ const WordToken = React.memo(function WordToken({ tokenId, onClick, isRTL }: Wor
       data-token-id={token.id} // Essential for Drag-to-Select
       onClick={(e) => onClick(token.id, e)}
       style={wordBgStyle}
-      className={`cursor-pointer px-0.75 rounded mx-0.75 ${isRTL ? 'my-4' : 'my-3'} transition-all duration-150 inline-block ${highlightClass} ${dimClass} hover:ring-1 ring-amber-400`}
+      className={`cursor-pointer px-0.75 rounded mx-0.75 transition-all duration-150 inline-block ${highlightClass} ${dimClass}${tokenMarginClass ? ` ${tokenMarginClass}` : ''}`}
     >
       {token.text}
     </span>

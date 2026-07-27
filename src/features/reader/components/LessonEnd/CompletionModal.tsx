@@ -1,9 +1,10 @@
+import { createPortal } from 'react-dom';
 import { useReaderStore } from '../../../../store/useReaderStore';
 
 export default function CompletionModal() {
   const { setModal, completeLesson } = useReaderStore();
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center text-left bg-black/50 animate-fade-in" dir='ltr'>
       <div className="bg-white rounded-xl p-8 max-w-md w-full shadow-2xl">
         <h2 className="text-2xl font-bold text-gray-800 mb-4">Finish Lesson?</h2>
@@ -25,6 +26,7 @@ export default function CompletionModal() {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -145,7 +145,7 @@ export default function Header() {
                             {/* DROPDOWN MENU */}
                             {isLangMenuOpen && (
                                 <div className="absolute left-0 md:left-auto md:right-0 mt-2 w-56 md:w-[28rem] xl:w-[42rem] bg-white rounded-lg shadow-2xl py-2 z-[60] border border-gray-200 text-gray-800 overflow-hidden">
-                                    <div className="max-h-[60vh] overflow-y-auto custom-scrollbar">
+                                    <div className="max-h-[60vh] overflow-y-auto">
                                         {enrolledLanguages?.length > 0 && (
                                             <>
                                                 <div className="px-4 py-2 text-xs font-black text-gray-400 uppercase tracking-widest bg-gray-50 border-b mb-1">
@@ -250,7 +250,7 @@ export default function Header() {
                                     
                                     {isLangMenuOpen && (
                                         <div className="absolute top-full left-0 md:left-auto md:-right-4 mt-3 w-56 md:w-[28rem] xl:w-[42rem] bg-white rounded-lg shadow-2xl py-2 z-[70] border border-gray-200 text-gray-800 overflow-hidden cursor-default" onClick={(e) => e.stopPropagation()}>
-                                            <div className="max-h-[50vh] overflow-y-auto custom-scrollbar">
+                                            <div className="max-h-[50vh] overflow-y-auto">
                                                 {enrolledLanguages?.length > 0 && (
                                                     <>
                                                         <div className="px-4 py-2 text-xs font-black text-gray-400 uppercase tracking-widest bg-gray-50 border-b mb-1">
