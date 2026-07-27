@@ -269,6 +269,12 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
       if (containerRect.width === 0) return;
 
+      // Force a synchronous layout flush so that CSS multi-column reflows
+      // triggered by font-size/line-height changes are fully computed before
+      // we read token positions. Without this, getBoundingClientRect() can
+      // return stale positions from the previous column layout.
+      void container.offsetHeight;
+
       const columnWidthAndGap = containerRect.width + 48; // 3rem gap = 48px
 
       const mapping: Record<number, string[]> = {};
@@ -289,33 +295,54 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         mapping[colIndex].push(id);
       });
 
-      // Calculate total pages based on actual tokens, ignoring empty trailing scroll width.
-      // When font size/line height changes, CSS columns reflow and tokens near the boundary
-      // can get assigned to a trailing column that's essentially empty (a boundary artifact).
-      // Collapse such trailing near-empty columns to prevent a blank last page.
-      // Loop until convergence — merges can cascade if a column absorbs tokens from a merged
-      // column and itself becomes a boundary artifact (e.g. ±1 font size changes).
-      while (true) {
-        const entries = Object.entries(mapping);
-        if (entries.length <= 1) break;
-        const lastEntry = entries[entries.length - 1];
-        const prevEntry = entries[entries.length - 2];
-        const lastTokens = lastEntry[1];
-        const prevTokens = prevEntry[1];
-        // If the last column has ≤ 2 tokens and the previous column has at least 2x more,
-        // it's a boundary rounding artifact — merge it back and re-check.
-        if (lastTokens.length <= 2 && prevTokens.length > lastTokens.length * 2) {
-          prevEntry[1].push(...lastTokens);
-          delete mapping[Number(lastEntry[0])];
-          continue;
-        }
-        break;
+      // ── Determine true totalPages from the last SIGNIFICANT token's page ──────────────
+      // CSS multi-column sometimes creates a trailing "orphan" column that contains:
+      // (a) only whitespace/newline tokens → invisible,   OR
+      // (b) 1-3 word tokens that barely overflowed the boundary (looks blank to the user).
+      // We handle both cases:
+      //  Step 1 — find trueLastPage from the last non-whitespace token
+      //  Step 2 — if that page is an orphan (tiny fraction of the previous page), merge it
+      const { tokens: allTokens } = useReaderStore.getState();
+
+      // Build a fast id → page lookup from the raw mapping
+      const tokenToPage: Record<string, number> = {};
+      for (const [col, ids] of Object.entries(mapping)) {
+        for (const id of ids) tokenToPage[id] = Number(col);
       }
 
-      const maxColIndex = Object.keys(mapping).length > 0
-        ? Math.max(...Object.keys(mapping).map(Number))
-        : 0;
-      const newTotalPages = Math.max(1, maxColIndex + 1);
+      // Helper: count significant (non-whitespace, non-newline) tokens for a given page index
+      const countSigTokens = (pageIdx: number): number => {
+        const pageIds = mapping[pageIdx] ?? [];
+        const idSet = new Set(pageIds);
+        return allTokens.filter(t => idSet.has(t.id) && !t.isNewline && !!t.text?.trim()).length;
+      };
+
+      // Step 1: Walk backwards to find last significant token's page
+      let trueLastPage = 0;
+      for (let i = allTokens.length - 1; i >= 0; i--) {
+        const tok = allTokens[i];
+        if (tok.isNewline || !tok.text?.trim()) continue; // skip whitespace/newlines
+        if (tok.id in tokenToPage) {
+          trueLastPage = tokenToPage[tok.id];
+          break;
+        }
+      }
+
+      // Step 2: Orphan detection — if the last page has < 20% of the previous page's
+      // significant tokens, it's a boundary artifact and should be merged.
+      // This handles the common case of 1-3 word tokens orphaned on a trailing column
+      // when font-size is at a reflow boundary (e.g. 23px: barely overflows to 3rd col).
+      while (trueLastPage > 0) {
+        const sigOnLast = countSigTokens(trueLastPage);
+        const sigOnPrev = countSigTokens(trueLastPage - 1);
+        if (sigOnPrev > 0 && sigOnLast < sigOnPrev * 0.20) {
+          trueLastPage--; // merge orphan into previous page
+        } else {
+          break;
+        }
+      }
+
+      const newTotalPages = Math.max(1, trueLastPage + 1);
 
       let newColForAnchor = -1;
       const { initialTokenIndex, tokens, setInitialTokenIndex } = useReaderStore.getState();
@@ -339,17 +366,52 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         }
       }
 
-      // Update global store!
-      useReaderStore.getState().setPagination(newTotalPages || 1, mapping);
+      // Update global store only when the column mapping actually changed —
+      // prevents ResizeObserver-triggered infinite loops (each setPagination
+      // re-renders the component, which re-runs this effect, calling measure()
+      // again, which would re-enter this code with the same uncommitted mapping).
+      const currentTotalPages = useReaderStore.getState().totalPages;
+      const currentColumnMapping = useReaderStore.getState().columnMapping;
+      const mappingChanged =
+        newTotalPages !== currentTotalPages ||
+        Object.keys(mapping).length !== Object.keys(currentColumnMapping).length ||
+        Object.entries(mapping).some(
+          ([key, ids]) =>
+            !currentColumnMapping[Number(key)] ||
+            ids.length !== currentColumnMapping[Number(key)].length ||
+            ids.some((id, i) => id !== currentColumnMapping[Number(key)]?.[i])
+        );
 
-      if (newColForAnchor !== -1 && newColForAnchor !== useReaderStore.getState().currentPage) {
+      if (mappingChanged) {
+        // setPagination now clamps currentPage atomically — no extra setPage() needed here.
+        useReaderStore.getState().setPagination(newTotalPages || 1, mapping);
+      }
+
+      // Anchor token may have reflowed to a different column after a font/line-height change.
+      // Only navigate if the target page is still within the new valid range.
+      const latestPage = useReaderStore.getState().currentPage;
+      if (newColForAnchor !== -1 && newColForAnchor !== latestPage && newColForAnchor < (newTotalPages || 1)) {
         useReaderStore.getState().setPage(newColForAnchor);
       }
     };
 
+    // Initial measure
     measure();
 
-    // FIX: Re-measure after custom fonts (e.g. Farsi) finish loading to prevent layout shifts
+    // rAF safety net: catches CSS multi-column reflow that finalises asynchronously
+    const rafId = requestAnimationFrame(() => {
+      if (scrollContainerRef.current) measure();
+    });
+
+    // setTimeout(50) definitive safety net: fires after the browser has fully
+    // committed the new layout pass for the CSS multi-column engine.
+    // This is the last resort for cases where both the synchronous flush and the
+    // rAF are still reading the pre-reflow column positions.
+    const timerId = setTimeout(() => {
+      if (scrollContainerRef.current) measure();
+    }, 50);
+
+    // Re-measure after custom fonts (e.g. Farsi) finish loading
     if (document.fonts) {
       document.fonts.ready.then(() => {
         if (scrollContainerRef.current) measure();
@@ -358,7 +420,11 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
     const resizeObserver = new ResizeObserver(() => measure());
     resizeObserver.observe(container);
-    return () => resizeObserver.disconnect();
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(timerId);
+      resizeObserver.disconnect();
+    };
   }, [isLoadingLesson, tokens, isRTL, readerMode, columnWidthPx, fontSize, fontFamily, lineHeight]);
 
   React.useEffect(() => {

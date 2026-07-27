@@ -910,7 +910,12 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   setPagination: (totalPages, columnMapping) => {
-    set({ totalPages, columnMapping });
+    // Clamp currentPage atomically in the same set() call — the same pattern used by
+    // syncPageWithinSentence / setActiveSentenceIndex — so the page is always valid
+    // the moment the new mapping is committed (no extra render cycle needed).
+    const { currentPage } = get();
+    const clampedPage = Math.max(0, Math.min(currentPage, totalPages - 1));
+    set({ totalPages, columnMapping, currentPage: clampedPage });
   },
 
   markTokensAsRead: (tokenIds) => {

@@ -31,7 +31,7 @@ export default function Sidebar({
         clickPos: state.clickPos
     })));
 
-    const word = useReaderStore(state => {
+    const word = useReaderStore(useShallow((state): SidebarItem | null => {
         if (state.draftPhraseRange) {
             const wordTokenIds = state.draftPhraseRange.filter(id => {
                 const t = state.tokenMap[id];
@@ -61,7 +61,7 @@ export default function Sidebar({
             return (state.tokenMap[state.selectedId] || null) as SidebarItem | null;
         }
         return null;
-    });
+    }));
     // FIX: Safely coerce the stage to a Number, defaulting to 0.
     // This catches instances where JSON/State causes stage to be undefined or a string
     const currentStage = word ? Number(word.stage || 0) : 0;
