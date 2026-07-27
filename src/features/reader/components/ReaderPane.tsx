@@ -55,7 +55,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     lessonIndex, courseLessonsCount, prevLessonId, nextLessonId, setShowLessonInfoModal, showSettingsDrawer, setShowSettingsDrawer, initialTokenIndex,
     isStatsLoading, lessonAudio, toggleSidebar, isSidebarVisible,
     translationData, revealedSentenceIndices, isLoadingTranslation,
-    fontSize, fontFamily, lineHeight, showMargins
+    fontSize, fontFamily, lineHeight, showMargins,
+    showTranslation, setShowTranslation
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
     lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
@@ -65,7 +66,9 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     lessonIndex: state.lessonIndex, courseLessonsCount: state.courseLessonsCount, prevLessonId: state.prevLessonId, nextLessonId: state.nextLessonId, setShowLessonInfoModal: state.setShowLessonInfoModal, showSettingsDrawer: state.showSettingsDrawer, setShowSettingsDrawer: state.setShowSettingsDrawer, initialTokenIndex: state.initialTokenIndex,
     isStatsLoading: state.isStatsLoading, lessonAudio: state.lessonAudio, toggleSidebar: state.toggleSidebar, isSidebarVisible: state.isSidebarVisible,
     translationData: state.translationData, revealedSentenceIndices: state.revealedSentenceIndices, isLoadingTranslation: state.isLoadingTranslation,
-    fontSize: state.fontSize, fontFamily: state.fontFamily, lineHeight: state.lineHeight, showMargins: state.showMargins
+    fontSize: state.fontSize, fontFamily: state.fontFamily, lineHeight: state.lineHeight, showMargins: state.showMargins,
+    showTranslation: state.showTranslation,         // <--- TAMBAHKAN INI JUGA
+    setShowTranslation: state.setShowTranslation,   // <--- TAMBAHKAN INI JUGA
   })));
 
   const tokens = useReaderStore.getState().tokens;
@@ -249,12 +252,12 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   const anchorTokenRef = useRef<string | null>(null);
   const [columnWidthPx, setColumnWidthPx] = React.useState(0);
   // Track previous layout settings to detect changes that require a re-measurement
-  const layoutSettingsRef = React.useRef({ showMargins, fontSize, fontFamily, lineHeight });
+  // const layoutSettingsRef = React.useRef({ showMargins, fontSize, fontFamily, lineHeight });
   // When a layout-affecting setting changes we need to force-reflow CSS multi-column.
   // We store the fact in a ref so measure() can force setColumnWidthPx even when the
   // numeric value hasn't changed (same container width → no state diff → no React re-render
   // → browser never re-lays-out → ghost columns persist).
-  const layoutChangedRef = React.useRef(false);
+  // const layoutChangedRef = React.useRef(false);
 
   // Count of unique LingQs (stage 1, 2, 3) in the lesson
   const uniqueLingQs = new Set(
@@ -279,48 +282,37 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   }, [currentPage, columnMapping, initialTokenIndex]);
 
   // Measurement Engine
-  // --- RESTORED ORIGINAL WORKING ENGINE (WITH SAFEST LOGS) ---
+  // --- FINAL OPTIMIZED MEASUREMENT ENGINE WITH ANCHOR PRESERVATION ---
   React.useLayoutEffect(() => {
     if (!scrollContainerRef.current || isLoadingLesson || tokens.length === 0) return;
 
     const container = scrollContainerRef.current;
 
-    const prev = layoutSettingsRef.current;
-    const curr = { showMargins, fontSize, fontFamily, lineHeight };
+    // 1. Capture user's currently visible anchor token before layout recalculation
+    const stateBefore = useReaderStore.getState();
+    const currentVisibleToken =
+      stateBefore.columnMapping[stateBefore.currentPage]?.[0] || anchorTokenRef.current;
 
-    const layoutChanged =
-      prev.showMargins !== curr.showMargins ||
-      prev.fontSize !== curr.fontSize ||
-      prev.fontFamily !== curr.fontFamily ||
-      prev.lineHeight !== curr.lineHeight;
-
-    if (layoutChanged) {
-      layoutSettingsRef.current = curr;
-      console.log('⚙️ [LAYOUT CHANGED] Settings updated:', { showMargins });
-      useReaderStore.getState().setPagination(1, {});
-      layoutChangedRef.current = true;
+    if (currentVisibleToken) {
+      anchorTokenRef.current = currentVisibleToken;
     }
 
-    let measureCallCount = 0;
     const measure = (caller = 'unknown') => {
-      measureCallCount++;
-      const containerRect = container.getBoundingClientRect();
+      if (!container) return;
 
-      if (columnWidthPx === 0 && containerRect.width > 0 && !layoutChangedRef.current) {
-        setColumnWidthPx(containerRect.width);
+      const containerRect = container.getBoundingClientRect();
+      const availableWidth = containerRect.width;
+
+      if (availableWidth <= 0) return;
+
+      if (columnWidthPx === 0 && availableWidth > 0) {
+        setColumnWidthPx(availableWidth);
         return;
       }
 
-      // Temporarily clear CSS transform (translateX) so getBoundingClientRect reads raw geometry
+      // Temporarily remove transform so bounding boxes read true un-shifted coordinates
       const origTransform = container.style.transform;
       container.style.transform = 'none';
-
-      // Force invalidation and full horizontal reflow of Chromium / WebKit multi-column layout
-      const origColWidth = container.style.columnWidth;
-      container.style.columnWidth = 'auto';
-      void container.offsetHeight;
-      container.style.columnWidth = origColWidth;
-      void container.scrollWidth;
 
       const freshContainerRect = container.getBoundingClientRect();
       const columnWidthAndGap = freshContainerRect.width + 48; // 3rem gap = 48px
@@ -332,16 +324,22 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         const id = node.getAttribute('data-token-id');
         if (!id) return;
         const rect = node.getBoundingClientRect();
-        const relativeLeft = rect.left - freshContainerRect.left;
-        let colIndex = Math.floor((relativeLeft + 5) / columnWidthAndGap);
+        let colIndex = 0;
+
         if (isRTL) {
           const relativeRight = freshContainerRect.right - rect.right;
           colIndex = Math.floor((relativeRight + 5) / columnWidthAndGap);
+        } else {
+          const relativeLeft = rect.left - freshContainerRect.left;
+          colIndex = Math.floor((relativeLeft + 5) / columnWidthAndGap);
         }
+
+        if (colIndex < 0) colIndex = 0;
         if (!mapping[colIndex]) mapping[colIndex] = [];
         mapping[colIndex].push(id);
       });
 
+      // Restore transform
       container.style.transform = origTransform;
 
       const { tokens: allTokens } = useReaderStore.getState();
@@ -357,13 +355,11 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       };
 
       let trueLastPage = 0;
-      let lastSigTokInfo: { id: string; text: string; col: number } | null = null;
       for (let i = allTokens.length - 1; i >= 0; i--) {
         const tok = allTokens[i];
         if (!isWordToken(tok)) continue;
         if (tok.id in tokenToPage) {
           trueLastPage = tokenToPage[tok.id];
-          lastSigTokInfo = { id: tok.id, text: tok.text, col: trueLastPage };
           break;
         }
       }
@@ -381,8 +377,6 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         }).length;
       };
 
-      const initialDetectedLastPage = trueLastPage;
-
       while (trueLastPage > 0) {
         const lastCount = countSigTokens(trueLastPage);
         if (lastCount === 0) { delete mapping[trueLastPage]; trueLastPage--; continue; }
@@ -393,33 +387,12 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       }
 
       const newTotalPages = Math.max(1, trueLastPage + 1);
-      const forceRefresh = layoutChangedRef.current;
-      layoutChangedRef.current = false;
 
-      console.log(`📊 [MEASURE] caller="${caller}"`, {
-        initialDetectedLastPage,
-        calculatedNewTotalPages: newTotalPages,
-        lastWordTokenFound: lastSigTokInfo,
-        allColsDetected: Object.keys(mapping)
-      });
-
-      if (newTotalPages === 1) {
-        if (columnWidthPx !== 0) {
-          setColumnWidthPx(0);
-        }
-      } else {
-        if (forceRefresh && columnWidthPx === freshContainerRect.width) {
-          setColumnWidthPx(0);
-          requestAnimationFrame(() => {
-            if (scrollContainerRef.current) {
-              setColumnWidthPx(freshContainerRect.width);
-            }
-          });
-        } else if (columnWidthPx !== freshContainerRect.width) {
-          setColumnWidthPx(freshContainerRect.width);
-        }
+      if (columnWidthPx !== freshContainerRect.width && freshContainerRect.width > 0) {
+        setColumnWidthPx(freshContainerRect.width);
       }
 
+      // 2. Find which column the user's anchor token moved to in the new layout
       let newColForAnchor = -1;
       const { initialTokenIndex, tokens: storeTokens, setInitialTokenIndex } = useReaderStore.getState();
 
@@ -448,43 +421,37 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         );
 
       if (mappingChanged) {
-        console.log(`🚀 [STORE UPDATE] Total Pages: ${currentTotalPages} -> ${newTotalPages}`);
         useReaderStore.getState().setPagination(newTotalPages || 1, mapping);
       }
 
-      const latestPage = useReaderStore.getState().currentPage;
-      if (newColForAnchor !== -1 && newColForAnchor !== latestPage && newColForAnchor < (newTotalPages || 1)) {
-        useReaderStore.getState().setPage(newColForAnchor);
+      // 3. Smoothly navigate user to the exact new page of their anchor token (clamped to max pages)
+      const targetPage = newColForAnchor !== -1
+        ? Math.min(newColForAnchor, newTotalPages - 1)
+        : Math.min(useReaderStore.getState().currentPage, newTotalPages - 1);
+
+      const safePage = Math.max(0, targetPage);
+      if (safePage !== useReaderStore.getState().currentPage) {
+        useReaderStore.getState().setPage(safePage);
       }
     };
 
+    // 1. Immediate synchronous measure
     measure('initial');
 
-    let rafId2: number | null = null;
-    const rafId1 = requestAnimationFrame(() => {
-      if (scrollContainerRef.current) measure('rAF-1');
-      rafId2 = requestAnimationFrame(() => {
-        if (scrollContainerRef.current) measure('rAF-2');
-      });
-    });
-
-    const timerId = setTimeout(() => {
-      if (scrollContainerRef.current) measure('setTimeout-50ms');
-    }, 50);
-
+    // 2. Safety net when custom fonts finish rendering
     if (document.fonts) {
       document.fonts.ready.then(() => {
         if (scrollContainerRef.current) measure('fonts.ready');
       });
     }
 
-    const resizeObserver = new ResizeObserver(() => measure('ResizeObserver'));
+    // 3. Observer for window / container resizes
+    const resizeObserver = new ResizeObserver(() => {
+      if (scrollContainerRef.current) measure('ResizeObserver');
+    });
     resizeObserver.observe(container);
 
     return () => {
-      cancelAnimationFrame(rafId1);
-      if (rafId2 !== null) cancelAnimationFrame(rafId2);
-      clearTimeout(timerId);
       resizeObserver.disconnect();
     };
   }, [isLoadingLesson, tokens, isRTL, readerMode, columnWidthPx, showSettingsDrawer, showMargins, fontSize, fontFamily, lineHeight]);
@@ -963,7 +930,15 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                     <div
                       className="hidden xl:flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={() => {
-                        toggleSidebar();
+                        const isAnySidebarOpen = isSidebarVisible || showSettingsDrawer || showTranslation;
+
+                        if (isAnySidebarOpen) {
+                          if (isSidebarVisible) toggleSidebar();
+                          setShowSettingsDrawer(false);
+                          setShowTranslation(false);
+                        } else {
+                          toggleSidebar();
+                        }
                         closeDropdown();
                       }}
                     >
@@ -1118,7 +1093,15 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                     <div
                       className="hidden xl:flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={() => {
-                        toggleSidebar();
+                        const isAnySidebarOpen = isSidebarVisible || showSettingsDrawer || showTranslation;
+
+                        if (isAnySidebarOpen) {
+                          if (isSidebarVisible) toggleSidebar();
+                          setShowSettingsDrawer(false);
+                          setShowTranslation(false);
+                        } else {
+                          toggleSidebar();
+                        }
                         closeDropdown();
                       }}
                     >
@@ -1173,7 +1156,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             <div
               key={`reader-container-${showMargins}-${fontSize}-${fontFamily}-${lineHeight}`}
               ref={scrollContainerRef}
-              className={`w-full ${readerMode === 'sentence' ? 'h-auto' : 'h-full'} text-gray-800 font-medium transition-transform duration-300`}
+              className={`w-full ${readerMode === 'sentence' ? 'h-auto' : 'h-full'} text-gray-800 font-medium`}
               style={{
                 direction: isRTL ? 'rtl' : 'ltr',
                 fontSize: `${fontSize}px`,
@@ -1187,6 +1170,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                 columnGap: '3rem',
                 columnFill: 'auto',
                 transform: `translateX(calc(${isRTL ? '' : '-'}${currentPage} * (100% + 3rem)))`,
+                transition: 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)',  // <--- TAMBAHKAN INI (Animasi Slide Mulus)
+                willChange: 'transform',                                      // <--- TAMBAHKAN INI (Akselerasi GPU)
               }}
               onMouseDown={handleMouseDown}
               onMouseUp={handleMouseUp}
