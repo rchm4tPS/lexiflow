@@ -420,7 +420,15 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       });
     } catch (err) { console.error('Failed to save margins preference', err); }
   },
-  setLineGap: (lineGap) => set({ lineGap }),
+  setLineGap: async (lineGap) => { 
+    set({ lineGap });
+    try {
+      await apiClient('/auth/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify({ readerSettings: { lineGap: lineGap } })
+      });
+    } catch (err) { console.error('Failed to save line gap preference', err); }
+  },
   setShowSettingsDrawer: (show) => set({ showSettingsDrawer: show }),
 
   incrementListeningTicks: (amount: number) => {
@@ -557,6 +565,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         fontFamily: initUserData.preferences?.readerSettings?.fontFamily ?? 'nunito',
         lineHeight: initUserData.preferences?.readerSettings?.lineHeight ?? 1.75,
         showMargins: initUserData.preferences?.readerSettings?.showMargins ?? true,
+        lineGap: initUserData.preferences?.readerSettings?.lineGap ?? 6,
         hasFulfilledToday: (initUserData.totalDailyLingqs >= getTier(initUserData.dailyGoalTier).lingqGoal) &&
           (initUserData.totalDailyListeningSec >= getTier(initUserData.dailyGoalTier).listenMinGoal * 60)
       });

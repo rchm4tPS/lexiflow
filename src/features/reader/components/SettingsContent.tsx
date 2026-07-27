@@ -126,10 +126,10 @@ export default function SettingsContent() {
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden bg-white">
 
       {/* Fixed Live Preview Pane Header — sticky so it stays visible while settings scroll */}
-      <div className="pb-3 border-b border-gray-100 shrink-0 bg-white sticky top-0 z-10">
+      <div className="pb-3 border-b border-gray-100 shrink-0 bg-white z-10">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[12px] font-extrabold text-gray-400 uppercase tracking-wider">
             LIVE PREVIEW
@@ -199,7 +199,7 @@ export default function SettingsContent() {
       </div>
 
       {/* Scrollable Settings Controls Area */}
-      <div className="pt-4 space-y-6 pr-2 pb-8">
+      <div className="flex-1 overflow-y-auto pt-4 space-y-6 pr-2 pb-8">
 
         {/* Font Size */}
         <div>

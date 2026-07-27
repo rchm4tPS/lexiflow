@@ -492,19 +492,20 @@ router.patch('/preferences', authenticate, async (req: AuthRequest, res) => {
     }
 
     const existing = await db.select({ preferences: users.preferences }).from(users).where(eq(users.id, userId));
-    const currentPrefs = (existing[0]?.preferences || { targetLanguage: '' }) as { targetLanguage: string; readerSettings?: { fontSize: number; fontFamily: string; lineHeight: number; showMargins: boolean } };
+    const currentPrefs = (existing[0]?.preferences || { targetLanguage: '' }) as { targetLanguage: string; readerSettings?: { fontSize: number; fontFamily: string; lineHeight: number; showMargins: boolean, lineGap: number } };
 
-    const newPreferences: { targetLanguage: string; readerSettings?: { fontSize: number; fontFamily: string; lineHeight: number; showMargins: boolean } } = {
+    const newPreferences: { targetLanguage: string; readerSettings?: { fontSize: number; fontFamily: string; lineHeight: number; showMargins: boolean, lineGap: number } } = {
       targetLanguage: targetLanguage || currentPrefs.targetLanguage,
     };
 
     if (readerSettings) {
-      const existingSettings = currentPrefs.readerSettings || { fontSize: 16, fontFamily: 'nunito', lineHeight: 1.75, showMargins: true };
+      const existingSettings = currentPrefs.readerSettings || { fontSize: 16, fontFamily: 'nunito', lineHeight: 1.75, showMargins: true, lineGap: 6 };
       newPreferences.readerSettings = {
         fontSize: readerSettings.fontSize ?? existingSettings.fontSize,
         fontFamily: readerSettings.fontFamily ?? existingSettings.fontFamily,
         lineHeight: readerSettings.lineHeight ?? existingSettings.lineHeight,
         showMargins: readerSettings.showMargins ?? existingSettings.showMargins,
+        lineGap: readerSettings.lineGap ?? existingSettings.lineGap,
       };
     }
 
