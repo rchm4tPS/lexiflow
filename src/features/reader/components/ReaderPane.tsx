@@ -248,8 +248,13 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   // --- NEW: CSS Columns Dynamic Layout State ---
   const anchorTokenRef = useRef<string | null>(null);
   const [columnWidthPx, setColumnWidthPx] = React.useState(0);
-  // Track previous layout settings to detect changes that require a full reflow reset
+  // Track previous layout settings to detect changes that require a re-measurement
   const layoutSettingsRef = React.useRef({ showMargins, fontSize, fontFamily, lineHeight });
+  // When a layout-affecting setting changes we need to force-reflow CSS multi-column.
+  // We store the fact in a ref so measure() can force setColumnWidthPx even when the
+  // numeric value hasn't changed (same container width → no state diff → no React re-render
+  // → browser never re-lays-out → ghost columns persist).
+  const layoutChangedRef = React.useRef(false);
 
   // Count of unique LingQs (stage 1, 2, 3) in the lesson
   const uniqueLingQs = new Set(
@@ -279,14 +284,25 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
     const container = scrollContainerRef.current;
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // LAYOUT CHANGE DETECTION — two-pass CSS column reset
-    // When any layout-affecting setting changes, we need to fully invalidate the
-    // browser's multi-column layout so it reflows from scratch with new content heights.
-    // We do this by cycling columnWidthPx: 0 → containerWidth → measure.
-    // ─────────────────────────────────────────────────────────────────────────────
+    // ─── DIAGNOSTIC: log which deps triggered this effect run ────────────────────
     const prev = layoutSettingsRef.current;
     const curr = { showMargins, fontSize, fontFamily, lineHeight };
+    console.log(
+      `%c[EFFECT FIRED] %cdeps snapshot`,
+      'color: #f59e0b; font-weight: bold', 'color: #666',
+      {
+        columnWidthPx,
+        showSettingsDrawer,
+        showMargins,
+        fontSize,
+        fontFamily,
+        lineHeight,
+        layoutChangedRef_before: layoutChangedRef.current,
+        prevSettings: prev,
+        currSettings: curr,
+      }
+    );
+
     const layoutChanged =
       prev.showMargins !== curr.showMargins ||
       prev.fontSize !== curr.fontSize ||
@@ -295,25 +311,44 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
     if (layoutChanged) {
       layoutSettingsRef.current = curr;
-      // Pass 1: Reset to 'auto' (single column) so browser discards old column geometry
-      setColumnWidthPx(0);
-      return; // Early return — next effect run (triggered by columnWidthPx change) will prime to width
+      console.log(
+        `%c[LAYOUT CHANGED] %cdetected — calling setPagination(1,{}) and setting layoutChangedRef=true`,
+        'color: #ef4444; font-weight: bold', 'color: #666',
+        { prev, curr }
+      );
+      useReaderStore.getState().setPagination(1, {});
+      layoutChangedRef.current = true;
     }
 
-    const measure = () => {
+    // label for which call site fired measure() — helps trace rAF vs initial vs setTimeout
+    let measureCallCount = 0;
+    const measure = (caller = 'unknown') => {
+      measureCallCount++;
       const containerRect = container.getBoundingClientRect();
 
-      // When columnWidthPx is 0 (uninitialized or just reset), prime it
-      // to the container width so CSS multi-column creates proper pixel-based
-      // column layout on the very next run.  This early return skips the
-      // expensive DOM measurement for this run (no DOM reads needed).
-      if (columnWidthPx === 0 && containerRect.width > 0) {
+      console.log(
+        `%c[measure() #${measureCallCount}] %ccaller="${caller}"`,
+        'color: #3a92fb; font-weight: bold', 'color: #666',
+        {
+          columnWidthPx_closure: columnWidthPx,
+          containerWidth: containerRect.width.toFixed(1),
+          layoutChangedRef_now: layoutChangedRef.current,
+          domColumnWidth: container.style.columnWidth,
+          storeTotal: useReaderStore.getState().totalPages,
+          storePage: useReaderStore.getState().currentPage,
+        }
+      );
+
+      // When columnWidthPx is 0 (uninitialized) and no layout change is pending,
+      // prime it to the container width so CSS multi-column creates proper pixel-based
+      // column layout on the very next run.
+      if (columnWidthPx === 0 && containerRect.width > 0 && !layoutChangedRef.current) {
+        console.log(`%c  → EARLY RETURN: priming columnWidthPx = ${containerRect.width.toFixed(1)}px`, 'color: #8b5cf6');
         setColumnWidthPx(containerRect.width);
         return;
       }
 
-      // Temporarily clear CSS transform (translateX) so getBoundingClientRect reads
-      // un-shifted, raw column geometry regardless of current page index or LTR/RTL offset.
+      // Temporarily clear CSS transform (translateX) so getBoundingClientRect reads raw geometry
       const origTransform = container.style.transform;
       container.style.transform = 'none';
 
@@ -340,42 +375,29 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
           const relativeRight = freshContainerRect.right - rect.right;
           colIndex = Math.floor((relativeRight + 5) / columnWidthAndGap);
         }
-
         if (!mapping[colIndex]) mapping[colIndex] = [];
         mapping[colIndex].push(id);
       });
 
-      // Restore original CSS transform for page rendering
       container.style.transform = origTransform;
 
-      // ── Determine true totalPages from the last SIGNIFICANT token's page ──────────────
-      // CSS multi-column sometimes creates a trailing "orphan" column that contains:
-      // (a) only whitespace/newline tokens → invisible,   OR
-      // (b) 1-3 word tokens that barely overflowed the boundary (looks blank to the user).
-      // We handle both cases:
-      //  Step 1 — find trueLastPage from the last non-whitespace token
-      //  Step 2 — if that page is an orphan (tiny fraction of the previous page), merge it
       const { tokens: allTokens } = useReaderStore.getState();
 
-      // Build a fast id → page lookup from the raw mapping
       const tokenToPage: Record<string, number> = {};
       for (const [col, ids] of Object.entries(mapping)) {
         for (const id of ids) tokenToPage[id] = Number(col);
       }
 
-      // Helper: check if a token is a real word token (contains letters/digits),
-      // ignoring standalone punctuation tokens like '.', ',', '!', '?' that may overflow to a new column.
       const isWordToken = (t: typeof allTokens[0]) => {
         if (t.isNewline || !t.text?.trim()) return false;
         return /[\p{L}\p{N}]/u.test(t.text);
       };
 
-      // Step 1: Walk backwards to find last REAL WORD token's page
       let trueLastPage = 0;
       let lastSigTokInfo: { id: string; text: string; col: number } | null = null;
       for (let i = allTokens.length - 1; i >= 0; i--) {
         const tok = allTokens[i];
-        if (!isWordToken(tok)) continue; // skip newlines, whitespace, and standalone punctuation (. , ! ?)
+        if (!isWordToken(tok)) continue;
         if (tok.id in tokenToPage) {
           trueLastPage = tokenToPage[tok.id];
           lastSigTokInfo = { id: tok.id, text: tok.text, col: trueLastPage };
@@ -383,18 +405,10 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         }
       }
 
-      // Step 2: Clean up ghost keys > trueLastPage (empty trailing whitespace columns)
       for (const col of Object.keys(mapping).map(Number)) {
-        if (col > trueLastPage) {
-          delete mapping[col];
-        }
+        if (col > trueLastPage) delete mapping[col];
       }
 
-      // Step 3: Cascade-merge near-empty trailing pages (boundary artifacts where
-      // only a few word tokens spilled past the last full column). Merges are
-      // applied when the trailing page holds fewer tokens than a generous
-      // fraction of the preceding page, repeated until convergence so a
-      // cascade of sparse trailing pages all gets eliminated at once.
       const countSigTokens = (pageIdx: number): number => {
         const ids = mapping[pageIdx];
         if (!ids) return 0;
@@ -406,51 +420,70 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
       while (trueLastPage > 0) {
         const lastCount = countSigTokens(trueLastPage);
-        if (lastCount === 0) {
-          // Completely empty column — remove it and keep merging
-          delete mapping[trueLastPage];
-          trueLastPage--;
-          continue;
-        }
+        if (lastCount === 0) { delete mapping[trueLastPage]; trueLastPage--; continue; }
         const prevCount = countSigTokens(trueLastPage - 1);
-        // Merge this trailing page if it holds at most ~10% of the tokens
-        // on the page before it (catching 2–token stragglers as well).
-        // The floor/ceil guards ensure small counts are treated as stragglers.
         if (prevCount > 0 && lastCount <= Math.max(3, Math.floor(prevCount * 0.10))) {
-          // Near-empty trailing page — fold it into the previous page
-          delete mapping[trueLastPage];
-          trueLastPage--;
-        } else {
-          break;
-        }
+          delete mapping[trueLastPage]; trueLastPage--;
+        } else break;
       }
 
       const newTotalPages = Math.max(1, trueLastPage + 1);
 
-      // Detailed per-column summary for browser console diagnostic
       const colBreakdown = Object.entries(mapping).map(([col, ids]) => {
         const sigCount = allTokens.filter(t => ids.includes(t.id) && !t.isNewline && !!t.text?.trim()).length;
-        const lastTokId = ids[ids.length - 1];
-        const lastTok = allTokens.find(t => t.id === lastTokId);
-        return `[Col ${col}: ${ids.length} tokens, ${sigCount} words | lastTok: "${lastTok?.text || ''}"]`;
+        const lastTok = allTokens.find(t => t.id === ids[ids.length - 1]);
+        return `[Col ${col}: ${ids.length} tokens, ${sigCount} words | last: "${lastTok?.text || ''}"]`;
       });
 
-      console.log(`%c[measure()] %cfontSize: ${fontSize}px | lineHeight: ${lineHeight} | font: ${fontFamily}`, 'color: #3a92fb; font-weight: bold', 'color: #666');
-      console.log(`  ├─ containerWidth: ${containerRect.width.toFixed(1)}px | columnWidthAndGap: ${columnWidthAndGap.toFixed(1)}px`);
-      console.log(`  ├─ store currentPage: ${useReaderStore.getState().currentPage} | store totalPages: ${useReaderStore.getState().totalPages}`);
-      console.log(`  ├─ computed newTotalPages: ${newTotalPages} | trueLastPage (0-indexed): ${trueLastPage}`);
-      console.log(`  ├─ last word token: "${lastSigTokInfo?.text}" (id: ${lastSigTokInfo?.id}) → landed on Col ${lastSigTokInfo?.col}`);
-      console.log(`  └─ column breakdown:\n     ${colBreakdown.join('\n     ')}`);
+      // ─── DIAGNOSTIC: full measure result ──────────────────────────────────────
+      const forceRefresh = layoutChangedRef.current;
+      console.log(
+        `%c  [measure result] %cnewTotalPages=${newTotalPages} | trueLastPage=${trueLastPage} | forceRefresh=${forceRefresh}`,
+        'color: #10b981; font-weight: bold', 'color: #666',
+        {
+          containerWidth: freshContainerRect.width.toFixed(1),
+          columnWidthAndGap: columnWidthAndGap.toFixed(1),
+          lastWordToken: lastSigTokInfo,
+          colBreakdown,
+          storeTotal_before: useReaderStore.getState().totalPages,
+          storePage_before: useReaderStore.getState().currentPage,
+          columnWidthPx_closure: columnWidthPx,
+          freshContainerWidth: freshContainerRect.width,
+        }
+      );
 
-      // Update columnWidthPx based on newTotalPages to keep CSS columns in sync.
-      // Each logical page = 1 full-width CSS column.
-      // - newTotalPages === 1 → columnWidthPx = 0 (CSS columnWidth='auto', single column)
-      // - newTotalPages > 1  → columnWidthPx = containerRect.width (full-width columns)
-      // DO NOT set to a narrow value — that creates sub-columns inside each page.
+      layoutChangedRef.current = false; // clear before any setState calls
+
+      // ─── columnWidthPx update decision ────────────────────────────────────────
       if (newTotalPages === 1) {
-        setColumnWidthPx(0);
-      } else if (newTotalPages > 1 && columnWidthPx !== freshContainerRect.width) {
-        setColumnWidthPx(freshContainerRect.width);
+        if (columnWidthPx !== 0) {
+          console.log(`%c  → setColumnWidthPx(0) [newTotalPages===1]`, 'color: #8b5cf6');
+          setColumnWidthPx(0);
+        } else {
+          console.log(`%c  → columnWidthPx already 0, no state update`, 'color: #9ca3af');
+        }
+      } else {
+        if (forceRefresh && columnWidthPx === freshContainerRect.width) {
+          console.log(
+            `%c  → FORCE CYCLE: setColumnWidthPx(0) then rAF setColumnWidthPx(${freshContainerRect.width.toFixed(1)}) [forceRefresh + same value]`,
+            'color: #f59e0b; font-weight: bold'
+          );
+          setColumnWidthPx(0);
+          requestAnimationFrame(() => {
+            if (scrollContainerRef.current) {
+              console.log(`%c  → rAF: setColumnWidthPx(${freshContainerRect.width.toFixed(1)}) [force cycle restore]`, 'color: #f59e0b');
+              setColumnWidthPx(freshContainerRect.width);
+            }
+          });
+        } else if (columnWidthPx !== freshContainerRect.width) {
+          console.log(
+            `%c  → setColumnWidthPx(${freshContainerRect.width.toFixed(1)}) [value changed from ${columnWidthPx.toFixed(1)}]`,
+            'color: #8b5cf6'
+          );
+          setColumnWidthPx(freshContainerRect.width);
+        } else {
+          console.log(`%c  → columnWidthPx already ${columnWidthPx.toFixed(1)}, no state update (forceRefresh=${forceRefresh})`, 'color: #9ca3af');
+        }
       }
 
       let newColForAnchor = -1;
@@ -459,19 +492,12 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       if (initialTokenIndex !== null && initialTokenIndex >= 0 && initialTokenIndex < tokens.length) {
         const targetTokenId = tokens[initialTokenIndex].id;
         for (const [col, ids] of Object.entries(mapping)) {
-          if (ids.includes(targetTokenId)) {
-            newColForAnchor = parseInt(col);
-            break;
-          }
+          if (ids.includes(targetTokenId)) { newColForAnchor = parseInt(col); break; }
         }
-        // Clear it so it only runs once per lesson load
         setInitialTokenIndex(null);
       } else if (anchorTokenRef.current) {
         for (const [col, ids] of Object.entries(mapping)) {
-          if (ids.includes(anchorTokenRef.current)) {
-            newColForAnchor = parseInt(col);
-            break;
-          }
+          if (ids.includes(anchorTokenRef.current)) { newColForAnchor = parseInt(col); break; }
         }
       }
 
@@ -487,46 +513,50 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             ids.some((id, i) => id !== currentColumnMapping[Number(key)]?.[i])
         );
 
-      console.log(`  └─ mappingChanged: ${mappingChanged}`);
+      console.log(
+        `%c  [setPagination?] mappingChanged=${mappingChanged} | newTotalPages=${newTotalPages} | currentTotalPages=${currentTotalPages}`,
+        mappingChanged ? 'color: #ef4444; font-weight: bold' : 'color: #9ca3af'
+      );
 
       if (mappingChanged) {
-        // setPagination now clamps currentPage atomically — no extra setPage() needed here.
+        console.log(`%c  → calling setPagination(${newTotalPages}, mapping)`, 'color: #ef4444; font-weight: bold');
         useReaderStore.getState().setPagination(newTotalPages || 1, mapping);
-
+        console.log(
+          `%c  → after setPagination: store totalPages=${useReaderStore.getState().totalPages} | currentPage=${useReaderStore.getState().currentPage}`,
+          'color: #10b981'
+        );
       }
 
-      // Anchor token may have reflowed to a different column after a font/line-height change.
-      // Only navigate if the target page is still within the new valid range.
       const latestPage = useReaderStore.getState().currentPage;
       if (newColForAnchor !== -1 && newColForAnchor !== latestPage && newColForAnchor < (newTotalPages || 1)) {
+        console.log(`%c  → setPage(${newColForAnchor}) [anchor reflow]`, 'color: #8b5cf6');
         useReaderStore.getState().setPage(newColForAnchor);
       }
     };
 
     // Initial measure
-    measure();
+    measure('initial');
 
     // Double-rAF pass: frame 1 lets React commit DOM styles, frame 2 lets browser complete multi-column paint
     let rafId2: number | null = null;
     const rafId1 = requestAnimationFrame(() => {
-      if (scrollContainerRef.current) measure();
+      if (scrollContainerRef.current) measure('rAF-1');
       rafId2 = requestAnimationFrame(() => {
-        if (scrollContainerRef.current) measure();
+        if (scrollContainerRef.current) measure('rAF-2');
       });
     });
 
     const timerId = setTimeout(() => {
-      if (scrollContainerRef.current) measure();
+      if (scrollContainerRef.current) measure('setTimeout-50ms');
     }, 50);
 
-    // Re-measure after custom fonts (e.g. Farsi) finish loading
     if (document.fonts) {
       document.fonts.ready.then(() => {
-        if (scrollContainerRef.current) measure();
+        if (scrollContainerRef.current) measure('fonts.ready');
       });
     }
 
-    const resizeObserver = new ResizeObserver(() => measure());
+    const resizeObserver = new ResizeObserver(() => measure('ResizeObserver'));
     resizeObserver.observe(container);
     return () => {
       cancelAnimationFrame(rafId1);
