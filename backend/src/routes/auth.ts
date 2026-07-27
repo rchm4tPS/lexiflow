@@ -163,6 +163,7 @@ router.get('/info/:userId', async (req: AuthRequest, res) => {
     res.json({
       fullName: fullname,
       username,
+      preferences: userInfo[0]?.preferences,
       languageCode: targetLanguage,
       dailyGoalTier: userLanguageInfo[0]?.daily_goal_tier ?? 'calm',
       knownWords: userLanguageInfo[0]?.total_known_words || 0,
