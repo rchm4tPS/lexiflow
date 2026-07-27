@@ -56,7 +56,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     isStatsLoading, lessonAudio, toggleSidebar, isSidebarVisible,
     translationData, revealedSentenceIndices, isLoadingTranslation,
     fontSize, fontFamily, lineHeight, showMargins,
-    showTranslation, setShowTranslation
+    showTranslation, setShowTranslation,
+    lineGap
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
     lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
@@ -69,6 +70,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     fontSize: state.fontSize, fontFamily: state.fontFamily, lineHeight: state.lineHeight, showMargins: state.showMargins,
     showTranslation: state.showTranslation,         // <--- TAMBAHKAN INI JUGA
     setShowTranslation: state.setShowTranslation,   // <--- TAMBAHKAN INI JUGA
+    lineGap: state.lineGap ?? 6,
   })));
 
   const tokens = useReaderStore.getState().tokens;
@@ -297,7 +299,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       anchorTokenRef.current = currentVisibleToken;
     }
 
-    const measure = (caller = 'unknown') => {
+    const measure = (_caller = 'unknown') => {
       if (!container) return;
 
       const containerRect = container.getBoundingClientRect();
@@ -454,7 +456,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     return () => {
       resizeObserver.disconnect();
     };
-  }, [isLoadingLesson, tokens, isRTL, readerMode, columnWidthPx, showSettingsDrawer, showMargins, fontSize, fontFamily, lineHeight]);
+  }, [isLoadingLesson, tokens, isRTL, readerMode, columnWidthPx, showSettingsDrawer, showMargins, fontSize, fontFamily, lineHeight, lineGap]);
   
   React.useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
@@ -796,7 +798,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   }, [
     lessonStructureHash, courseId, languageCode, courseTitle, lessonImg, lessonTitle, 
     isRTL, handleWordClick, handlePhraseClick, readerMode, draftPhraseRange, isLoadingLesson,
-    showMargins, fontSize, fontFamily, lineHeight // <--- PASTIKAN showMargins ADA DI SINI agar token tree re-render seketika!
+    showMargins, fontSize, fontFamily, lineHeight, // <--- PASTIKAN showMargins ADA DI SINI agar token tree re-render seketika!
+    lineGap
   ]);
 
 
@@ -1154,7 +1157,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         <div className={`flex flex-col mt-2 lg:mt-4 grow min-w-0 min-h-0 ${isRTL ? 'font-farsi-trad' : 'font-nunito'} relative bg-white rounded-md`}>
           <div className={`w-full min-h-0 overflow-hidden relative ${readerMode === 'sentence' ? 'shrink-0' : 'flex-1'} ${isRTL ? 'pt-1 pb-3 lg:pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pb-3 lg:pb-6 px-3 lg:px-5'}`}>
             <div
-              key={`reader-container-${showMargins}-${fontSize}-${fontFamily}-${lineHeight}`}
+              key={`reader-container-${showMargins}-${fontSize}-${fontFamily}-${lineHeight}-${lineGap}`}
               ref={scrollContainerRef}
               className={`w-full ${readerMode === 'sentence' ? 'h-auto' : 'h-full'} text-gray-800 font-medium`}
               style={{

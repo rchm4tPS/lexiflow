@@ -16,6 +16,10 @@ const MAX_FONT_SIZE = 48;
 const MIN_LINE_HEIGHT = 1.0;
 const MAX_LINE_HEIGHT = 2.5;
 
+const MIN_GAP = 0;   // Sangat rapat
+const MAX_GAP = 20;  // Sangat renggang
+const GAP_STEP = 2;
+
 interface SampleToken {
   id: string;
   text: string;
@@ -31,23 +35,27 @@ export default function SettingsContent() {
     fontFamily,
     lineHeight,
     showMargins,
+    lineGap,
     tokens,
     isRTL,
     setFontSize,
     setFontFamily,
     setLineHeight,
     setShowMargins,
+    setLineGap,
   } = useReaderStore(useShallow(state => ({
     fontSize: state.fontSize,
     fontFamily: state.fontFamily,
     lineHeight: state.lineHeight,
     showMargins: state.showMargins,
+    lineGap: state.lineGap ?? 6,
     tokens: state.tokens,
     isRTL: state.isRTL,
     setFontSize: state.setFontSize,
     setFontFamily: state.setFontFamily,
     setLineHeight: state.setLineHeight,
     setShowMargins: state.setShowMargins,
+    setLineGap: state.setLineGap,
   })));
 
   const tokenMarginClass = showMargins ? (isRTL ? 'my-4' : 'my-3') : undefined;
@@ -111,6 +119,12 @@ export default function SettingsContent() {
 
   const currentFontOption = FONT_OPTIONS.find(f => f.value === fontFamily) || FONT_OPTIONS[0];
 
+  // Helper style menggunakan MARGIN (ruang kosong antar baris):
+  const previewTokenStyle: React.CSSProperties = {
+    marginTop: `${(showMargins ? lineGap : 0) / 2}px`,
+    marginBottom: `${(showMargins ? lineGap : 0) / 2}px`,
+  };
+
   return (
     <div className="flex flex-col h-full min-h-0">
 
@@ -144,13 +158,14 @@ export default function SettingsContent() {
               {line1Tokens.map((t, idx) => {
                 const isWord = !t.isNewline && !!t.text.match(/[\p{L}\p{N}]/u);
                 if (!isWord) {
-                  return <span key={t.id || `l1_${idx}`} className={`mx-0.5 inline-block${tokenMarginClass ? ` ${tokenMarginClass}` : ''}`}>{t.text}</span>;
+                  return <span key={t.id || `l1_${idx}`} style={previewTokenStyle} className={`mx-0.5 inline-block${tokenMarginClass ? ` ${tokenMarginClass}` : ''}`}>{t.text}</span>;
                 }
                 const isBlue = (t.stage ?? 0) === 0;
                 const isYellow = (t.stage ?? 0) > 0 && (t.stage ?? 0) < 4;
                 return (
                   <span
                     key={t.id || `l1_${idx}`}
+                    style={previewTokenStyle}
                     className={`inline-block mx-0.75 px-0.75 rounded font-medium${tokenMarginClass ? ` ${tokenMarginClass}` : ''} ${isBlue ? 'bg-[#bde0fe] text-gray-900' : isYellow ? 'bg-[#fef08a] text-gray-900' : 'text-gray-800'}`}
                   >
                     {t.text}
@@ -164,13 +179,14 @@ export default function SettingsContent() {
               {line2Tokens.map((t, idx) => {
                 const isWord = !t.isNewline && !!t.text.match(/[\p{L}\p{N}]/u);
                 if (!isWord) {
-                  return <span key={t.id || `l2_${idx}`} className={`mx-0.5 inline-block${tokenMarginClass ? ` ${tokenMarginClass}` : ''}`}>{t.text}</span>;
+                  return <span key={t.id || `l2_${idx}`} style={previewTokenStyle} className={`mx-0.5 inline-block${tokenMarginClass ? ` ${tokenMarginClass}` : ''}`}>{t.text}</span>;
                 }
                 const isBlue = (t.stage ?? 0) === 0;
                 const isYellow = (t.stage ?? 0) > 0 && (t.stage ?? 0) < 4;
                 return (
                   <span
                     key={t.id || `l2_${idx}`}
+                    style={previewTokenStyle}
                     className={`inline-block mx-0.75 px-0.75 rounded font-medium${tokenMarginClass ? ` ${tokenMarginClass}` : ''} ${isBlue ? 'bg-[#bde0fe] text-gray-900' : isYellow ? 'bg-[#fef08a] text-gray-900' : 'text-gray-800'}`}
                   >
                     {t.text}
@@ -201,10 +217,10 @@ export default function SettingsContent() {
               />
             </div>
 
-            {/* Visible Round Thumb Bullet — center point follows the percentage value -->
+            {/* Visible Round Thumb Bullet — center point follows the percentage value */}
             <div
               className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 bg-white border-2 border-[#3a92fb] rounded-full shadow-md pointer-events-none transition-all duration-75"
-              style={{ left: `${((Math.round(fontSize) - MIN_FONT_SIZE) / (MAX_FONT_SIZE - MIN_FONT_SIZE)) * 100}%` }}
+              style={{ left: `calc(10px + (${((Math.round(fontSize) - MIN_FONT_SIZE) / (MAX_FONT_SIZE - MIN_FONT_SIZE))} * (100% - 20px)))` }}
             />
 
             {/* Native Range Input */}
@@ -268,10 +284,10 @@ export default function SettingsContent() {
               />
             </div>
 
-            {/* Visible Round Thumb Bullet — center point follows the percentage value -->
+            {/* Visible Round Thumb Bullet — center point follows slider percentage */}
             <div
               className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 bg-white border-2 border-[#3a92fb] rounded-full shadow-md pointer-events-none transition-all duration-75"
-              style={{ left: `${((lineHeight - MIN_LINE_HEIGHT) / (MAX_LINE_HEIGHT - MIN_LINE_HEIGHT)) * 100}%` }}
+              style={{ left: `calc(10px + (${((lineHeight - MIN_LINE_HEIGHT) / (MAX_LINE_HEIGHT - MIN_LINE_HEIGHT))} * (100% - 20px)))` }}
             />
 
             {/* Native Range Input */}
@@ -290,6 +306,49 @@ export default function SettingsContent() {
           <div className="flex justify-between mt-2">
             <span className="text-[11px] font-semibold text-gray-400">Tight (1.0)</span>
             <span className="text-[11px] font-semibold text-gray-400">Loose (2.5)</span>
+          </div>
+        </div>
+
+        {/* Line Gap (Jarak Baris Token) */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[14px] font-semibold text-gray-700">Line Gap</span>
+            <span className="text-[14px] font-extrabold text-[#3a92fb] bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-100">
+              {lineGap}px
+            </span>
+          </div>
+
+          <div className="relative flex items-center h-6 cursor-pointer select-none px-2.5">
+            {/* Background Track */}
+            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#3a92fb] rounded-full transition-all duration-75"
+                style={{ width: `${((lineGap - MIN_GAP) / (MAX_GAP - MIN_GAP)) * 100}%` }}
+              />
+            </div>
+
+            {/* Visible Round Thumb Bullet — center point follows slider percentage */}
+            <div
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 bg-white border-2 border-[#3a92fb] rounded-full shadow-md pointer-events-none transition-all duration-75"
+              style={{ left: `calc(10px + (${((lineGap - MIN_GAP) / (MAX_GAP - MIN_GAP))} * (100% - 20px)))` }}
+            />
+
+            {/* Native Range Input */}
+            <input
+              type="range"
+              min={MIN_GAP}
+              max={MAX_GAP}
+              step={GAP_STEP}
+              value={lineGap}
+              onChange={e => flushSync(() => setLineGap(Number(e.target.value)))}
+              className="absolute inset-0 opacity-0 w-full cursor-pointer h-full z-10"
+            />
+          </div>
+
+          {/* Quick gap labels */}
+          <div className="flex justify-between mt-2">
+            <span className="text-[11px] font-semibold text-gray-400">Compact ({MIN_GAP}px)</span>
+            <span className="text-[11px] font-semibold text-gray-400">Spacious ({MAX_GAP}px)</span>
           </div>
         </div>
 

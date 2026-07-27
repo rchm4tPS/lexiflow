@@ -62,7 +62,7 @@ export function PhraseGroup({ phraseId, onPhraseClick, children, depth = 0 }: Ph
     <span
       onClick={(e) => onPhraseClick(phraseId, e)}
       style={bgStyle}
-      className={`inline rounded-md px-1 -mx-1 cursor-pointer transition-colors duration-200 ${outlineClass} ${highlightClass} ${dimClass}`}
+      className={`inline rounded-md px-1 -mx-1 cursor-pointer transition-[color,background-color,opacity] duration-150 ${outlineClass} ${highlightClass} ${dimClass}`}
     >
       {/* Render whatever the recursive tree hands down */}
       {children}
@@ -76,26 +76,38 @@ interface WordTokenProps {
   isRTL: boolean;
 }
 
-const WordToken = React.memo(function WordToken({ tokenId, onClick, isRTL }: WordTokenProps) {
+const WordToken = React.memo(function WordToken({ tokenId, onClick }: WordTokenProps) {
   const token = useReaderStore(React.useCallback(state => state.tokenMap[tokenId], [tokenId]));
   const isSelected = useReaderStore(state => state.selectedId === tokenId || !!state.draftPhraseRange?.includes(tokenId));
-  const isDimmed = useReaderStore(React.useCallback(state => {
-    if (!state.isAudioPlaying || state.activeSentenceIndex === null) return false;
-    const sentenceIdx = state.tokenMap[tokenId]?.sentencePageIndex;
-    return sentenceIdx === undefined || sentenceIdx !== state.activeSentenceIndex;
-  }, [tokenId]));
-  const showMargins = useReaderStore(state => state.showMargins);
+  
+  // Real-time Audio Dimming Selector (Langsung merespons perubahan kalimat aktif)
+  const isAudioPlaying = useReaderStore(state => state.isAudioPlaying);
+  const activeSentenceIndex = useReaderStore(state => state.activeSentenceIndex);
 
-  const tokenMarginClass = showMargins ? (isRTL ? 'my-4' : 'my-3') : undefined;
-  const dimClass = isDimmed ? 'opacity-30' : '';
+  const isDimmed = isAudioPlaying && activeSentenceIndex !== null && (
+    token?.sentencePageIndex === undefined || token?.sentencePageIndex !== activeSentenceIndex
+  );
+
+  // WIRING LINE GAP & SHOW MARGINS LANGSUNG DARI ZUSTAND STORE
+  const showMargins = useReaderStore(state => state.showMargins);
+  const lineGap = useReaderStore(state => state.lineGap ?? 6);
 
   if (!token) return null;
 
   if (token.isNewline) return <br />;
 
+  // Jika Token Margins ON, gunakan nilai dari slider lineGap. Jika OFF, margin = 0.
+  const effectiveGap = showMargins ? lineGap : 0;
+  const marginStyle: React.CSSProperties = {
+    marginTop: `${effectiveGap / 2}px`,
+    marginBottom: `${effectiveGap / 2}px`,
+  };
+
+  const dimClass = isDimmed ? 'opacity-30' : '';
+
   if (token.isLearnable === false) {
     return (
-      <span className={`px-0.5 inline-block text-gray-800 transition-opacity duration-150 ${dimClass}${tokenMarginClass ? ` ${tokenMarginClass}` : ''}`}>
+      <span style={marginStyle} className={`px-0.5 inline-block text-gray-800 transition-[color,background-color,opacity] duration-150 ${dimClass}`}>
         {token.text}
       </span>
     );
@@ -103,16 +115,16 @@ const WordToken = React.memo(function WordToken({ tokenId, onClick, isRTL }: Wor
 
   // 1. WORD LEVEL LOGIC (Blue / Yellow / Transparent)
   const wordStage = token.stage ?? 0;
-  let wordBgStyle: React.CSSProperties = {};
+  let wordBgStyle: React.CSSProperties = { ...marginStyle };
 
   if (wordStage === 0) {
-    wordBgStyle = { backgroundColor: '#AEE0F4' }; // Blue for New
+    wordBgStyle.backgroundColor = '#AEE0F4'; // Blue for New
   } else if (wordStage >= 1 && wordStage <= 4) {
     // Opacity: 1: 100%, 2: 75%, 3: 50%, 4: 25%
     const opacities = [1, 0.75, 0.5, 0.25];
-    wordBgStyle = { backgroundColor: `rgba(252, 228, 115, ${opacities[wordStage - 1]})` };
+    wordBgStyle.backgroundColor = `rgba(252, 228, 115, ${opacities[wordStage - 1]})`;
   } else {
-    wordBgStyle = { backgroundColor: 'transparent' }; // Known or Ignored
+    wordBgStyle.backgroundColor = 'transparent'; // Known or Ignored
   }
 
   const highlightClass = isSelected ? "ring-2 ring-gray-400/50 outline-none rounded-sm shadow-sm" : "";
@@ -122,7 +134,7 @@ const WordToken = React.memo(function WordToken({ tokenId, onClick, isRTL }: Wor
       data-token-id={token.id} // Essential for Drag-to-Select
       onClick={(e) => onClick(token.id, e)}
       style={wordBgStyle}
-      className={`cursor-pointer px-0.75 rounded mx-0.75 transition-colors duration-150 inline-block ${highlightClass} ${dimClass}${tokenMarginClass ? ` ${tokenMarginClass}` : ''}`}
+      className={`cursor-pointer px-0.75 rounded mx-0.75 transition-[color,background-color,opacity] duration-150 inline-block ${highlightClass} ${dimClass}`}
     >
       {token.text}
     </span>

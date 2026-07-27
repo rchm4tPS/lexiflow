@@ -215,11 +215,13 @@ interface ReaderState {
   fontFamily: string;
   lineHeight: number;
   showMargins: boolean;
+  lineGap: number;
   showSettingsDrawer: boolean;
   setFontSize: (size: number) => void;
   setFontFamily: (font: string) => void;
   setLineHeight: (height: number) => void;
   setShowMargins: (show: boolean) => void;
+  setLineGap: (gap: number) => void;
   setShowSettingsDrawer: (show: boolean) => void;
 }
 
@@ -380,6 +382,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   fontFamily: 'nunito',
   lineHeight: 1.75,
   showMargins: true,
+  lineGap: 6, // default 6px
   showSettingsDrawer: false,
   setFontSize: async (size) => {
     set({ fontSize: size });
@@ -417,6 +420,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       });
     } catch (err) { console.error('Failed to save margins preference', err); }
   },
+  setLineGap: (lineGap) => set({ lineGap }),
   setShowSettingsDrawer: (show) => set({ showSettingsDrawer: show }),
 
   incrementListeningTicks: (amount: number) => {
