@@ -42,6 +42,7 @@ export class LingqImportService {
     selectedLessons: {
       courseId: number;
       courseTitle: string;
+      courseDescription: string;
       courseLevel: string;
       courseImageUrl: string;
       lessonId: number;
@@ -78,6 +79,7 @@ export class LingqImportService {
       if (!existingCourse) {
         const [newCourse] = await db.insert(courses).values({
           title: lingqLesson.courseTitle,
+          description: lingqLesson.courseDescription || '',
           language_code: languageCode,
           level: lingqLesson.courseLevel,
           image_url: lingqLesson.courseImageUrl,

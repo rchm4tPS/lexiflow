@@ -131,6 +131,7 @@ export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImp
             setSelectedLessons(prev => [...prev, {
                 courseId: course.id,
                 courseTitle: course.title,
+                courseDescription: course.description,
                 courseLevel: course.level,
                 courseImageUrl: course.image,
                 lessonId: lesson.id,
