@@ -392,11 +392,15 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
     // 1. Capture user's currently visible anchor token before layout recalculation
     const stateBefore = useReaderStore.getState();
-    const currentVisibleToken =
-      stateBefore.columnMapping[stateBefore.currentPage]?.[0] || anchorTokenRef.current;
+    if (stateBefore.initialTokenIndex !== null && stateBefore.tokens[stateBefore.initialTokenIndex]) {
+      anchorTokenRef.current = stateBefore.tokens[stateBefore.initialTokenIndex].id;
+    } else {
+      const currentVisibleToken =
+        stateBefore.columnMapping[stateBefore.currentPage]?.[0] || anchorTokenRef.current;
 
-    if (currentVisibleToken) {
-      anchorTokenRef.current = currentVisibleToken;
+      if (currentVisibleToken) {
+        anchorTokenRef.current = currentVisibleToken;
+      }
     }
 
     const measure = (_reason = 'unknown') => {

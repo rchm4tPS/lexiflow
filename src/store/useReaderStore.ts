@@ -1324,14 +1324,26 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     const targetId = lessonId || activeLessonId;
     if (!targetId) return;
 
-    const { columnMapping, savedHighestTokenIndex } = get();
+    const { columnMapping, readerMode, savedHighestTokenIndex } = get();
     let highestTokenIndex = savedHighestTokenIndex || 0;
-    const tokensOnPage = columnMapping[currentPage];
-    if (tokensOnPage && tokensOnPage.length > 0) {
-      const idx = tokens.findIndex(t => t.id === tokensOnPage[0]);
-      if (idx !== -1) {
-        highestTokenIndex = Math.max(highestTokenIndex, idx);
-        set({ savedHighestTokenIndex: highestTokenIndex });
+
+    if (readerMode === 'sentence') {
+      const firstTokenInSentence = tokens.find(t => t.sentencePageIndex === currentPage && !t.isNewline && t.text && t.text.trim());
+      if (firstTokenInSentence) {
+        const idx = tokens.findIndex(t => t.id === firstTokenInSentence.id);
+        if (idx !== -1) {
+          highestTokenIndex = idx;
+          set({ savedHighestTokenIndex: idx });
+        }
+      }
+    } else {
+      const tokensOnPage = columnMapping[currentPage];
+      if (tokensOnPage && tokensOnPage.length > 0) {
+        const idx = tokens.findIndex(t => t.id === tokensOnPage[0]);
+        if (idx !== -1) {
+          highestTokenIndex = idx;
+          set({ savedHighestTokenIndex: idx });
+        }
       }
     }
 
@@ -1388,13 +1400,23 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   handlePageAdvance: (newPage: number) => {
     get().setPage(newPage);
-    const { columnMapping, tokens, savedHighestTokenIndex, activeLessonId, syncLessonProgress } = get();
-    const tokensOnPage = columnMapping[newPage];
-    if (tokensOnPage && tokensOnPage.length > 0) {
-      const idx = tokens.findIndex(t => t.id === tokensOnPage[0]);
-      if (idx !== -1 && idx > (savedHighestTokenIndex || 0)) {
-        set({ savedHighestTokenIndex: idx });
+    const { columnMapping, tokens, readerMode, activeLessonId, syncLessonProgress } = get();
+
+    let tokenIdx = -1;
+    if (readerMode === 'sentence') {
+      const firstTokenInSentence = tokens.find(t => t.sentencePageIndex === newPage && !t.isNewline && t.text && t.text.trim());
+      if (firstTokenInSentence) {
+        tokenIdx = tokens.findIndex(t => t.id === firstTokenInSentence.id);
       }
+    } else {
+      const tokensOnPage = columnMapping[newPage];
+      if (tokensOnPage && tokensOnPage.length > 0) {
+        tokenIdx = tokens.findIndex(t => t.id === tokensOnPage[0]);
+      }
+    }
+
+    if (tokenIdx !== -1) {
+      set({ savedHighestTokenIndex: tokenIdx });
     }
 
     // Debounced background auto-save: saves progress 2s after resting on a page
