@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Play, Pause, Square, Clock } from 'lucide-react';
+import { Play, Pause, Square, Clock, Trash2 } from 'lucide-react';
 
 export interface TimestampEntry {
   start: number;
@@ -100,19 +100,23 @@ export default function AudioTimestampEditor({
     return union > 0 ? intersection / union : 0;
   };
 
-  // Seed Source of Truth from DB initial load props
+  const isInitialSeededRef = useRef(false);
+
+  // Seed Source of Truth map ONCE from initial loaded API timestamps prop
   useEffect(() => {
-    if (sentences.length > 0 && timestamps.length === sentences.length && sourceOfTruthMapRef.current.size === 0) {
+    if (!isInitialSeededRef.current && sentences.length > 0 && timestamps.length === sentences.length && timestamps.length > 0) {
       sentences.forEach((sent, idx) => {
+        const key = sent.trim();
         if (timestamps[idx]) {
-          sourceOfTruthMapRef.current.set(sent.trim(), timestamps[idx]);
+          sourceOfTruthMapRef.current.set(key, timestamps[idx]);
         }
       });
+      isInitialSeededRef.current = true;
     }
   }, [sentences, timestamps]);
 
   // Render timestamp editor by resolving current sentences against Source of Truth baseline
-  // Seamlessly handles 4 actions: ADD, DELETE, RE-ADD, RE-DELETE with contiguous gap-bridging
+  // Pure declarative matching without mutating sourceOfTruthMapRef during keystroke alignment
   useEffect(() => {
     if (sentences.length === 0) return;
 
@@ -123,7 +127,7 @@ export default function AudioTimestampEditor({
     for (let i = 0; i < sentences.length; i++) {
       const sent = sentences[i].trim();
       
-      // 1. Match against Source of Truth (exact match)
+      // 1. Strict Exact Match against Source of Truth baseline
       if (sourceMap.has(sent)) {
         const cached = sourceMap.get(sent)!;
         updated.push(cached);
@@ -133,59 +137,20 @@ export default function AudioTimestampEditor({
         continue;
       }
 
-      // 2. Fuzzy similarity match (> 0.45) against Source of Truth baseline
-      let maxSim = 0.45;
-      let matchedTs: TimestampEntry | null = null;
-
-      sourceMap.forEach((cachedTs, oldSent) => {
-        const sim = getSimilarity(sent, oldSent);
-        if (sim > maxSim) {
-          maxSim = sim;
-          matchedTs = cachedTs;
-        }
-      });
-
-      if (matchedTs) {
-        updated.push(matchedTs);
-        sourceMap.set(sent, matchedTs);
-        needsUpdate = true;
-      } else if (timestamps[i] && sourceMap.size === 0) {
-        // Initial fallback
-        updated.push(timestamps[i]);
-        sourceMap.set(sent, timestamps[i]);
-      } else {
-        // Action: ADD (Brand new sentence inserted)
-        const prevEnd = i > 0 ? (updated[i - 1]?.end || 0) : 0;
-        let newEnd = parseFloat((prevEnd + 2.0).toFixed(2));
-        if (duration > 0 && newEnd > duration) {
-          newEnd = parseFloat(duration.toFixed(2));
-        }
-
-        const newTs = {
-          start: prevEnd,
-          end: newEnd
-        };
-        updated.push(newTs);
-        sourceMap.set(sent, newTs);
-        needsUpdate = true;
+      // 2. Action: ADD (Brand new sentence inserted)
+      // Generate temporary boundary for UI without polluting or corrupting sourceMap
+      const prevEnd = i > 0 ? (updated[i - 1]?.end || 0) : 0;
+      let newEnd = parseFloat((prevEnd + 2.0).toFixed(2));
+      if (duration > 0 && newEnd > duration) {
+        newEnd = parseFloat(duration.toFixed(2));
       }
-    }
 
-    // Contiguous Timeline Adjustment Pass:
-    // 1. If sentence 0 was deleted, stretch new first sentence to 0.00s
-    if (updated.length > 0 && updated[0].start > 0 && sentences.length < sourceMap.size) {
-      updated[0] = { ...updated[0], start: 0.0 };
-      sourceMap.set(sentences[0].trim(), updated[0]);
+      const newTs = {
+        start: prevEnd,
+        end: newEnd
+      };
+      updated.push(newTs);
       needsUpdate = true;
-    }
-
-    // 2. Bridge any deletion gaps between adjacent sentences
-    for (let i = 0; i < updated.length - 1; i++) {
-      if (updated[i].end < updated[i + 1].start && sentences.length < sourceMap.size) {
-        updated[i] = { ...updated[i], end: updated[i + 1].start };
-        sourceMap.set(sentences[i].trim(), updated[i]);
-        needsUpdate = true;
-      }
     }
 
     if (needsUpdate) {
@@ -319,7 +284,45 @@ export default function AudioTimestampEditor({
     onTimestampsChange(next);
   };
 
+  const handleDeleteRow = (index: number) => {
+    const sentToDelete = sentences[index]?.trim();
+    if (sentToDelete) {
+      sourceOfTruthMapRef.current.delete(sentToDelete);
+    }
+
+    const nextSentences = sentences.filter((_, i) => i !== index);
+    const nextText = nextSentences.join('\n');
+    
+    // Update timestamps array with gap bridging
+    const nextTimestamps = [...timestamps];
+    if (index > 0 && index < nextTimestamps.length) {
+      // Extend previous sentence to cover deleted sentence's end time
+      nextTimestamps[index - 1] = {
+        ...nextTimestamps[index - 1],
+        end: nextTimestamps[index]?.end || nextTimestamps[index - 1].end
+      };
+      if (nextSentences[index - 1]) {
+        sourceOfTruthMapRef.current.set(nextSentences[index - 1].trim(), nextTimestamps[index - 1]);
+      }
+    } else if (index === 0 && nextTimestamps.length > 1) {
+      // Stretch new first sentence to 0.00s
+      nextTimestamps[1] = { ...nextTimestamps[1], start: 0.0 };
+      if (nextSentences[0]) {
+        sourceOfTruthMapRef.current.set(nextSentences[0].trim(), nextTimestamps[1]);
+      }
+    }
+
+    nextTimestamps.splice(index, 1);
+
+    onTextChange(nextText);
+    onTimestampsChange(nextTimestamps);
+  };
+
   const handleSentenceTextChange = (index: number, newSentenceText: string) => {
+    if (newSentenceText.trim() === '') {
+      handleDeleteRow(index);
+      return;
+    }
     const nextSentences = [...sentences];
     nextSentences[index] = newSentenceText;
     onTextChange(nextSentences.join('\n'));
@@ -512,6 +515,14 @@ export default function AudioTimestampEditor({
                         isRTL && editorFontFamily === 'default' ? 'font-farsi-trad text-right' : (isRTL ? 'text-right' : 'text-left')
                       }`}
                     />
+
+                    <button
+                      onClick={() => handleDeleteRow(idx)}
+                      className="w-7 h-7 shrink-0 rounded text-red-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition border border-transparent hover:border-red-200"
+                      title="Delete Sentence Row"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
               );

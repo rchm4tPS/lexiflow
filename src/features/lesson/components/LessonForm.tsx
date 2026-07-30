@@ -155,63 +155,57 @@ export default function LessonForm({
             </div>
 
             {/* Content Area */}
-            {activeTab === 'title-text' ? (
-                <>
-                    <div className="px-6 pt-4">
-                        <input
-                            type="text"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            dir={isRTL ? 'rtl' : 'ltr'}
-                            placeholder="Type the Title of your Lesson..."
-                            className={`w-full text-xl font-bold text-gray-700 outline-none pb-2 border-b border-gray-100 focus:border-[#3890fc] transition-colors bg-transparent ${
-                                isRTL && editorFontFamily === 'default' ? 'font-farsi-trad text-right' : (isRTL ? 'text-right' : 'text-left')
-                            }`}
-                            autoFocus={!isEditMode}
-                        />
-                    </div>
+            <div className={activeTab === 'title-text' ? 'flex flex-col flex-grow' : 'hidden'}>
+                <div className="px-6 pt-4">
+                    <input
+                        type="text"
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        dir={isRTL ? 'rtl' : 'ltr'}
+                        placeholder="Type the Title of your Lesson..."
+                        className={`w-full text-xl font-bold text-gray-700 outline-none pb-2 border-b border-gray-100 focus:border-[#3890fc] transition-colors bg-transparent ${
+                            isRTL && editorFontFamily === 'default' ? 'font-farsi-trad text-right' : (isRTL ? 'text-right' : 'text-left')
+                        }`}
+                        autoFocus={!isEditMode}
+                    />
+                </div>
 
-                    <div className="flex-grow px-6 pt-3 pb-4">
-                        <textarea
-                            value={text}
-                            onChange={(e) => setText(e.target.value)}
-                            dir={isRTL ? 'rtl' : 'ltr'}
-                            style={activeFontStyle}
-                            placeholder="Type the lesson text here..."
-                            className={`w-full h-full min-h-[200px] resize-none outline-none text-gray-600 leading-relaxed bg-transparent ${
-                                isRTL && editorFontFamily === 'default' ? 'font-farsi-trad text-right' : (isRTL ? 'text-right' : 'text-left')
-                            }`}
-                        />
+                <div className="flex-grow px-6 pt-3 pb-4">
+                    <textarea
+                        value={text}
+                        onChange={(e) => setText(e.target.value)}
+                        dir={isRTL ? 'rtl' : 'ltr'}
+                        style={activeFontStyle}
+                        placeholder="Type the lesson text here..."
+                        className={`w-full h-full min-h-[200px] resize-none outline-none text-gray-600 leading-relaxed bg-transparent ${
+                            isRTL && editorFontFamily === 'default' ? 'font-farsi-trad text-right' : (isRTL ? 'text-right' : 'text-left')
+                        }`}
+                    />
+                </div>
+            </div>
+
+            <div className={activeTab === 'timestamps' ? 'flex-grow p-6 flex flex-col' : 'hidden'}>
+                {hasAudio ? (
+                    <AudioTimestampEditor
+                        audioSrc={audioSrc || null}
+                        text={text}
+                        onTextChange={setText}
+                        timestamps={audioTimestamps}
+                        onTimestampsChange={setAudioTimestamps}
+                        editorFontSize={editorFontSize}
+                        editorFontFamily={editorFontFamily}
+                        isRTL={isRTL}
+                    />
+                ) : (
+                    <div className="flex-grow flex flex-col items-center justify-center text-gray-400 p-8 border-2 border-dashed border-gray-200 rounded-xl">
+                        <span className="text-3xl mb-2">🎵</span>
+                        <p className="font-bold text-sm text-gray-600 mb-1">No Audio Attached</p>
+                        <p className="text-xs text-gray-400 text-center max-w-sm">
+                            Attach an audio file or audio URL in the sidebar to enable audio timestamp alignment for this lesson.
+                        </p>
                     </div>
-                </>
-            ) : activeTab === 'timestamps' ? (
-                <div className="flex-grow p-6 flex flex-col">
-                    {hasAudio ? (
-                        <AudioTimestampEditor
-                            audioSrc={audioSrc || null}
-                            text={text}
-                            onTextChange={setText}
-                            timestamps={audioTimestamps}
-                            onTimestampsChange={setAudioTimestamps}
-                            editorFontSize={editorFontSize}
-                            editorFontFamily={editorFontFamily}
-                            isRTL={isRTL}
-                        />
-                    ) : (
-                        <div className="flex-grow flex flex-col items-center justify-center text-gray-400 p-8 border-2 border-dashed border-gray-200 rounded-xl">
-                            <span className="text-3xl mb-2">🎵</span>
-                            <p className="font-bold text-sm text-gray-600 mb-1">No Audio Attached</p>
-                            <p className="text-xs text-gray-400 text-center max-w-sm">
-                                Attach an audio file or audio URL in the sidebar to enable audio timestamp alignment for this lesson.
-                            </p>
-                        </div>
-                    )}
-                </div>
-            ) : (
-                <div className="flex-grow flex items-center justify-center text-gray-400 italic">
-                    {activeTab} content coming soon...
-                </div>
-            )}
+                )}
+            </div>
         </div>
     );
 }
