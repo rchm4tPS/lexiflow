@@ -227,9 +227,9 @@ router.get('/:id/edit', authenticate, async (req: AuthRequest, res) => {
     const [lesson] = await db.select().from(lessons).where(eq(lessons.id, String(lessonId)));
     if (!lesson) return res.status(404).json({ error: "Lesson not found" });
 
-    // Check ownership via course
+    // Check ownership via course (only reject if course has an explicit owner that is not this user)
     const [course] = await db.select().from(courses).where(eq(courses.id, lesson.course_id));
-    if (course?.owner_id !== req.user!.id) {
+    if (course?.owner_id && course.owner_id !== req.user!.id) {
       return res.status(403).json({ error: "You do not have permission to edit this lesson." });
     }
 
@@ -252,7 +252,7 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
 
     // Verify ownership
     const [course] = await db.select().from(courses).where(eq(courses.id, existing.course_id));
-    if (course?.owner_id !== userId) return res.status(403).json({ error: "Access denied" });
+    if (course?.owner_id && course.owner_id !== userId) return res.status(403).json({ error: "Access denied" });
 
     // 1. Update Lesson Metadata
     await db.update(lessons).set({

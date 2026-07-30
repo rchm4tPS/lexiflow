@@ -85,8 +85,10 @@ export default function EditLessonView() {
                     setAudioUrl(data.audio_url);
                 }
                 setIsLoading(false);
-            } catch {
-                Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to load lesson for editing.', confirmButtonColor: '#3890fc' });
+            } catch (err: unknown) {
+                console.error("Failed to load lesson for editing:", err);
+                const errorMsg = err instanceof Error ? err.message : 'Failed to load lesson for editing.';
+                Swal.fire({ icon: 'error', title: 'Error', text: errorMsg, confirmButtonColor: '#3890fc' });
                 navigate(`/me/${languageCode}`);
             }
         };

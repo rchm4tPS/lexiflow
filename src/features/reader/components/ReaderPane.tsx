@@ -901,15 +901,14 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                       <Info className="w-5 h-5 text-gray-400" />
                       <span>Lesson Info</span>
                     </div>
-                    <div
+                    <Link
+                      to={`/me/${languageCode}/import/edit/${activeLessonId}`}
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
-                      onClick={() => {
-                        // TO DO: Close the dropdown, close the reader page, and move towards edit lesson page
-                      }}
+                      onClick={closeDropdown}
                     >
                       <SquarePen className="w-5 h-5 text-gray-400" />
                       <span>Edit Lesson</span>
-                    </div>
+                    </Link>
                     <div
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={handleDownloadAudio}
@@ -1064,15 +1063,14 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                       <Info className="w-5 h-5 text-gray-400" />
                       <span>Lesson Info</span>
                     </div>
-                    <div
+                    <Link
+                      to={`/me/${languageCode}/import/edit/${activeLessonId}`}
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
-                      onClick={() => {
-                        // TO DO: Close the dropdown, close the reader page, and move towards edit lesson page
-                      }}
+                      onClick={closeDropdown}
                     >
                       <SquarePen className="w-5 h-5 text-gray-400" />
                       <span>Edit Lesson</span>
-                    </div>
+                    </Link>
                     <div
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={handleDownloadAudio}
