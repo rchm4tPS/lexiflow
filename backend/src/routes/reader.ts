@@ -295,12 +295,13 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
 
     // 2. Re-parse and update lesson content & audio timestamps
     const targetLang = languageCode || course?.language_code || 'en';
+    const isLingqLesson = existing.lingq_id !== null && existing.lingq_id !== undefined;
     await parseAndSaveLessonContent(
       String(lessonId), 
       rawText || existing.original_text || '', 
       targetLang, 
       userId, 
-      false, 
+      isLingqLesson, 
       audioTimestamps
     );
 

@@ -1153,7 +1153,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         </div>
 
         <div className={`flex flex-col mt-2 lg:mt-4 grow min-w-0 min-h-0 ${isRTL ? 'font-farsi-trad' : 'font-nunito'} relative bg-white rounded-md`}>
-          <div className={`w-full min-h-0 overflow-hidden relative ${readerMode === 'sentence' ? 'shrink-0' : 'flex-1'} ${isRTL ? 'pt-1 pb-3 lg:pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pb-3 lg:pb-6 px-3 lg:px-5'}`}>
+          <div className={`w-full min-h-0 overflow-hidden relative ${readerMode === 'sentence' ? 'shrink-0' : 'flex-1'} ${isRTL ? 'pt-3 lg:pt-5 pb-3 lg:pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pt-3 lg:pt-5 pb-3 lg:pb-6 px-3 lg:px-5'}`}>
             <div
               key={`reader-container-${showMargins}-${fontSize}-${fontFamily}-${lineHeight}-${lineGap}`}
               ref={scrollContainerRef}

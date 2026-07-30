@@ -78,27 +78,27 @@ export default function AudioTimestampEditor({
   const sourceOfTruthMapRef = useRef<Map<string, TimestampEntry>>(new Map());
 
   // Helper for sentence text similarity (Jaccard + substring overlap)
-  const getSimilarity = (a: string, b: string): number => {
-    const cleanA = a.trim().toLowerCase();
-    const cleanB = b.trim().toLowerCase();
-    if (cleanA === cleanB) return 1.0;
-    if (!cleanA || !cleanB) return 0;
+  // const getSimilarity = (a: string, b: string): number => {
+  //   const cleanA = a.trim().toLowerCase();
+  //   const cleanB = b.trim().toLowerCase();
+  //   if (cleanA === cleanB) return 1.0;
+  //   if (!cleanA || !cleanB) return 0;
     
-    if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) {
-      return Math.min(cleanA.length, cleanB.length) / Math.max(cleanA.length, cleanB.length);
-    }
+  //   if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) {
+  //     return Math.min(cleanA.length, cleanB.length) / Math.max(cleanA.length, cleanB.length);
+  //   }
 
-    const wordsA = cleanA.split(/\s+/);
-    const wordsB = cleanB.split(/\s+/);
-    const setA = new Set(wordsA);
-    const setB = new Set(wordsB);
-    let intersection = 0;
-    for (const w of setA) {
-      if (setB.has(w)) intersection++;
-    }
-    const union = new Set([...setA, ...setB]).size;
-    return union > 0 ? intersection / union : 0;
-  };
+  //   const wordsA = cleanA.split(/\s+/);
+  //   const wordsB = cleanB.split(/\s+/);
+  //   const setA = new Set(wordsA);
+  //   const setB = new Set(wordsB);
+  //   let intersection = 0;
+  //   for (const w of setA) {
+  //     if (setB.has(w)) intersection++;
+  //   }
+  //   const union = new Set([...setA, ...setB]).size;
+  //   return union > 0 ? intersection / union : 0;
+  // };
 
   const isInitialSeededRef = useRef(false);
 

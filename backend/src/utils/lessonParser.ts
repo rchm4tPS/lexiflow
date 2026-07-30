@@ -25,12 +25,24 @@ export async function parseAndSaveLessonContent(
     if (isPreSegmented) {
         // LingQ provides pre-segmented text where words are separated by spaces.
         // We extract non-whitespace chunks and individual spaces/newlines.
-        const tokens = rawText.match(/\S+|\n|\s/g) || [];
+        const CJK_LANGS = ['ja', 'zh', 'th', 'ko'];
+        const isCjk = CJK_LANGS.includes(languageCode.toLowerCase());
+        const rawTokens = rawText.match(/\S+|\n|\s/g) || [];
         
-        for (const token of tokens) {
+        for (const token of rawTokens) {
             // Is it a pure whitespace/newline token?
             if (/^\s+$/.test(token)) {
                 segments.push({ segment: token, isWordLike: false });
+                continue;
+            }
+
+            // HYBRID CJK FALLBACK: If user typed/edited long unspaced Japanese/Chinese text without spaces
+            if (isCjk && token.length > 4 && /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(token)) {
+                const subSegmenter = new Intl.Segmenter(languageCode, { granularity: 'word' });
+                const subSegs = Array.from(subSegmenter.segment(token));
+                for (const sub of subSegs) {
+                    segments.push({ segment: sub.segment, isWordLike: sub.isWordLike === true });
+                }
                 continue;
             }
             
@@ -97,21 +109,12 @@ export async function parseAndSaveLessonContent(
     }
 
     const processedTokens = [];
-    let currentPageIndex = 0;
-    let wordCountOnPage = 0;
-    
-    // CONFIG: soft target for word count, hard limit to force breaks on sentences
-    const SOFT_TARGET = 40;
-    const HARD_LIMIT = 50;
-
     let totalOriginalWordInLesson = 0;
     
     for (const [index, segmentData] of segments.entries()) {
         const text = segmentData.segment;
         const isNewline = text === '\n' || text === '\r\n';
         const isLearnable = segmentData.isWordLike;
-
-        const isSentenceEnd = /[.!?。！？؟؛]/.test(text);
 
         if (isLearnable) {
             totalOriginalWordInLesson++;
@@ -122,24 +125,8 @@ export async function parseAndSaveLessonContent(
             text: isNewline ? '\n\n' : text,
             isNewline,
             isLearnable,
-            pageIndex: currentPageIndex
+            pageIndex: 0
         });
-
-        if (isLearnable) {
-            wordCountOnPage++;
-        }
-
-        // --- SMART PAGINATION LOGIC ---
-        // 1. Break on Paragraph (newline) if SOFT_TARGET reached
-        if (isNewline && wordCountOnPage >= SOFT_TARGET) {
-            currentPageIndex++;
-            wordCountOnPage = 0;
-        } 
-        // 2. OR Break on Sentence if HARD_LIMIT reached (fallback for long paragraphs)
-        else if (isSentenceEnd && wordCountOnPage >= HARD_LIMIT) {
-            currentPageIndex++;
-            wordCountOnPage = 0;
-        }
     }
 
     const setOfUniqueWordInLesson = new Set(
