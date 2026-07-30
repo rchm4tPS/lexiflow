@@ -149,6 +149,17 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       }).returning();
     }
 
+    let parsedAudioTimestamps = null;
+    if (content?.audio_timestamps) {
+      try {
+        parsedAudioTimestamps = typeof content.audio_timestamps === 'string'
+          ? JSON.parse(content.audio_timestamps)
+          : content.audio_timestamps;
+      } catch {
+        parsedAudioTimestamps = null;
+      }
+    }
+
     res.json({
       tokens: decoratedTokens,
       phrases: normalizedPhrases,
@@ -163,7 +174,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       lessonImg: lesson.image_url,
       lessonAudio: lesson.audio_url,
       lessonDuration: lesson.duration || 0,
-      audioTimestamps: content.audio_timestamps || null,
+      audioTimestamps: parsedAudioTimestamps,
       authorName: authorName || 'LingQ',
       readTimes: userProgress?.read_times || 0,
       totalListenedSec: userProgress?.total_listened_sec || 0,
@@ -233,7 +244,22 @@ router.get('/:id/edit', authenticate, async (req: AuthRequest, res) => {
       return res.status(403).json({ error: "You do not have permission to edit this lesson." });
     }
 
-    res.json(lesson);
+    const [content] = await db.select().from(lessonContent).where(eq(lessonContent.lesson_id, String(lessonId)));
+    let audio_timestamps = null;
+    if (content?.audio_timestamps) {
+      try {
+        audio_timestamps = typeof content.audio_timestamps === 'string'
+          ? JSON.parse(content.audio_timestamps)
+          : content.audio_timestamps;
+      } catch {
+        audio_timestamps = null;
+      }
+    }
+
+    res.json({
+      ...lesson,
+      audio_timestamps
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal Error";
     res.status(500).json({ error: message });
@@ -245,7 +271,7 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
   try {
     const lessonId = req.params.id;
     const userId = req.user!.id;
-    const { title, description, imageUrl, audioUrl, audioDuration, isPublic, originalUrl, rawText, courseId, languageCode } = req.body;
+    const { title, description, imageUrl, audioUrl, audioDuration, isPublic, originalUrl, rawText, courseId, languageCode, audioTimestamps } = req.body;
 
     const [existing] = await db.select().from(lessons).where(eq(lessons.id, String(lessonId)));
     if (!existing) return res.status(404).json({ error: "Lesson not found" });
@@ -267,10 +293,16 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
       original_text: rawText || existing.original_text
     }).where(eq(lessons.id, String(lessonId)));
 
-    // 2. If text is provided, always re-parse to apply latest pagination logic/limits
-    if (rawText) {
-      await parseAndSaveLessonContent(String(lessonId), rawText, languageCode, userId);
-    }
+    // 2. Re-parse and update lesson content & audio timestamps
+    const targetLang = languageCode || course?.language_code || 'en';
+    await parseAndSaveLessonContent(
+      String(lessonId), 
+      rawText || existing.original_text || '', 
+      targetLang, 
+      userId, 
+      false, 
+      audioTimestamps
+    );
 
     res.json({ success: true });
   } catch (error: unknown) {

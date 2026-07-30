@@ -17,7 +17,8 @@ export async function parseAndSaveLessonContent(
     rawText: string, 
     languageCode: string, 
     userIdForProgress?: string,
-    isPreSegmented: boolean = false
+    isPreSegmented: boolean = false,
+    audioTimestamps?: { start: number; end: number }[]
 ) {
     let segments: { segment: string; isWordLike: boolean }[] = [];
 
@@ -65,6 +66,36 @@ export async function parseAndSaveLessonContent(
         }));
     }
 
+    // --- BULK MASTER VOCAB OPTIMIZATION (Eliminates N+1 Queries) ---
+    const learnableTerms = segments
+        .filter(s => s.isWordLike)
+        .map(s => s.segment.toLowerCase());
+
+    const uniqueTermsSet = new Set(learnableTerms);
+    const uniqueTermsArray = Array.from(uniqueTermsSet);
+
+    if (uniqueTermsArray.length > 0) {
+        const chunkSize = 500;
+        for (let i = 0; i < uniqueTermsArray.length; i += chunkSize) {
+            const chunk = uniqueTermsArray.slice(i, i + chunkSize);
+            const existingMaster = await db.select({ word: masterVocab.original_word })
+                .from(masterVocab)
+                .where(and(eq(masterVocab.language_code, languageCode), inArray(masterVocab.original_word, chunk)));
+            
+            const existingWordsSet = new Set(existingMaster.map(m => m.word));
+            const missingWords = chunk.filter(w => !existingWordsSet.has(w));
+            
+            if (missingWords.length > 0) {
+                await db.insert(masterVocab).values(
+                    missingWords.map(w => ({
+                        original_word: w,
+                        language_code: languageCode
+                    }))
+                ).onConflictDoNothing();
+            }
+        }
+    }
+
     const processedTokens = [];
     let currentPageIndex = 0;
     let wordCountOnPage = 0;
@@ -80,19 +111,10 @@ export async function parseAndSaveLessonContent(
         const isNewline = text === '\n' || text === '\r\n';
         const isLearnable = segmentData.isWordLike;
 
-        const isSentenceEnd = /[.!?。！？]/.test(text);
+        const isSentenceEnd = /[.!?。！？؟؛]/.test(text);
 
         if (isLearnable) {
             totalOriginalWordInLesson++;
-            let [masterWord] = await db.select().from(masterVocab)
-                .where(and(eq(masterVocab.original_word, text.toLowerCase()), eq(masterVocab.language_code, languageCode)));
-
-            if (!masterWord) {
-                [masterWord] = await db.insert(masterVocab).values({
-                    original_word: text.toLowerCase(),
-                    language_code: languageCode,
-                }).returning();
-            }
         }
 
         processedTokens.push({
@@ -135,12 +157,25 @@ export async function parseAndSaveLessonContent(
     }).where(eq(lessons.id, lessonId));
 
     // 3. Update lesson_content
-    await db.insert(lessonContent).values({
+    const contentPayload: {
+        lesson_id: string;
+        raw_text: string;
+        audio_timestamps?: { start: number; end: number }[] | null;
+    } = {
         lesson_id: lessonId,
         raw_text: JSON.stringify(processedTokens),
-    }).onConflictDoUpdate({
+    };
+
+    if (audioTimestamps !== undefined) {
+        contentPayload.audio_timestamps = audioTimestamps;
+    }
+
+    await db.insert(lessonContent).values(contentPayload).onConflictDoUpdate({
         target: lessonContent.lesson_id,
-        set: { raw_text: JSON.stringify(processedTokens) }
+        set: {
+            raw_text: JSON.stringify(processedTokens),
+            ...(audioTimestamps !== undefined ? { audio_timestamps: audioTimestamps } : {})
+        }
     });
 
     // 4. (Optional) Initialize/Update user progress

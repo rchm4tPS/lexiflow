@@ -837,14 +837,23 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       const data = await apiClient(`/lessons/${lessonId}`);
       const { tokens } = data as { tokens: Token[] };
 
-      // --- CALCULATE SENTENCE PAGINATION ---
+      // --- CALCULATE SENTENCE PAGINATION (Syncs 1-to-1 with audio_timestamps) ---
       let sentenceIdx = 0;
+      let pendingBoundary = false;
+
       const tokensWithSentencePaging = (tokens || []).map((t: Token) => {
-        const isSentenceEnd = /[.!?。！？]/.test(t.text);
-        const updated = { ...t, sentencePageIndex: sentenceIdx };
-        if (isSentenceEnd) {
+        if (pendingBoundary && (t.isLearnable || (t.text && t.text.trim().length > 0 && !t.isNewline))) {
           sentenceIdx++;
+          pendingBoundary = false;
         }
+
+        const isSentenceEnd = /[.!?。！？؟؛]/.test(t.text) || t.isNewline;
+        const updated = { ...t, sentencePageIndex: sentenceIdx };
+
+        if (isSentenceEnd) {
+          pendingBoundary = true;
+        }
+
         return updated;
       });
 
