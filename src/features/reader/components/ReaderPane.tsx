@@ -1,7 +1,7 @@
 import React, { type ReactNode, useRef, useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import Swal from 'sweetalert2';
-import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settings, ChevronLeft, ChevronRight, X, SquarePen } from 'lucide-react';
+import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settings, ChevronLeft, ChevronRight, X, SquarePen, Play, Pause } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
 import { apiClient } from '../../../api/client';
@@ -57,7 +57,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     translationData, revealedSentenceIndices, isLoadingTranslation,
     fontSize, fontFamily, lineHeight, showMargins,
     showTranslation, setShowTranslation,
-    lineGap
+    lineGap,
+    playSentenceAudio, stopSentenceAudio, playingSentenceIndex, isAudioPlaying, audioTimestamps
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
     lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
@@ -71,6 +72,11 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     showTranslation: state.showTranslation,         // <--- TAMBAHKAN INI JUGA
     setShowTranslation: state.setShowTranslation,   // <--- TAMBAHKAN INI JUGA
     lineGap: state.lineGap ?? 6,
+    playSentenceAudio: state.playSentenceAudio,
+    stopSentenceAudio: state.stopSentenceAudio,
+    playingSentenceIndex: state.playingSentenceIndex,
+    isAudioPlaying: state.isAudioPlaying,
+    audioTimestamps: state.audioTimestamps,
   })));
 
   const tokens = useReaderStore.getState().tokens;
@@ -299,7 +305,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       anchorTokenRef.current = currentVisibleToken;
     }
 
-    const measure = (_caller = 'unknown') => {
+    const measure = (_reason = 'unknown') => {
+      const container = scrollContainerRef.current;
       if (!container) return;
 
       const containerRect = container.getBoundingClientRect();
@@ -309,6 +316,29 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
       if (columnWidthPx === 0 && availableWidth > 0) {
         setColumnWidthPx(availableWidth);
+      }
+
+      const { readerMode: currentReaderMode, tokens: allTokens } = useReaderStore.getState();
+
+      // IN SENTENCE VIEW: Pagination is strictly 1 sentence per page (matches audio timestamps 1-to-1)
+      if (currentReaderMode === 'sentence') {
+        const sentenceMapping: Record<number, string[]> = {};
+        allTokens.forEach(t => {
+          const sIdx = t.sentencePageIndex ?? 0;
+          if (!sentenceMapping[sIdx]) sentenceMapping[sIdx] = [];
+          sentenceMapping[sIdx].push(t.id);
+        });
+        const totalSentencePages = Object.keys(sentenceMapping).length || 1;
+        const currentMapping = useReaderStore.getState().columnMapping;
+        const currentPages = useReaderStore.getState().totalPages;
+
+        const mappingChanged =
+          totalSentencePages !== currentPages ||
+          Object.keys(sentenceMapping).length !== Object.keys(currentMapping).length;
+
+        if (mappingChanged) {
+          useReaderStore.getState().setPagination(totalSentencePages, sentenceMapping);
+        }
         return;
       }
 
@@ -343,8 +373,6 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
       // Restore transform
       container.style.transform = origTransform;
-
-      const { tokens: allTokens } = useReaderStore.getState();
 
       const tokenToPage: Record<string, number> = {};
       for (const [col, ids] of Object.entries(mapping)) {
@@ -398,17 +426,38 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       let newColForAnchor = -1;
       const { initialTokenIndex, tokens: storeTokens, setInitialTokenIndex } = useReaderStore.getState();
 
+      const candidateTokenIds: string[] = [];
       if (initialTokenIndex !== null && initialTokenIndex >= 0 && initialTokenIndex < storeTokens.length) {
-        const targetTokenId = storeTokens[initialTokenIndex].id;
-        for (const [col, ids] of Object.entries(mapping)) {
-          if (ids.includes(targetTokenId)) { newColForAnchor = parseInt(col); break; }
-        }
-        setInitialTokenIndex(null);
-      } else if (anchorTokenRef.current) {
-        for (const [col, ids] of Object.entries(mapping)) {
-          if (ids.includes(anchorTokenRef.current)) { newColForAnchor = parseInt(col); break; }
+        for (let i = initialTokenIndex; i < Math.min(initialTokenIndex + 20, storeTokens.length); i++) {
+          if (!storeTokens[i].isNewline && storeTokens[i].text?.trim()) {
+            candidateTokenIds.push(storeTokens[i].id);
+          }
         }
       }
+      if (anchorTokenRef.current) {
+        candidateTokenIds.push(anchorTokenRef.current);
+      }
+
+      for (const targetId of candidateTokenIds) {
+        for (const [col, ids] of Object.entries(mapping)) {
+          if (ids.includes(targetId)) {
+            newColForAnchor = parseInt(col);
+            break;
+          }
+        }
+        if (newColForAnchor !== -1) break;
+      }
+
+      if (newColForAnchor !== -1 && initialTokenIndex !== null) {
+        setInitialTokenIndex(null);
+      }
+
+      // 3. Smoothly navigate user to the exact new page of their anchor token (clamped to max pages)
+      const targetPage = newColForAnchor !== -1
+        ? Math.min(newColForAnchor, newTotalPages - 1)
+        : Math.min(useReaderStore.getState().currentPage, newTotalPages - 1);
+
+      const safePage = Math.max(0, targetPage);
 
       const currentTotalPages = useReaderStore.getState().totalPages;
       const currentColumnMapping = useReaderStore.getState().columnMapping;
@@ -423,16 +472,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         );
 
       if (mappingChanged) {
-        useReaderStore.getState().setPagination(newTotalPages || 1, mapping);
-      }
-
-      // 3. Smoothly navigate user to the exact new page of their anchor token (clamped to max pages)
-      const targetPage = newColForAnchor !== -1
-        ? Math.min(newColForAnchor, newTotalPages - 1)
-        : Math.min(useReaderStore.getState().currentPage, newTotalPages - 1);
-
-      const safePage = Math.max(0, targetPage);
-      if (safePage !== useReaderStore.getState().currentPage) {
+        useReaderStore.getState().setPagination(newTotalPages || 1, mapping, safePage);
+      } else if (safePage !== useReaderStore.getState().currentPage) {
         useReaderStore.getState().setPage(safePage);
       }
     };
@@ -711,6 +752,31 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                 onClick={handleWordClick}
               />
             )}
+            {isTopLevel && readerMode === 'sentence' && index === tokensList.length - 1 && lessonAudio && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (playingSentenceIndex === currentSentenceIndex && isAudioPlaying) {
+                    stopSentenceAudio();
+                  } else if (currentSentenceIndex !== null) {
+                    playSentenceAudio(currentSentenceIndex);
+                  }
+                }}
+                className={`inline-flex items-center gap-1 mx-2 px-2.5 py-0.5 rounded-full text-xs font-bold shadow-sm transition align-middle cursor-pointer border ${
+                  playingSentenceIndex === currentSentenceIndex && isAudioPlaying
+                    ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+                    : 'bg-[#3a92fb] text-white border-blue-600 hover:bg-blue-600'
+                }`}
+                title="Play Audio for this Sentence"
+              >
+                {playingSentenceIndex === currentSentenceIndex && isAudioPlaying ? (
+                  <Pause className="w-3 h-3 fill-current" />
+                ) : (
+                  <Play className="w-3 h-3 fill-current ml-0.5" />
+                )}
+                <span>Play</span>
+              </button>
+            )}
             {shouldBreak && <div style={{ breakAfter: 'column', height: 0, width: '100%' }} />}
           </React.Fragment>
         )
@@ -759,20 +825,15 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
   const stillHasBlueWords = useReaderStore(state => state.tokens.some(w => w.isLearnable && (w.stage ?? 0) === 0));
 
-  // Sentence View: every token on the current page belongs to the same sentence (see the
-  // column-break logic in renderTree below), so the first mapped token's index is enough.
+  // Sentence View: currentSentenceIndex is strictly 1-to-1 with currentPage
   const currentSentenceIndex = React.useMemo(() => {
     if (readerMode !== 'sentence') return null;
-    const idsOnPage = columnMapping[currentPage] || [];
-    for (const id of idsOnPage) {
-      const t = tokens.find(tk => tk.id === id);
-      if (t?.sentencePageIndex !== undefined) return t.sentencePageIndex;
-    }
-    return null;
-  }, [readerMode, columnMapping, currentPage, tokens]);
+    return currentPage;
+  }, [readerMode, currentPage]);
 
   const renderedTree = React.useMemo(() => {
     if (isLoadingLesson || tokens.length === 0) return null;
+
     return (
       <>
         <div className={`hidden xl:flex mb-2 lg:mb-4 mt-1 lg:mt-2 ${isRTL ? 'border-b' : ''}`} style={{ breakInside: 'avoid' }}>
@@ -797,7 +858,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     );
   }, [
     lessonStructureHash, courseId, languageCode, courseTitle, lessonImg, lessonTitle, 
-    isRTL, handleWordClick, handlePhraseClick, readerMode, draftPhraseRange, isLoadingLesson,
+    isRTL, handleWordClick, handlePhraseClick, readerMode, currentSentenceIndex, draftPhraseRange, isLoadingLesson,
     showMargins, fontSize, fontFamily, lineHeight, // <--- PASTIKAN showMargins ADA DI SINI agar token tree re-render seketika!
     lineGap
   ]);
@@ -1187,18 +1248,58 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             </div>
           </div>
 
-          {/* SENTENCE VIEW: inline per-sentence translation reveal */}
+          {/* SENTENCE VIEW: inline per-sentence audio play & translation reveal */}
           {readerMode === 'sentence' && !isLoadingLesson && currentSentenceIndex !== null && (
-            <div className="flex-1 px-3 lg:px-5 pt-2 pb-2">
+            <div className="flex-1 px-3 lg:px-5 pt-2 pb-3 flex flex-wrap items-center gap-3 border-t border-gray-100 mt-2">
+              {/* Sentence Audio Play Button */}
+              <button
+                onClick={() => {
+                  if (!lessonAudio) return;
+                  if (playingSentenceIndex === currentSentenceIndex && isAudioPlaying) {
+                    stopSentenceAudio();
+                  } else {
+                    playSentenceAudio(currentSentenceIndex);
+                  }
+                }}
+                disabled={!lessonAudio}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-bold text-xs shadow-sm transition cursor-pointer border ${
+                  !lessonAudio
+                    ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                    : playingSentenceIndex === currentSentenceIndex && isAudioPlaying
+                    ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+                    : 'bg-[#3a92fb] text-white border-blue-600 hover:bg-blue-600'
+                }`}
+                title={lessonAudio ? "Play Audio for this Sentence" : "No Audio Attached"}
+              >
+                {playingSentenceIndex === currentSentenceIndex && isAudioPlaying ? (
+                  <>
+                    <Pause className="w-3.5 h-3.5 fill-current" />
+                    <span>Pause Sentence</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                    <span>Play Sentence</span>
+                  </>
+                )}
+                {audioTimestamps && audioTimestamps[currentSentenceIndex] ? (
+                  <span className="text-[10px] opacity-85 font-mono ml-1">
+                    ({audioTimestamps[currentSentenceIndex].start.toFixed(2)}s - {audioTimestamps[currentSentenceIndex].end.toFixed(2)}s)
+                  </span>
+                ) : null}
+              </button>
+
+              {/* Show / Hide Translation Button */}
               <button
                 onClick={() => handleToggleSentenceTranslation(currentSentenceIndex)}
-                className="flex items-center gap-1.5 text-[#3a92fb] hover:text-blue-600 text-sm font-semibold cursor-pointer transition"
+                className="flex items-center gap-1.5 text-[#3a92fb] hover:text-blue-600 text-xs font-semibold cursor-pointer transition ml-auto"
               >
                 <Languages className="w-4 h-4" />
                 {revealedSentenceIndices.has(currentSentenceIndex) ? 'Hide Translation' : 'Show Translation'}
               </button>
+
               {revealedSentenceIndices.has(currentSentenceIndex) && (
-                <div className="mt-1.5 text-gray-600 text-[15px] leading-relaxed">
+                <div className="w-full mt-1 text-gray-600 text-[15px] leading-relaxed border-t border-gray-50 pt-2">
                   {isLoadingTranslation ? (
                     <div className="h-5 bg-gray-200 animate-shimmer rounded w-2/3" />
                   ) : (

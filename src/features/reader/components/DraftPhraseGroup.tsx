@@ -13,11 +13,12 @@ const DraftPhraseGroup = ({ isDrafted, isDimmed: isDimmedProp, children }: Draft
   const lineHeight = useReaderStore(state => state.lineHeight);
   const isAudioPlaying = useReaderStore(state => state.isAudioPlaying);
   const activeSentenceIndex = useReaderStore(state => state.activeSentenceIndex);
+  const readerMode = useReaderStore(state => state.readerMode);
   const tokenMap = useReaderStore(state => state.tokenMap);
   const draftPhraseRange = useReaderStore(state => state.draftPhraseRange);
 
-  // Audio dimming: dim if none of the draft phrase's tokens are in the active sentence
-  const isDimmed = isDimmedProp ?? (isAudioPlaying && activeSentenceIndex !== null && draftPhraseRange?.length
+  // Audio dimming: dim if none of the draft phrase's tokens are in the active sentence (disabled in Sentence View)
+  const isDimmed = isDimmedProp ?? (readerMode !== 'sentence' && isAudioPlaying && activeSentenceIndex !== null && draftPhraseRange?.length
     ? draftPhraseRange.every(id => {
         const sentenceIdx = tokenMap[id]?.sentencePageIndex;
         return sentenceIdx !== undefined && sentenceIdx !== activeSentenceIndex;

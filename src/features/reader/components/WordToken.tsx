@@ -16,6 +16,7 @@ export function PhraseGroup({ phraseId, onPhraseClick, children, depth = 0 }: Ph
   const lineHeight = useReaderStore(state => state.lineHeight);
   const isAudioPlaying = useReaderStore(state => state.isAudioPlaying);
   const activeSentenceIndex = useReaderStore(state => state.activeSentenceIndex);
+  const readerMode = useReaderStore(state => state.readerMode);
   const tokenMap = useReaderStore(state => state.tokenMap);
 
   if (!phrase) return <>{children}</>;
@@ -39,9 +40,9 @@ export function PhraseGroup({ phraseId, onPhraseClick, children, depth = 0 }: Ph
   };
 
   // Audio dimming: dim the phrase if none of its tokens are in the active sentence.
-  // If at least one token is in the active sentence, keep the phrase bright.
+  // Disabled in Sentence View so sentence page text is always 100% bright.
   let isDimmed = false;
-  if (isAudioPlaying && activeSentenceIndex !== null && phrase.range.length > 0) {
+  if (readerMode !== 'sentence' && isAudioPlaying && activeSentenceIndex !== null && phrase.range.length > 0) {
     isDimmed = phrase.range.every(id => {
       const sentenceIdx = tokenMap[id]?.sentencePageIndex;
       return sentenceIdx !== undefined && sentenceIdx !== activeSentenceIndex;
@@ -80,11 +81,12 @@ const WordToken = React.memo(function WordToken({ tokenId, onClick }: WordTokenP
   const token = useReaderStore(React.useCallback(state => state.tokenMap[tokenId], [tokenId]));
   const isSelected = useReaderStore(state => state.selectedId === tokenId || !!state.draftPhraseRange?.includes(tokenId));
   
-  // Real-time Audio Dimming Selector (Langsung merespons perubahan kalimat aktif)
+  // Real-time Audio Dimming Selector (Disabled in Sentence View)
   const isAudioPlaying = useReaderStore(state => state.isAudioPlaying);
   const activeSentenceIndex = useReaderStore(state => state.activeSentenceIndex);
+  const readerMode = useReaderStore(state => state.readerMode);
 
-  const isDimmed = isAudioPlaying && activeSentenceIndex !== null && (
+  const isDimmed = readerMode !== 'sentence' && isAudioPlaying && activeSentenceIndex !== null && (
     token?.sentencePageIndex === undefined || token?.sentencePageIndex !== activeSentenceIndex
   );
 

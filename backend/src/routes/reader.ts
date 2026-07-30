@@ -182,7 +182,8 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       prevLessonId,
       nextLessonId,
       lessonIndex: currentIndex + 1,
-      courseLessonsCount: courseLessons.length
+      courseLessonsCount: courseLessons.length,
+      originalText: lesson.original_text || ''
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal Error";

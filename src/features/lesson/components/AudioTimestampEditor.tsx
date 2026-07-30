@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { Play, Pause, Square, Clock, Trash2 } from 'lucide-react';
 
+import { extractSentencesFromText } from '../../../utils/sentenceUtils';
+
 export interface TimestampEntry {
   start: number;
   end: number;
@@ -46,33 +48,7 @@ export default function AudioTimestampEditor({
 
   // Extract sentences dynamically based on multi-language sentence terminators
   const sentences = useMemo(() => {
-    if (!text.trim()) return [];
-    
-    // Split by newlines first
-    const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
-    const result: string[] = [];
-
-    for (const line of lines) {
-      // Split each line by sentence terminators (.!?。！？؟؛) while keeping delimiters
-      const sentenceRegex = /[^.!?。！？؟؛]+[.!?。！？؟؛]+/g;
-      const matches = line.match(sentenceRegex);
-
-      if (matches && matches.length > 0) {
-        let reconstructedLength = 0;
-        for (const match of matches) {
-          result.push(match.trim());
-          reconstructedLength += match.length;
-        }
-        // Push remaining trailing text if any
-        if (reconstructedLength < line.length) {
-          const remainder = line.slice(reconstructedLength).trim();
-          if (remainder) result.push(remainder);
-        }
-      } else {
-        result.push(line.trim());
-      }
-    }
-    return result;
+    return extractSentencesFromText(text);
   }, [text]);
 
   const sourceOfTruthMapRef = useRef<Map<string, TimestampEntry>>(new Map());

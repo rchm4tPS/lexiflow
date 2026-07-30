@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { useAuthStore } from './useAuthStore';
 import { apiClient, BASE_URL } from '../api/client'; // Your fetch wrapper
 import { buildPhraseInstances } from '../utils/phraseMatcher';
+import { assignSentencePageIndexToTokens } from '../utils/sentenceUtils';
 import { getTier } from '../constants/tiers';
 import type { Token, Phrase, DbPhrase, Lesson, Course, CourseDetail, UpdatePayload, WordHint, UserStats } from '../types/reader';
 
@@ -171,7 +172,7 @@ interface ReaderState {
   // Dynamic CSS Pagination State
   totalPages: number;
   columnMapping: Record<number, string[]>;
-  setPagination: (totalPages: number, columnMapping: Record<number, string[]>) => void;
+  setPagination: (totalPages: number, columnMapping: Record<number, string[]>, overridePage?: number) => void;
 
   handlePageAdvance: (newPage: number) => void;
   ticksSinceLastSync: number;
@@ -201,9 +202,14 @@ interface ReaderState {
   audioTimestamps: { start: number; end: number }[] | null;
   activeSentenceIndex: number | null;
   isAudioPlaying: boolean;
+  playingSentenceIndex: number | null;
+  sentenceAudioTrigger: { sentenceIndex: number; action: 'play' | 'stop'; id: number } | null;
   setAudioTimestamps: (timestamps: { start: number; end: number }[] | null) => void;
   setActiveSentenceIndex: (index: number | null) => void;
   setIsAudioPlaying: (playing: boolean) => void;
+  setPlayingSentenceIndex: (index: number | null) => void;
+  playSentenceAudio: (sentenceIndex: number) => void;
+  stopSentenceAudio: () => void;
   syncPageWithinSentence: (sentenceIndex: number, timeFraction: number) => void;
 
   // Sentence View — per-sentence inline translation reveal (independent of the Translation drawer)
@@ -332,12 +338,22 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   audioTimestamps: null,
   activeSentenceIndex: null,
   isAudioPlaying: false,
+  playingSentenceIndex: null,
+  sentenceAudioTrigger: null,
   setAudioTimestamps: (timestamps) => set({ audioTimestamps: timestamps }),
   setActiveSentenceIndex: (index) => {
     set({ activeSentenceIndex: index });
     if (index === null) return;
     get().syncPageWithinSentence(index, 0);
   },
+  setIsAudioPlaying: (playing) => set({ isAudioPlaying: playing }),
+  setPlayingSentenceIndex: (index) => set({ playingSentenceIndex: index }),
+  playSentenceAudio: (sentenceIndex) => set({
+    sentenceAudioTrigger: { sentenceIndex, action: 'play', id: Date.now() }
+  }),
+  stopSentenceAudio: () => set({
+    sentenceAudioTrigger: { sentenceIndex: -1, action: 'stop', id: Date.now() }
+  }),
   // A sentence can span multiple pages (Sentence View forces a page break per sentence,
   // but Paragraph View pages are laid out by column width and don't respect sentence
   // boundaries at all). We can't just jump to the sentence's *first* page and stop —
@@ -365,7 +381,6 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       }
     }
   },
-  setIsAudioPlaying: (playing) => set({ isAudioPlaying: playing }),
 
   revealedSentenceIndices: new Set<number>(),
   toggleSentenceReveal: (index) => {
@@ -773,10 +788,33 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   setLibrarySidebarTab: (tab) => set({ librarySidebarTab: tab }),
   setLibrarySearch: (term) => set({ librarySearch: term }),
   toggleReaderMode: () => {
-    const { readerMode } = get();
+    const { readerMode, currentPage, columnMapping, tokens } = get();
     const newMode = readerMode === 'paragraph' ? 'sentence' : 'paragraph';
+
+    let targetPage = 0;
+
+    if (newMode === 'sentence') {
+      // Switching Paragraph -> Sentence View:
+      // Find sentencePageIndex of the first token on current paragraph page
+      const currentTokenId = columnMapping[currentPage]?.[0];
+      const token = tokens.find(t => t.id === currentTokenId);
+      if (token && token.sentencePageIndex !== undefined) {
+        targetPage = token.sentencePageIndex;
+      }
+    } else {
+      // Switching Sentence -> Paragraph View:
+      // Find token index of first valid word/text token in current sentence (skip newlines)
+      const currentToken = tokens.find(t => t.sentencePageIndex === currentPage && !t.isNewline && t.text && t.text.trim().length > 0);
+      if (currentToken) {
+        const tokenIdx = tokens.findIndex(t => t.id === currentToken.id);
+        if (tokenIdx !== -1) {
+          set({ initialTokenIndex: tokenIdx });
+        }
+      }
+    }
+
     localStorage.setItem('lingq_reader_mode', newMode);
-    set({ readerMode: newMode });
+    set({ readerMode: newMode, currentPage: targetPage });
   },
 
   fetchMyCoursesDropdown: async () => {
@@ -838,24 +876,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       const { tokens } = data as { tokens: Token[] };
 
       // --- CALCULATE SENTENCE PAGINATION (Syncs 1-to-1 with audio_timestamps) ---
-      let sentenceIdx = 0;
-      let pendingBoundary = false;
-
-      const tokensWithSentencePaging = (tokens || []).map((t: Token) => {
-        if (pendingBoundary && (t.isLearnable || (t.text && t.text.trim().length > 0 && !t.isNewline))) {
-          sentenceIdx++;
-          pendingBoundary = false;
-        }
-
-        const isSentenceEnd = /[.!?。！？؟؛]/.test(t.text) || t.isNewline;
-        const updated = { ...t, sentencePageIndex: sentenceIdx };
-
-        if (isSentenceEnd) {
-          pendingBoundary = true;
-        }
-
-        return updated;
-      });
+      const rawTextForSentences = (data as { originalText?: string }).originalText || (tokens || []).map(t => t.text).join('');
+      const tokensWithSentencePaging = assignSentencePageIndexToTokens(tokens || [], rawTextForSentences);
 
       const instances = buildPhraseInstances(tokensWithSentencePaging, data.phrases || []);
 
@@ -944,12 +966,13 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     });
   },
 
-  setPagination: (totalPages, columnMapping) => {
+  setPagination: (totalPages, columnMapping, overridePage) => {
     // Clamp currentPage atomically in the same set() call — the same pattern used by
     // syncPageWithinSentence / setActiveSentenceIndex — so the page is always valid
     // the moment the new mapping is committed (no extra render cycle needed).
     const { currentPage } = get();
-    const clampedPage = Math.max(0, Math.min(currentPage, totalPages - 1));
+    const target = overridePage !== undefined ? overridePage : currentPage;
+    const clampedPage = Math.max(0, Math.min(target, totalPages - 1));
     set({ totalPages, columnMapping, currentPage: clampedPage });
   },
 
