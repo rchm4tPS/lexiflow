@@ -1,4 +1,29 @@
 // frontend/src/store/useReaderStore.ts
+/**
+ * TODO: PAGINATION BUG INVESTIGATION & HANDOVER NOTES
+ * 
+ * Issue: Reader pagination resets to Page 1 (Page 0) on hard refresh (F5), re-visiting a lesson,
+ * or switching between Paragraph View and Sentence View.
+ * 
+ * Root Cause Analysis:
+ * 1. Database Overwrite: `syncLessonProgress()` evaluates `columnMapping[currentPage]` or `initialTokenIndex`.
+ *    When `ReaderPane.tsx` calls `setInitialTokenIndex(null)` after mounting to clear the initial anchor,
+ *    subsequent `syncLessonProgress()` calls read `initialTokenIndex = null` and fall back to `0`,
+ *    overwriting `highest_page_read` in the SQLite DB (`user_lesson_progress` table) with `0`.
+ * 2. Asynchronous Column Measurement vs Pagination Clamping: In `ReaderPane.tsx`, `measure()` calculates CSS multi-column
+ *    token positions asynchronously after DOM mount. During the first layout pass, `columnWidthPx` is `0`, causing
+ *    `columnMapping` to be empty `{}`. Calling `setPagination()` before `columnMapping` is built clamps `currentPage` to `0`.
+ * 3. Sentence View Page Index Mapping: In Sentence View (`readerMode === 'sentence'`), pages map 1-to-1 with `sentencePageIndex`.
+ *    If `initialTokenIndex` (the raw token offset from DB) is not mapped to `sentencePageIndex` before `setPagination()` commits,
+ *    Sentence View falls back to Page 0.
+ * 4. Disappearing Text Gap / Header Box Height Offset: In Paragraph View, hiding the 150px lesson title header box on `currentPage > 0`
+ *    causes CSS multi-column height to change between Page 0 and Page 1, causing column break reflow and hiding tokens (e.g. lines G & H).
+ * 
+ * Required Architecture for Next AI / Developer:
+ * - Decouple `savedHighestTokenIndex` (permanent progress state) from `initialTokenIndex` (transient DOM scroll anchor).
+ * - Ensure `syncLessonProgress` never writes `0` to DB when `savedHighestTokenIndex > 0`.
+ * - Synchronize `sentencePageIndex` conversion atomically before `setPagination()` renders the DOM tree.
+ */
 import { create } from 'zustand';
 import { useAuthStore } from './useAuthStore';
 import { apiClient, BASE_URL } from '../api/client'; // Your fetch wrapper
@@ -6,6 +31,8 @@ import { buildPhraseInstances } from '../utils/phraseMatcher';
 import { assignSentencePageIndexToTokens } from '../utils/sentenceUtils';
 import { getTier } from '../constants/tiers';
 import type { Token, Phrase, DbPhrase, Lesson, Course, CourseDetail, UpdatePayload, WordHint, UserStats } from '../types/reader';
+
+let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 interface SupportedLanguage {
   code: string;
@@ -200,6 +227,7 @@ interface ReaderState {
   // Audio-sync State — sentence-level start/end timestamps (seconds), aligned by index
   // with each token's sentencePageIndex.
   audioTimestamps: { start: number; end: number }[] | null;
+  savedHighestTokenIndex: number;
   activeSentenceIndex: number | null;
   isAudioPlaying: boolean;
   playingSentenceIndex: number | null;
@@ -250,6 +278,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   guidedCourses: [],
   activeCourseDetails: null,
   activeLessonId: null,
+  savedHighestTokenIndex: 0,
   prevLessonId: null,
   nextLessonId: null,
 
@@ -916,7 +945,11 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           isRTL: data.isRTL || false,
           totalCoins: data.totalCoins || 0,
           totalKnownWords: data.totalKnownWords || 0,
+          playingSentenceIndex: null,
+          isAudioPlaying: false,
+          sentenceAudioTrigger: null,
           currentPage: 0,
+          savedHighestTokenIndex: data.highestPageRead || 0,
           initialTokenIndex: data.highestPageRead || 0,
           selectedId: null,
           draftPhraseRange: null,
@@ -1291,12 +1324,15 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     const targetId = lessonId || activeLessonId;
     if (!targetId) return;
 
-    let highestTokenIndex = 0;
-    const { columnMapping } = get();
+    const { columnMapping, savedHighestTokenIndex } = get();
+    let highestTokenIndex = savedHighestTokenIndex || 0;
     const tokensOnPage = columnMapping[currentPage];
     if (tokensOnPage && tokensOnPage.length > 0) {
-      highestTokenIndex = tokens.findIndex(t => t.id === tokensOnPage[0]);
-      if (highestTokenIndex === -1) highestTokenIndex = 0;
+      const idx = tokens.findIndex(t => t.id === tokensOnPage[0]);
+      if (idx !== -1) {
+        highestTokenIndex = Math.max(highestTokenIndex, idx);
+        set({ savedHighestTokenIndex: highestTokenIndex });
+      }
     }
 
     const learnableTokens = tokens.filter(t => t.isLearnable && !t.isNewline);
@@ -1352,10 +1388,22 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   handlePageAdvance: (newPage: number) => {
     get().setPage(newPage);
-    const { activeLessonId, syncLessonProgress } = get();
-    if (activeLessonId) {
-      syncLessonProgress(activeLessonId);
+    const { columnMapping, tokens, savedHighestTokenIndex, activeLessonId, syncLessonProgress } = get();
+    const tokensOnPage = columnMapping[newPage];
+    if (tokensOnPage && tokensOnPage.length > 0) {
+      const idx = tokens.findIndex(t => t.id === tokensOnPage[0]);
+      if (idx !== -1 && idx > (savedHighestTokenIndex || 0)) {
+        set({ savedHighestTokenIndex: idx });
+      }
     }
+
+    // Debounced background auto-save: saves progress 2s after resting on a page
+    if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
+    syncDebounceTimer = setTimeout(() => {
+      if (activeLessonId) {
+        syncLessonProgress(activeLessonId);
+      }
+    }, 2000);
   },
 
   getPageForToken: (tokenId: string) => {

@@ -38,6 +38,87 @@ const ReaderSkeleton = () => {
   );
 };
 
+const SentenceAudioButton = React.memo(function SentenceAudioButton({ currentSentenceIndex, compact = false }: { currentSentenceIndex: number; compact?: boolean }) {
+  const isAudioPlaying = useReaderStore(state => state.isAudioPlaying);
+  const playingSentenceIndex = useReaderStore(state => state.playingSentenceIndex);
+  const lessonAudio = useReaderStore(state => state.lessonAudio);
+  const audioTimestamps = useReaderStore(state => state.audioTimestamps);
+  const playSentenceAudio = useReaderStore(state => state.playSentenceAudio);
+  const stopSentenceAudio = useReaderStore(state => state.stopSentenceAudio);
+
+  const isPlayingCurrent = playingSentenceIndex === currentSentenceIndex && isAudioPlaying;
+
+  if (compact) {
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!lessonAudio) return;
+          if (isPlayingCurrent) {
+            stopSentenceAudio();
+          } else {
+            playSentenceAudio(currentSentenceIndex);
+          }
+        }}
+        disabled={!lessonAudio}
+        className={`inline-flex items-center gap-1 mx-2 px-2.5 py-0.5 rounded-full text-xs font-bold shadow-sm transition align-middle cursor-pointer border ${
+          !lessonAudio
+            ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+            : isPlayingCurrent
+            ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+            : 'bg-[#3a92fb] text-white border-blue-600 hover:bg-blue-600'
+        }`}
+        title={lessonAudio ? "Play Audio for this Sentence" : "No Audio Attached"}
+      >
+        {isPlayingCurrent ? (
+          <Pause className="w-3 h-3 fill-current" />
+        ) : (
+          <Play className="w-3 h-3 fill-current ml-0.5" />
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => {
+        if (!lessonAudio) return;
+        if (isPlayingCurrent) {
+          stopSentenceAudio();
+        } else {
+          playSentenceAudio(currentSentenceIndex);
+        }
+      }}
+      disabled={!lessonAudio}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-bold text-xs shadow-sm transition cursor-pointer border ${
+        !lessonAudio
+          ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+          : isPlayingCurrent
+          ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+          : 'bg-[#3a92fb] text-white border-blue-600 hover:bg-blue-600'
+      }`}
+      title={lessonAudio ? "Play Audio for this Sentence" : "No Audio Attached"}
+    >
+      {isPlayingCurrent ? (
+        <>
+          <Pause className="w-3.5 h-3.5 fill-current" />
+          <span>Pause Sentence</span>
+        </>
+      ) : (
+        <>
+          <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+          <span>Play Sentence</span>
+        </>
+      )}
+      {audioTimestamps && audioTimestamps[currentSentenceIndex] ? (
+        <span className="text-[10px] opacity-85 font-mono ml-1">
+          ({audioTimestamps[currentSentenceIndex].start.toFixed(2)}s - {audioTimestamps[currentSentenceIndex].end.toFixed(2)}s)
+        </span>
+      ) : null}
+    </button>
+  );
+});
+
 interface ReaderPaneProps {
   courseId?: string | null;
   courseTitle: string;
@@ -58,7 +139,6 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     fontSize, fontFamily, lineHeight, showMargins,
     showTranslation, setShowTranslation,
     lineGap,
-    playSentenceAudio, stopSentenceAudio, playingSentenceIndex, isAudioPlaying, audioTimestamps
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
     lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
@@ -72,17 +152,31 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     showTranslation: state.showTranslation,         // <--- TAMBAHKAN INI JUGA
     setShowTranslation: state.setShowTranslation,   // <--- TAMBAHKAN INI JUGA
     lineGap: state.lineGap ?? 6,
-    playSentenceAudio: state.playSentenceAudio,
-    stopSentenceAudio: state.stopSentenceAudio,
-    playingSentenceIndex: state.playingSentenceIndex,
-    isAudioPlaying: state.isAudioPlaying,
-    audioTimestamps: state.audioTimestamps,
   })));
 
   const tokens = useReaderStore.getState().tokens;
   const phrases = useReaderStore.getState().phrases;
   const location = useLocation();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Save progress on unmount or hard refresh / browser window close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const { activeLessonId, syncLessonProgress } = useReaderStore.getState();
+      if (activeLessonId) {
+        syncLessonProgress(activeLessonId);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handleBeforeUnload);
+      handleBeforeUnload();
+    };
+  }, []);
 
   // --- STABLE CALLBACKS FOR WORD TOKENS ---
   const handleWordClick = React.useCallback((tokenId: string, e: React.MouseEvent) => {
@@ -332,12 +426,24 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         const currentMapping = useReaderStore.getState().columnMapping;
         const currentPages = useReaderStore.getState().totalPages;
 
+        const { initialTokenIndex, setInitialTokenIndex, currentPage } = useReaderStore.getState();
+        let targetSentencePage = currentPage;
+
+        if (initialTokenIndex !== null && initialTokenIndex >= 0 && initialTokenIndex < allTokens.length) {
+          const tok = allTokens[initialTokenIndex];
+          if (tok && tok.sentencePageIndex !== undefined) {
+            targetSentencePage = tok.sentencePageIndex;
+          }
+          setInitialTokenIndex(null);
+        }
+
         const mappingChanged =
           totalSentencePages !== currentPages ||
-          Object.keys(sentenceMapping).length !== Object.keys(currentMapping).length;
+          Object.keys(sentenceMapping).length !== Object.keys(currentMapping).length ||
+          targetSentencePage !== currentPage;
 
         if (mappingChanged) {
-          useReaderStore.getState().setPagination(totalSentencePages, sentenceMapping);
+          useReaderStore.getState().setPagination(totalSentencePages, sentenceMapping, targetSentencePage);
         }
         return;
       }
@@ -752,31 +858,6 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                 onClick={handleWordClick}
               />
             )}
-            {isTopLevel && readerMode === 'sentence' && index === tokensList.length - 1 && lessonAudio && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (playingSentenceIndex === currentSentenceIndex && isAudioPlaying) {
-                    stopSentenceAudio();
-                  } else if (currentSentenceIndex !== null) {
-                    playSentenceAudio(currentSentenceIndex);
-                  }
-                }}
-                className={`inline-flex items-center gap-1 mx-2 px-2.5 py-0.5 rounded-full text-xs font-bold shadow-sm transition align-middle cursor-pointer border ${
-                  playingSentenceIndex === currentSentenceIndex && isAudioPlaying
-                    ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
-                    : 'bg-[#3a92fb] text-white border-blue-600 hover:bg-blue-600'
-                }`}
-                title="Play Audio for this Sentence"
-              >
-                {playingSentenceIndex === currentSentenceIndex && isAudioPlaying ? (
-                  <Pause className="w-3 h-3 fill-current" />
-                ) : (
-                  <Play className="w-3 h-3 fill-current ml-0.5" />
-                )}
-                <span>Play</span>
-              </button>
-            )}
             {shouldBreak && <div style={{ breakAfter: 'column', height: 0, width: '100%' }} />}
           </React.Fragment>
         )
@@ -834,31 +915,44 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   const renderedTree = React.useMemo(() => {
     if (isLoadingLesson || tokens.length === 0) return null;
 
+    const displayTokens = readerMode === 'sentence' && currentSentenceIndex !== null
+      ? tokens.filter(t => t.sentencePageIndex === currentSentenceIndex)
+      : tokens;
+
+    const showHeaderBox = readerMode === 'sentence' ? currentPage === 0 : true;
+
     return (
       <>
-        <div className={`hidden xl:flex mb-2 lg:mb-4 mt-1 lg:mt-2 ${isRTL ? 'border-b' : ''}`} style={{ breakInside: 'avoid' }}>
-          <div className={`rounded-lg ${lessonImg ? '' : ' bg-gradient-to-tr from-green-200 to-blue-300'} w-24 h-24 lg:w-32.5 lg:h-35 content-center text-center shrink-0`}>
-            {
-              !lessonImg
-                ? <div className="w-full h-full flex items-center justify-center text-blue-400 text-4xl lg:text-6xl">📖</div>
-                : <img className="object-cover rounded-lg w-full h-full" src={lessonImg} />
-            }
+        {showHeaderBox && (
+          <div className={`hidden xl:flex mb-2 lg:mb-4 mt-1 lg:mt-2 ${isRTL ? 'border-b' : ''}`} style={{ breakInside: 'avoid' }}>
+            <div className={`rounded-lg ${lessonImg ? '' : ' bg-gradient-to-tr from-green-200 to-blue-300'} w-24 h-24 lg:w-32.5 lg:h-35 content-center text-center shrink-0`}>
+              {
+                !lessonImg
+                  ? <div className="w-full h-full flex items-center justify-center text-blue-400 text-4xl lg:text-6xl">📖</div>
+                  : <img className="object-cover rounded-lg w-full h-full" src={lessonImg} />
+              }
+            </div>
+            <div className={`flex-col p-2 lg:p-3 max-w-[80%] ${isRTL ? 'border-gray-400 xl:h-38' : ''}`}>
+              {courseId ? (
+                <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</Link>
+              ) : (
+                <p className="text-[#4F8EF8] text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</p>
+              )}
+              <p className={`text-[#454646] text-[20px] lg:text-[30px] font-extrabold line-clamp-2 ${isRTL ? 'leading-normal' : 'leading-tight'} lg:leading-13`}>{lessonTitle}</p>
+            </div>
           </div>
-          <div className={`flex-col p-2 lg:p-3 max-w-[80%] ${isRTL ? 'border-gray-400 xl:h-38' : ''}`}>
-            {courseId ? (
-              <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</Link>
-            ) : (
-              <p className="text-[#4F8EF8] text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</p>
-            )}
-            <p className={`text-[#454646] text-[20px] lg:text-[30px] font-extrabold line-clamp-2 ${isRTL ? 'leading-normal' : 'leading-tight'} lg:leading-13`}>{lessonTitle}</p>
-          </div>
+        )}
+        <div className="inline">
+          {renderTree(displayTokens, phrases, true)}
+          {readerMode === 'sentence' && lessonAudio && currentSentenceIndex !== null && (
+            <SentenceAudioButton currentSentenceIndex={currentSentenceIndex} compact={true} />
+          )}
         </div>
-        {renderTree(tokens, phrases, true)}
       </>
     );
   }, [
     lessonStructureHash, courseId, languageCode, courseTitle, lessonImg, lessonTitle, 
-    isRTL, handleWordClick, handlePhraseClick, readerMode, currentSentenceIndex, draftPhraseRange, isLoadingLesson,
+    isRTL, handleWordClick, handlePhraseClick, readerMode, currentPage, currentSentenceIndex, draftPhraseRange, isLoadingLesson,
     showMargins, fontSize, fontFamily, lineHeight, // <--- PASTIKAN showMargins ADA DI SINI agar token tree re-render seketika!
     lineGap
   ]);
@@ -1231,7 +1325,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                 columnWidth: columnWidthPx > 0 ? `${columnWidthPx}px` : 'auto',
                 columnGap: '3rem',
                 columnFill: 'auto',
-                transform: `translateX(calc(${isRTL ? '' : '-'}${currentPage} * (100% + 3rem)))`,
+                transform: readerMode === 'sentence' ? 'none' : `translateX(calc(${isRTL ? '' : '-'}${currentPage} * (100% + 3rem)))`,
                 transition: 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)',  // <--- TAMBAHKAN INI (Animasi Slide Mulus)
                 willChange: 'transform',                                      // <--- TAMBAHKAN INI (Akselerasi GPU)
               }}
@@ -1243,72 +1337,35 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
               ) : (
                 <>
                   {renderedTree}
+
+                  {/* SENTENCE VIEW: inline translation reveal directly below sentence text */}
+                  {readerMode === 'sentence' && currentSentenceIndex !== null && (
+                    <div className="mt-6 pt-3 border-t border-gray-100 flex flex-col items-start gap-2 text-left dir-ltr" style={{ direction: 'ltr' }}>
+                      {/* Show / Hide Translation Button */}
+                      <button
+                        onClick={() => handleToggleSentenceTranslation(currentSentenceIndex)}
+                        className="inline-flex items-center gap-1.5 text-[#3a92fb] hover:text-blue-600 text-xs font-bold cursor-pointer transition py-1 px-2.5 rounded-md hover:bg-blue-50"
+                      >
+                        <Languages className="w-4 h-4" />
+                        {revealedSentenceIndices.has(currentSentenceIndex) ? 'Hide Translation' : 'Show Translation'}
+                      </button>
+
+                      {/* Revealed Translation Text */}
+                      {revealedSentenceIndices.has(currentSentenceIndex) && (
+                        <div className="mt-1 text-gray-600 text-[15px] font-normal leading-relaxed">
+                          {isLoadingTranslation ? (
+                            <div className="h-5 bg-gray-200 animate-shimmer rounded w-2/3" />
+                          ) : (
+                            translationData[currentSentenceIndex] || 'Translation unavailable for this sentence.'
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </div>
           </div>
-
-          {/* SENTENCE VIEW: inline per-sentence audio play & translation reveal */}
-          {readerMode === 'sentence' && !isLoadingLesson && currentSentenceIndex !== null && (
-            <div className="flex-1 px-3 lg:px-5 pt-2 pb-3 flex flex-wrap items-center gap-3 border-t border-gray-100 mt-2">
-              {/* Sentence Audio Play Button */}
-              <button
-                onClick={() => {
-                  if (!lessonAudio) return;
-                  if (playingSentenceIndex === currentSentenceIndex && isAudioPlaying) {
-                    stopSentenceAudio();
-                  } else {
-                    playSentenceAudio(currentSentenceIndex);
-                  }
-                }}
-                disabled={!lessonAudio}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-bold text-xs shadow-sm transition cursor-pointer border ${
-                  !lessonAudio
-                    ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                    : playingSentenceIndex === currentSentenceIndex && isAudioPlaying
-                    ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
-                    : 'bg-[#3a92fb] text-white border-blue-600 hover:bg-blue-600'
-                }`}
-                title={lessonAudio ? "Play Audio for this Sentence" : "No Audio Attached"}
-              >
-                {playingSentenceIndex === currentSentenceIndex && isAudioPlaying ? (
-                  <>
-                    <Pause className="w-3.5 h-3.5 fill-current" />
-                    <span>Pause Sentence</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-                    <span>Play Sentence</span>
-                  </>
-                )}
-                {audioTimestamps && audioTimestamps[currentSentenceIndex] ? (
-                  <span className="text-[10px] opacity-85 font-mono ml-1">
-                    ({audioTimestamps[currentSentenceIndex].start.toFixed(2)}s - {audioTimestamps[currentSentenceIndex].end.toFixed(2)}s)
-                  </span>
-                ) : null}
-              </button>
-
-              {/* Show / Hide Translation Button */}
-              <button
-                onClick={() => handleToggleSentenceTranslation(currentSentenceIndex)}
-                className="flex items-center gap-1.5 text-[#3a92fb] hover:text-blue-600 text-xs font-semibold cursor-pointer transition ml-auto"
-              >
-                <Languages className="w-4 h-4" />
-                {revealedSentenceIndices.has(currentSentenceIndex) ? 'Hide Translation' : 'Show Translation'}
-              </button>
-
-              {revealedSentenceIndices.has(currentSentenceIndex) && (
-                <div className="w-full mt-1 text-gray-600 text-[15px] leading-relaxed border-t border-gray-50 pt-2">
-                  {isLoadingTranslation ? (
-                    <div className="h-5 bg-gray-200 animate-shimmer rounded w-2/3" />
-                  ) : (
-                    translationData[currentSentenceIndex] || 'Translation unavailable for this sentence.'
-                  )}
-                </div>
-              )}
-            </div>
-          )}
 
           {/* MORPHING PAGE DOTS FOR MOBILE/TABLET (< 1024px) */}
           <div className="flex lg:hidden w-full justify-center pb-4 shrink-0" dir="ltr">

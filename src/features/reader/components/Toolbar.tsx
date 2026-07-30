@@ -29,7 +29,7 @@ export default function Toolbar() {
 
     const audioRef = useRef<HTMLAudioElement>(null);
     const stopAtTimeRef = useRef<number | null>(null);
-    const lastTriggerIdRef = useRef<number | null>(null);
+    const lastTriggerIdRef = useRef<number | null>(useReaderStore.getState().sentenceAudioTrigger?.id ?? null);
     const [audioState, setAudioState] = useState<'stopped' | 'playing' | 'paused'>('stopped');
     const [playbackRate, setPlaybackRate] = useState(1);
     const [currentTime, setCurrentTime] = useState(0);
