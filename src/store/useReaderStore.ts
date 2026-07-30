@@ -257,6 +257,9 @@ interface ReaderState {
   setShowMargins: (show: boolean) => void;
   setLineGap: (gap: number) => void;
   setShowSettingsDrawer: (show: boolean) => void;
+
+  isLayoutReady: boolean;
+  setIsLayoutReady: (ready: boolean) => void;
 }
 
 export const useReaderStore = create<ReaderState>((set, get) => ({
@@ -899,7 +902,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   fetchLesson: async (lessonId: string) => {
-    set({ isLoadingLesson: true });
+    set({ isLoadingLesson: true, isLayoutReady: false });
     try {
       const data = await apiClient(`/lessons/${lessonId}`);
       const { tokens } = data as { tokens: Token[] };
@@ -949,6 +952,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           isAudioPlaying: false,
           sentenceAudioTrigger: null,
           currentPage: 0,
+          isLayoutReady: false,
           savedHighestTokenIndex: data.highestPageRead || 0,
           initialTokenIndex: data.highestPageRead || 0,
           selectedId: null,
@@ -1314,6 +1318,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       tokens,
       currentPage,
       activeLessonId,
+      isLayoutReady,
       sessionListeningTicks,
       sessionWordsRead,
       sessionDailyLingqs,
@@ -1323,6 +1328,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     if (tokens.length === 0) return;
     const targetId = lessonId || activeLessonId;
     if (!targetId) return;
+
+    if (!isLayoutReady && !isCompleted) return;
 
     const { columnMapping, readerMode, savedHighestTokenIndex } = get();
     let highestTokenIndex = savedHighestTokenIndex || 0;
@@ -1723,5 +1730,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   resetCompletion: () => set({ showSummary: false }),
+
+  isLayoutReady: false,
+  setIsLayoutReady: (ready) => set({ isLayoutReady: ready }),
 }));
 

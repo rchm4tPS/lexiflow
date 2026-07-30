@@ -138,7 +138,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     translationData, revealedSentenceIndices, isLoadingTranslation,
     fontSize, fontFamily, lineHeight, showMargins,
     showTranslation, setShowTranslation,
-    lineGap,
+    lineGap, isLayoutReady,
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
     lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
@@ -152,6 +152,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     showTranslation: state.showTranslation,         // <--- TAMBAHKAN INI JUGA
     setShowTranslation: state.setShowTranslation,   // <--- TAMBAHKAN INI JUGA
     lineGap: state.lineGap ?? 6,
+    isLayoutReady: state.isLayoutReady,
   })));
 
   const tokens = useReaderStore.getState().tokens;
@@ -449,6 +450,9 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         if (mappingChanged) {
           useReaderStore.getState().setPagination(totalSentencePages, sentenceMapping, targetSentencePage);
         }
+        if (!useReaderStore.getState().isLayoutReady) {
+          useReaderStore.getState().setIsLayoutReady(true);
+        }
         return;
       }
 
@@ -585,6 +589,9 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         useReaderStore.getState().setPagination(newTotalPages || 1, mapping, safePage);
       } else if (safePage !== useReaderStore.getState().currentPage) {
         useReaderStore.getState().setPage(safePage);
+      }
+      if (!useReaderStore.getState().isLayoutReady) {
+        useReaderStore.getState().setIsLayoutReady(true);
       }
     };
 
@@ -1313,10 +1320,15 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
         <div className={`flex flex-col mt-2 lg:mt-4 grow min-w-0 min-h-0 ${isRTL ? 'font-farsi-trad' : 'font-nunito'} relative bg-white rounded-md`}>
           <div className={`w-full min-h-0 overflow-hidden relative ${readerMode === 'sentence' ? 'shrink-0' : 'flex-1'} ${isRTL ? 'pt-3 lg:pt-5 pb-3 lg:pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pt-3 lg:pt-5 pb-3 lg:pb-6 px-3 lg:px-5'}`}>
+            {(!isLayoutReady || isLoadingLesson) && (
+              <div className="absolute inset-0 z-20 bg-white">
+                <ReaderSkeleton />
+              </div>
+            )}
             <div
               key={`reader-container-${showMargins}-${fontSize}-${fontFamily}-${lineHeight}-${lineGap}`}
               ref={scrollContainerRef}
-              className={`w-full ${readerMode === 'sentence' ? 'h-auto' : 'h-full'} text-gray-800 font-medium`}
+              className={`w-full ${readerMode === 'sentence' ? 'h-auto' : 'h-full'} text-gray-800 font-medium ${!isLayoutReady ? 'invisible' : 'visible'}`}
               style={{
                 direction: isRTL ? 'rtl' : 'ltr',
                 fontSize: `${fontSize}px`,
@@ -1330,17 +1342,13 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                 columnGap: '3rem',
                 columnFill: 'auto',
                 transform: readerMode === 'sentence' ? 'none' : `translateX(calc(${isRTL ? '' : '-'}${currentPage} * (100% + 3rem)))`,
-                transition: 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)',  // <--- TAMBAHKAN INI (Animasi Slide Mulus)
-                willChange: 'transform',                                      // <--- TAMBAHKAN INI (Akselerasi GPU)
+                transition: isLayoutReady ? 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)' : 'none',
+                willChange: 'transform',
               }}
               onMouseDown={handleMouseDown}
               onMouseUp={handleMouseUp}
             >
-              {isLoadingLesson ? (
-                <ReaderSkeleton />
-              ) : (
-                <>
-                  {renderedTree}
+              {renderedTree}
 
                   {/* SENTENCE VIEW: inline translation reveal directly below sentence text */}
                   {readerMode === 'sentence' && currentSentenceIndex !== null && (
@@ -1366,8 +1374,6 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                       )}
                     </div>
                   )}
-                </>
-              )}
             </div>
           </div>
 
