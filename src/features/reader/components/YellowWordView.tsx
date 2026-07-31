@@ -161,34 +161,49 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                 </button>
             </div>
 
-            <div className="flex flex-wrap mb-5 gap-2 items-center w-max">
+            <div className="flex flex-wrap mb-5 gap-2 items-center">
                 {tags.map(t => (
-                    <div key={t} className="group relative flex items-center bg-blue-50 border border-blue-200 text-blue-600 px-2 py-0.5 rounded text-xs font-bold transition">
+                    <div key={t} className="flex items-center gap-1 bg-blue-50 border border-blue-200 text-blue-600 px-2 py-0.5 rounded text-xs font-bold transition">
                         <span>{t.replace(/_/g, ' ')}</span>
                         <button
-                            onClick={() => handleRemoveTag(t)}
-                            className="ml-1.5 w-3.5 h-3.5 absolute -top-2 -left-3 rounded-full text-blue-400 hover:bg-blue-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleRemoveTag(t);
+                            }}
+                            className="ml-0.5 text-blue-400 hover:text-red-500 font-black cursor-pointer text-sm leading-none p-0.5 rounded hover:bg-blue-100 transition-colors"
+                            title={`Remove ${t} tag`}
                         >
                             ×
                         </button>
                     </div>
                 ))}
 
-                <div className="relative">
+                <form 
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        handleAddTag(tagInput);
+                    }}
+                    className="relative"
+                >
                     <div className="flex items-center bg-white border border-gray-200 rounded px-2 focus-within:border-blue-400 focus-within:ring-1 ring-blue-200 transition">
-                        <span className="text-gray-300 text-xs font-bold mr-1">+</span>
                         <input
                             type="text"
                             value={tagInput}
                             onChange={(e) => setTagInput(e.target.value.toLowerCase().replace(/\s+/g, '_'))}
                             onFocus={() => setShowTagDropdown(true)}
                             onBlur={() => setTimeout(() => setShowTagDropdown(false), 150)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleAddTag(tagInput);
-                            }}
                             placeholder="Add tag..."
                             className="text-xs font-bold text-gray-600 outline-none py-1 w-20 placeholder-gray-400 bg-transparent"
                         />
+                        <button
+                            type="submit"
+                            disabled={!tagInput.trim()}
+                            className="text-[#3890fc] hover:text-blue-600 disabled:text-gray-300 text-sm font-black ml-1 px-1.5 py-0.5 cursor-pointer disabled:cursor-default transition-colors"
+                            title="Add tag"
+                        >
+                            +
+                        </button>
                     </div>
 
                     {showTagDropdown && filteredTags.length > 0 && (
@@ -204,7 +219,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                             ))}
                         </div>
                     )}
-                </div>
+                </form>
             </div>
 
             <div className={`bg-white border rounded-md p-2 flex items-center shadow-sm mb-3 ${isIgnored ? 'opacity-50 border-gray-400' : 'border-yellow-300'}`}>

@@ -13,15 +13,15 @@ export default function Toolbar() {
     })));
     
     const reviewCount = useMemo(() => {
-        // Count of unique LingQs (stage 1, 2, 3) in the lesson
+        // Count of unique LingQs (stage 1, 2, 3, 4) in the lesson
         const uniqueLingQs = new Set(
             tokens
-                .filter(w => w.isLearnable && (w.stage ?? 0) > 0 && (w.stage ?? 0) < 4)
+                .filter(w => w.isLearnable && (w.stage ?? 0) >= 1 && (w.stage ?? 0) <= 4)
                 .map(w => w.text.toLowerCase())
         );
         const uniquePhrases = new Set(
             phrases
-                .filter(p => (p.stage ?? 0) > 0 && (p.stage ?? 0) < 4)
+                .filter(p => (p.stage ?? 0) >= 1 && (p.stage ?? 0) <= 4)
                 .map(p => p.text.toLowerCase())
         );
         return uniqueLingQs.size + uniquePhrases.size;

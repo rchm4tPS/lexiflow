@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { useReaderStore } from '../../../store/useReaderStore';
 import { useAuthStore } from '../../../store/useAuthStore';
@@ -13,26 +13,23 @@ interface LessonCardProps {
     onBookmark?: (id: string) => void;
 }
 
-export default function LessonCard({ lesson, isInsideCourse = false, onBookmark }: LessonCardProps) {
+export default function LessonCard({ lesson, isInsideCourse = false, onBookmark: _onBookmark }: LessonCardProps) {
+    const navigate = useNavigate();
     const { languageCode, deleteLesson } = useReaderStore();
     const { user } = useAuthStore();
     const [showMenu, setShowMenu] = useState(false);
     const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
-    const menuRef = useRef<HTMLDivElement>(null);
-    const buttonRef = useRef<HTMLButtonElement>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     const isOwner = Boolean(user?.id && lesson.owner_id && lesson.owner_id === user.id);
 
-    // Close menu when clicking outside — must exclude both the trigger button and the portalled dropdown
+    // Close menu when clicking outside — exclude trigger buttons with .three-dots-btn class
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             const target = event.target as Node;
-            const clickedInsideButton = menuRef.current?.contains(target);
-            const clickedInsideDropdown = dropdownRef.current?.contains(target);
-            if (!clickedInsideButton && !clickedInsideDropdown) {
-                setShowMenu(false);
-            }
+            if (dropdownRef.current?.contains(target)) return;
+            if ((target as HTMLElement).closest('.three-dots-btn')) return;
+            setShowMenu(false);
         }
         if (showMenu) {
             document.addEventListener("mousedown", handleClickOutside);
@@ -40,17 +37,24 @@ export default function LessonCard({ lesson, isInsideCourse = false, onBookmark 
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [showMenu]);
 
-    const toggleMenu = (e: React.MouseEvent) => {
+    const toggleMenu = (e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
         e.preventDefault();
-        if (!showMenu && buttonRef.current) {
-            const rect = buttonRef.current.getBoundingClientRect();
-            setMenuPos({
-                top: rect.bottom + window.scrollY + 4,
-                right: window.innerWidth - rect.right,
-            });
+        if (showMenu) {
+            setShowMenu(false);
+            return;
         }
-        setShowMenu(prev => !prev);
+        const btn = e.currentTarget;
+        if (btn) {
+            const rect = btn.getBoundingClientRect();
+            const dropdownHeight = 110;
+            const openAbove = rect.bottom + dropdownHeight > window.innerHeight;
+            setMenuPos({
+                top: openAbove ? Math.max(10, rect.top + window.scrollY - dropdownHeight) : rect.bottom + window.scrollY + 4,
+                right: Math.max(10, window.innerWidth - rect.right),
+            });
+            setShowMenu(true);
+        }
     };
 
     const handleDelete = async (e: React.MouseEvent) => {
@@ -93,111 +97,177 @@ export default function LessonCard({ lesson, isInsideCourse = false, onBookmark 
     const blueRemainingPct = 100 - completionPercentage;
 
     return (
-        <div className="flex gap-0 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow relative group overflow-visible">
-            {/* Thumbnail */}
-            <div className="w-40 h-40 shrink-0 bg-gradient-to-br from-blue-100 to-blue-200 overflow-hidden rounded-l-lg border-r border-gray-100">
-                {lesson.image_url
-                    ? <img src={lesson.image_url} className="w-full h-full object-cover" alt={lesson.title} />
-                    : <div className="w-full h-full flex items-center justify-center text-blue-400 text-3xl">📖</div>
-                }
-            </div>
-
-            {/* Content */}
-            <div className="flex flex-col flex-grow px-4 py-3 min-w-0 gap-2 overflow-visible">
-                {/* Bookmark button */}
-                {onBookmark && (
-                    <button
-                        onClick={(e) => { e.stopPropagation(); onBookmark(lesson.id); }}
-                        className={`text-2xl leading-none transition-colors  ml-auto ${lesson.is_bookmarked ? 'text-yellow-400' : 'text-gray-300 hover:text-yellow-400'}`}
-                        title={lesson.is_bookmarked ? 'Remove bookmark' : 'Bookmark lesson'}
-                    >
-                        {lesson.is_bookmarked ? '★' : '☆'}
-                    </button>
-                )}
-
-                {/* Top row: course title */}
-                <div className="flex justify-between items-start mb-0.5">
-                    <p className="text-xs text-[#3890fc] font-bold truncate">{lesson.course_title}</p>
-                    {isInsideCourse && <span />}
+        <div 
+            className="w-full max-w-full overflow-hidden flex flex-row bg-white border border-gray-200 rounded-xl hover:shadow-md transition-shadow relative group p-3 gap-3.5"
+        >
+            {/* ── MOBILE CARD LAYOUT (< 640px) ── */}
+            <div className="flex sm:hidden flex-row w-full gap-3">
+                {/* Thumbnail Cover */}
+                <div className="w-[72px] h-[72px] shrink-0 bg-gradient-to-br from-blue-100 to-blue-200 overflow-hidden rounded-lg border border-gray-100 relative aspect-square">
+                    {lesson.image_url
+                        ? <img src={lesson.image_url} className="w-full h-full object-cover" alt={lesson.title} />
+                        : <div className="w-full h-full flex items-center justify-center text-blue-400 text-2xl">📖</div>
+                    }
                 </div>
 
-                {/* Lesson title + Menu */}
-                <div className="flex justify-between items-start mb-auto">
-                    <h3 className="font-black text-gray-800 text-lg leading-tight truncate pr-2">{lesson.title}</h3>
-                    
-                    {/* Ellipsis Menu — button stays in-card, dropdown portalled to body */}
-                    {isOwner && (
-                        <div className="relative" ref={menuRef}>
-                            <button
-                                ref={buttonRef}
-                                onClick={toggleMenu}
-                                className={`text-gray-400 hover:text-[#3890fc] font-black text-xl p-1 leading-none transition-colors rounded-full w-8 h-8 flex items-center justify-center hover:bg-blue-50 ${showMenu ? 'text-[#3890fc] bg-blue-50' : ''}`}
-                            >
-                                ⋮
-                            </button>
-                            {showMenu && createPortal(
-                                <div
-                                    ref={dropdownRef}
-                                    style={{
-                                        position: 'absolute',
-                                        top: menuPos.top,
-                                        right: menuPos.right,
-                                        zIndex: 9999,
-                                    }}
-                                    className="bg-white border border-gray-200 rounded-md shadow-xl min-w-[140px] py-1 animate-in fade-in zoom-in duration-100 origin-top-right"
-                                >
-                                    <Link
-                                        to={`/me/${languageCode}/import/edit/${lesson.id}`}
-                                        className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-gray-600 hover:bg-gray-50 hover:text-[#3890fc] transition-colors"
-                                        onClick={() => setShowMenu(false)}
-                                    >
-                                        <span className="text-sm opacity-70">✏️</span> Edit Lesson
-                                    </Link>
-                                    <hr className="border-gray-50 my-1" />
-                                    <button
-                                        onClick={(e) => { setShowMenu(false); handleDelete(e); }}
-                                        className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-xs font-bold text-red-500 hover:bg-red-50 transition-colors"
-                                    >
-                                        <span className="text-sm opacity-70">🗑️</span> Delete Lesson
-                                    </button>
-                                </div>,
-                                document.body
+                {/* Content */}
+                <div className="flex flex-col flex-1 min-w-0 justify-between">
+                    <div className="flex items-start justify-between gap-1">
+                        <div className="min-w-0 flex-1">
+                            {!isInsideCourse && lesson.course_title && (
+                                <p className="text-[10px] text-gray-400 font-bold truncate leading-tight mb-0.5">{lesson.course_title}</p>
                             )}
+                            <h3 className="font-extrabold text-gray-800 text-sm leading-snug line-clamp-2 pr-1">{lesson.title}</h3>
                         </div>
-                    )}
-                </div>
 
-                {/* Bottom: stats + Open button */}
-                <div className="flex items-center justify-between mt-2 gap-2">
-                    <div className="flex items-center gap-2 text-xs font-bold text-gray-500 flex-wrap">
-                        <span className="flex items-center gap-1 bg-blue-50 text-blue-600 px-2 py-0.5 rounded">
-                            <span className="text-blue-400">■</span>
-                            {blueRemainingValue} <span className="text-blue-400">({blueRemainingPct}%)</span>
-                            <span className="text-blue-300 text-[10px]">●</span>
-                        </span>
-                        <span className="flex items-center gap-1">
-                            <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 inline-block" />
-                            {yellowLingQs}
-                        </span>
-                        {lesson.course_level && (
-                            <span className="text-gray-400">{lesson.course_level}</span>
-                        )}
-                        {lesson.is_completed && (
-                            <span className="bg-green-100 text-green-600 px-1.5 py-0.5 rounded text-[10px] font-bold">✓ Done</span>
+                        {/* Three Dots Button at top-right aligned with course title (OWNERS ONLY) */}
+                        {isOwner && (
+                            <div className="relative shrink-0 -mr-1 -mt-1">
+                                <button
+                                    onClick={toggleMenu}
+                                    className={`three-dots-btn text-gray-400 hover:text-[#3890fc] font-black text-sm px-1.5 py-0.5 leading-none transition-colors rounded-full flex items-center justify-center hover:bg-blue-50 cursor-pointer ${showMenu ? 'text-[#3890fc] bg-blue-50' : ''}`}
+                                    title="Options"
+                                >
+                                    •••
+                                </button>
+                            </div>
                         )}
                     </div>
 
-                    <Link
-                        to={`/me/${languageCode}/reader/${lesson.id}`}
-                        className={`shrink-0 font-bold px-5 py-1 rounded border-2 text-sm transition ${lesson.is_completed
-                            ? 'bg-[#3890fc] border-[#3890fc] text-white hover:bg-blue-600'
-                            : 'border-gray-300 text-gray-600 hover:border-[#3890fc] hover:text-[#3890fc]'
-                            }`}
-                    >
-                        {lesson.is_completed ? 'Review' : 'Open'}
-                    </Link>
+                    {/* Progress Bar */}
+                    <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden my-1">
+                        <div 
+                            className="bg-emerald-500 h-full rounded-full transition-all duration-300" 
+                            style={{ width: `${completionPercentage}%` }} 
+                        />
+                    </div>
+
+                    {/* Stats Row & Actions */}
+                    <div className="flex items-center justify-between text-[11px] font-bold text-gray-500 min-w-0">
+                        <div className="flex items-center gap-2">
+                            <span className="flex items-center gap-1 text-blue-500">
+                                <span className="w-2 h-2 bg-blue-400 rounded-xs shrink-0"></span>
+                                <span>{blueRemainingValue}</span>
+                                <span className="text-red-400 text-[9px]">({blueRemainingPct}%)</span>
+                            </span>
+
+                            <span className="flex items-center gap-1 text-amber-600">
+                                <span className="w-2 h-2 bg-amber-400 rounded-xs shrink-0"></span>
+                                <span>{yellowLingQs}</span>
+                            </span>
+                        </div>
+
+                        {/* Actions Row: Open Button */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); navigate(`/me/${languageCode}/reader/${lesson.id}`); }}
+                                className="bg-[#3890fc] text-white px-2.5 py-1 rounded-md font-bold text-[13px] shadow-2xs hover:bg-blue-600 transition-colors cursor-pointer"
+                            >
+                                Open
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
+
+
+            {/* ── DESKTOP CARD LAYOUT (>= 640px) ── */}
+            <div className="hidden sm:flex flex-row w-full gap-4 items-center relative">
+                {/* Thumbnail Cover */}
+                <div className="w-28 h-24 shrink-0 bg-gradient-to-br from-blue-100 to-blue-200 overflow-hidden rounded-lg border border-gray-100 relative">
+                    {lesson.image_url
+                        ? <img src={lesson.image_url} className="w-full h-full object-cover" alt={lesson.title} />
+                        : <div className="w-full h-full flex items-center justify-center text-blue-400 text-3xl">📖</div>
+                    }
+                </div>
+
+                {/* Main Metadata */}
+                <div className="flex flex-col flex-1 min-w-0 justify-between self-stretch py-0.5">
+                    <div>
+                        {!isInsideCourse && lesson.course_title && (
+                            <p className="text-xs text-blue-500 font-bold truncate mb-0.5 pr-8">{lesson.course_title}</p>
+                        )}
+                        <h3 className="font-extrabold text-gray-800 text-base leading-snug line-clamp-2 hover:text-[#3890fc] transition-colors">{lesson.title}</h3>
+                    </div>
+
+                    {/* Progress Bar for Desktop */}
+                    <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden my-1">
+                        <div 
+                            className="bg-emerald-500 h-full rounded-full transition-all duration-300" 
+                            style={{ width: `${completionPercentage}%` }} 
+                        />
+                    </div>
+
+                    {/* Desktop Stats Row (Visual Completion Badge!) */}
+                    <div className="flex items-center gap-3 text-xs font-bold text-gray-500">
+                        <span className="flex items-center gap-1.5 text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                            <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                            <span>{blueRemainingValue} new</span>
+                        </span>
+                        <span className="flex items-center gap-1.5 text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-100">
+                            <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
+                            <span>{yellowLingQs} LingQs</span>
+                        </span>
+                        <span className="flex items-center gap-1.5 text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-200/80 font-extrabold">
+                            <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
+                            <span>{completionPercentage}% completed</span>
+                        </span>
+                    </div>
+                </div>
+
+                {/* Right Action & Menu */}
+                <div className="flex items-center gap-2.5 shrink-0 self-end">
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); navigate(`/me/${languageCode}/reader/${lesson.id}`); }}
+                        className="bg-[#3890fc] text-white px-4 py-2 rounded-lg font-bold text-xs shadow-xs hover:bg-blue-600 transition-colors cursor-pointer"
+                    >
+                        Open Lesson
+                    </button>
+                </div>
+
+                {/* Three Dots Button at top-right aligned with course title (OWNERS ONLY) */}
+                {isOwner && (
+                    <div className="absolute top-0 right-0">
+                        <button
+                            onClick={toggleMenu}
+                            className={`three-dots-btn text-gray-400 hover:text-[#3890fc] font-black text-base px-2 py-0.5 leading-none transition-colors rounded-full flex items-center justify-center hover:bg-blue-50 cursor-pointer ${showMenu ? 'text-[#3890fc] bg-blue-50' : ''}`}
+                            title="Options"
+                        >
+                            •••
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* Portalled Dropdown (OWNERS ONLY) */}
+            {showMenu && isOwner && createPortal(
+                <div
+                    ref={dropdownRef}
+                    style={{
+                        position: 'absolute',
+                        top: menuPos.top,
+                        right: menuPos.right,
+                        zIndex: 9999,
+                    }}
+                    className="bg-white border border-gray-200 rounded-md shadow-xl min-w-[140px] py-1 animate-in fade-in zoom-in duration-100 origin-top-right font-bold text-xs"
+                >
+                    <Link
+                        to={`/me/${languageCode}/import/edit/${lesson.id}`}
+                        className="flex items-center gap-2 px-4 py-2.5 text-gray-600 hover:bg-gray-50 hover:text-[#3890fc] transition-colors"
+                        onClick={() => setShowMenu(false)}
+                    >
+                        <span className="text-sm opacity-70">✏️</span> Edit Lesson
+                    </Link>
+                    <hr className="border-gray-50 my-1" />
+                    <button
+                        onClick={(e) => { setShowMenu(false); handleDelete(e); }}
+                        className="flex items-center gap-2 w-full text-left px-4 py-2.5 text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                    >
+                        <span className="text-sm opacity-70">🗑️</span> Delete Lesson
+                    </button>
+                </div>,
+                document.body
+            )}
         </div>
     );
 }

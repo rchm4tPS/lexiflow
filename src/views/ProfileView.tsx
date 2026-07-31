@@ -142,32 +142,32 @@ export default function ProfileView() {
     const initial = (displayName || '?').trim().charAt(0).toUpperCase() || '?';
 
     return (
-        <div className="max-w-4xl mx-auto p-8 font-nunito">
-            <div className="bg-white rounded-xl shadow-lg p-8 mb-8 border border-gray-100">
-                <div className="flex items-center gap-6 mb-8">
-                    <span className="w-24 h-24 bg-blue-500 rounded-full flex items-center justify-center text-white text-4xl font-bold shadow-md">
+        <div className="max-w-4xl mx-auto p-3 sm:p-6 xl:p-8 font-nunito">
+            <div className="bg-white rounded-xl shadow-lg p-4 sm:p-8 mb-8 border border-gray-100">
+                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 mb-8 text-center sm:text-left">
+                    <span className="w-20 h-20 sm:w-24 sm:h-24 bg-blue-500 rounded-full flex items-center justify-center text-white text-3xl sm:text-4xl font-bold shadow-md shrink-0">
                         {initial}
                     </span>
-                    <div className=''>
-                        <span className="text-3xl font-black text-gray-800">{displayName}</span>
+                    <div className="flex flex-col justify-center">
+                        <span className="text-2xl sm:text-3xl font-black text-gray-800">{displayName}</span>
                         {displayUsername ? (
                             <span className="text-sm font-bold text-gray-400">{` (@${displayUsername})`}</span>
                         ) : null}
                         {user?.email ? (
-                            <p className="text-gray-500 font-medium">{user.email}</p>
+                            <p className="text-gray-500 font-medium text-sm sm:text-base mt-0.5">{user.email}</p>
                         ) : null}
                     </div>
-                    <div className="ml-auto">
+                    <div className="sm:ml-auto w-full sm:w-auto mt-2 sm:mt-0">
                         <button 
                             onClick={handleLogout}
-                            className="bg-red-50 text-red-600 px-6 py-2 rounded-full font-bold hover:bg-red-100 transition shadow-sm border border-red-100"
+                            className="w-full sm:w-auto bg-red-50 text-red-600 px-6 py-2.5 rounded-full font-bold hover:bg-red-100 transition shadow-sm border border-red-100 cursor-pointer"
                         >
                             Log Out
                         </button>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-12">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-8 sm:mb-12">
                     <StatCard label="Known Words" value={stats?.knownWords} color="text-green-600" />
                     <StatCard label="LingQs" value={stats?.totalLingQs} color="text-yellow-600" />
                     <StatCard label="Streak" value={`${stats?.totalStreaks || 0} days`} color="text-orange-600" />
@@ -176,7 +176,7 @@ export default function ProfileView() {
 
                 {/* --- MARKOV LEARNING DYNAMICS --- */}
                 {insights && (
-                    <div className="space-y-10 mb-12">
+                    <div className="space-y-6 sm:space-y-10 mb-8 sm:mb-12">
                         <MarkovInsightsCard 
                             title="Word Learning Dynamics" 
                             insights={insights.vocab} 
@@ -191,9 +191,9 @@ export default function ProfileView() {
                     </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="bg-gray-50 rounded-xl p-6 border border-gray-100 shadow-inner">
-                        <h2 className="text-xl font-black mb-4 text-gray-700">Last 7 Days</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8">
+                    <div className="bg-gray-50 rounded-xl p-4 sm:p-6 border border-gray-100 shadow-inner">
+                        <h2 className="text-lg sm:text-xl font-black mb-3 sm:mb-4 text-gray-700">Last 7 Days</h2>
                         <div className="space-y-3">
                             <SmallStat label="New LingQs" value={totals7d.created} />
                             <SmallStat label="Known Words" value={totals7d.learned} />
@@ -202,8 +202,8 @@ export default function ProfileView() {
                         </div>
                     </div>
 
-                    <div className="bg-gray-50 rounded-xl p-6 border border-gray-100 shadow-inner">
-                        <h2 className="text-xl font-black mb-4 text-gray-700">Last 30 Days</h2>
+                    <div className="bg-gray-50 rounded-xl p-4 sm:p-6 border border-gray-100 shadow-inner">
+                        <h2 className="text-lg sm:text-xl font-black mb-3 sm:mb-4 text-gray-700">Last 30 Days</h2>
                         <div className="space-y-3">
                             <SmallStat label="New LingQs" value={totals30d.created} />
                             <SmallStat label="Known Words" value={totals30d.learned} />
@@ -214,13 +214,13 @@ export default function ProfileView() {
                 </div>
 
                 {/* --- DANGER ZONE --- */}
-                <div className="mt-12 pt-8 border-t border-red-100">
-                    <h3 className="text-lg font-black text-red-900 mb-2">Danger Zone</h3>
-                    <p className="text-sm text-red-500 mb-6 font-bold">Reset all your progress, words, and history for your current target language. Irreversible action.</p>
+                <div className="mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-red-100">
+                    <h3 className="text-base sm:text-lg font-black text-red-900 mb-1 sm:mb-2">Danger Zone</h3>
+                    <p className="text-xs sm:text-sm text-red-500 mb-4 sm:mb-6 font-bold">Reset all your progress, words, and history for your current target language. Irreversible action.</p>
                     
                     <button 
                         onClick={handleResetLanguageData}
-                        className="bg-white text-red-600 border border-red-200 px-6 py-3 rounded-xl font-black hover:bg-red-50 transition shadow-sm flex items-center gap-2 group"
+                        className="w-full sm:w-auto bg-white text-red-600 border border-red-200 px-6 py-3 rounded-xl font-black hover:bg-red-50 transition shadow-sm flex items-center justify-center gap-2 group cursor-pointer"
                     >
                         <span className="group-hover:animate-pulse text-xl">☢️</span>
                         Reset {languageCode?.toUpperCase()} Progress

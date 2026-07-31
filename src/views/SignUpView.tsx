@@ -1,3 +1,4 @@
+// TODO: [RESPONSIVE] Halaman SignUpView belum di-responsivekan untuk layar mobile/tablet.
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';

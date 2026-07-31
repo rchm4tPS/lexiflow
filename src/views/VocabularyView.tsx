@@ -4,7 +4,6 @@ import { useLocation } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { useReaderStore } from '../store/useReaderStore';
 import VocabToolbar from '../features/vocabulary/components/VocabToolbar';
-import VocabTabs from '../features/vocabulary/components/VocabTabs';
 import VocabTable from '../features/vocabulary/components/VocabTable';
 
 type VocabItem = {
@@ -22,10 +21,12 @@ export default function VocabularyView() {
     const location = useLocation();
 
     const pathParts = location.pathname.split('/');
-    const activeTab = pathParts[4] === 'phrases' ? 'Phrases' : 'All';
+    const [activeTab, setActiveTab] = useState<'Words' | 'Phrases'>(pathParts[4] === 'phrases' ? 'Phrases' : 'Words');
 
     const [items, setItems] = useState<VocabItem[]>([]);
     const [total, setTotal] = useState(0);
+    const [wordsTotal, setWordsTotal] = useState(0);
+    const [phrasesTotal, setPhrasesTotal] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
 
     const [limit, setLimit] = useState(25);
@@ -51,7 +52,7 @@ export default function VocabularyView() {
         if (!languageCode) return;
         setIsLoading(true);
         try {
-            const endpoint = activeTab === 'All' ? '/vocab/list' : '/phrases/list';
+            const endpoint = activeTab === 'Words' ? '/vocab/list' : '/phrases/list';
             const url = `${endpoint}?lang=${languageCode}&page=${page}&limit=${limit}&sortBy=${sortBy}&search=${encodeURIComponent(debouncedSearch)}`;
             const result = await apiClient(url);
             
@@ -79,6 +80,20 @@ export default function VocabularyView() {
 
             setItems(mappedData);
             setTotal(result.total || 0);
+
+            if (activeTab === 'Words') {
+                setWordsTotal(result.total || 0);
+                // Fetch phrases total for badge when on Words tab
+                apiClient(`/phrases/list?lang=${languageCode}&limit=1`)
+                    .then(res => setPhrasesTotal(res.total || 0))
+                    .catch(() => {});
+            } else {
+                setPhrasesTotal(result.total || 0);
+                // Fetch words total for badge when on Phrases tab
+                apiClient(`/vocab/list?lang=${languageCode}&limit=1`)
+                    .then(res => setWordsTotal(res.total || 0))
+                    .catch(() => {});
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -106,7 +121,7 @@ export default function VocabularyView() {
 
     const handleDelete = async () => {
         if (!selectedIds.length) return;
-        const endpoint = activeTab === 'All' ? '/vocab' : '/phrases';
+        const endpoint = activeTab === 'Words' ? '/vocab' : '/phrases';
         try {
             await apiClient(endpoint, {
                 method: 'DELETE',
@@ -114,7 +129,7 @@ export default function VocabularyView() {
             });
             setSelectedIds([]);
             fetchData();
-            if (activeTab === 'All') {
+            if (activeTab === 'Words') {
                 recalculateStats();
             }
         } catch (err) {
@@ -135,7 +150,7 @@ export default function VocabularyView() {
         updateDailyStats({ created: lingqDelta, learned: knownDelta });
 
         try {
-            if (activeTab === 'All') {
+            if (activeTab === 'Words') {
                 await apiClient('/vocab/upsert', {
                     method: 'POST',
                     body: JSON.stringify({
@@ -158,7 +173,7 @@ export default function VocabularyView() {
                     })
                 });
             }
-            if (activeTab === 'All') {
+            if (activeTab === 'Words') {
                 recalculateStats();
                 syncTokenStage(item.word, newStage, item.meaning || '');
             } else {
@@ -177,7 +192,7 @@ export default function VocabularyView() {
         setItems(prev => prev.map(i => i.id === item.id ? { ...i, meaning: editMeaning } : i));
 
         try {
-            if (activeTab === 'All') {
+            if (activeTab === 'Words') {
                 await apiClient('/vocab/upsert', {
                     method: 'POST',
                     body: JSON.stringify({
@@ -200,13 +215,13 @@ export default function VocabularyView() {
                     })
                 });
             }
-            if (activeTab === 'All') {
+            if (activeTab === 'Words') {
                 syncTokenStage(item.word, item.stage, editMeaning);
             } else {
                 syncPhraseStage(item.id, item.stage, editMeaning);
             }
         } catch (err) {
-            console.error("Failed to update meaning", err);
+            console.error("Failed to save edit", err);
             fetchData();
         }
     };
@@ -214,21 +229,23 @@ export default function VocabularyView() {
     const totalPages = Math.ceil(total / limit);
 
     return (
-        <div className="flex flex-col w-full bg-white rounded-b-lg shadow-sm min-h-150 p-6">
-            <VocabToolbar 
-                limit={limit} setLimit={setLimit}
-                sortBy={sortBy} setSortBy={setSortBy}
-                searchInput={searchInput} setSearchInput={setSearchInput}
-                page={page} setPage={setPage} totalPages={totalPages}
-                selectedCount={selectedIds.length}
-                onDelete={handleDelete}
-            />
-
-            <VocabTabs 
-                languageCode={languageCode} 
-                activeTab={activeTab as 'Phrases' | 'All'} 
-                onTabChange={() => setPage(1)} 
-            />
+        <div className="flex flex-col w-full bg-white rounded-none sm:rounded-xl shadow-sm min-h-120 p-0 sm:p-6 pb-24 sm:pb-8 border-x-0 sm:border-x border-gray-200">
+            <div className="sticky top-0 z-40 sm:relative w-full bg-white">
+                <VocabToolbar 
+                    limit={limit} setLimit={setLimit}
+                    sortBy={sortBy} setSortBy={setSortBy}
+                    searchInput={searchInput} setSearchInput={setSearchInput}
+                    page={page} setPage={setPage} totalPages={totalPages}
+                    selectedCount={selectedIds.length}
+                    onDelete={handleDelete}
+                    total={total}
+                    wordsTotal={wordsTotal}
+                    phrasesTotal={phrasesTotal}
+                    activeTab={activeTab}
+                    onTabChange={(tab) => { setActiveTab(tab); setPage(1); }}
+                    onClearSelection={() => setSelectedIds([])}
+                />
+            </div>
 
             <VocabTable 
                 items={items}
@@ -243,6 +260,7 @@ export default function VocabularyView() {
                 onStartEditing={(it) => { setEditingId(it.id); setEditMeaning(it.meaning || ''); }}
                 onSetEditMeaning={setEditMeaning}
                 onSaveEdit={handleSaveEdit}
+                onClearSelection={() => setSelectedIds([])}
             />
         </div>
     );

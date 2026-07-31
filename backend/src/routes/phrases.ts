@@ -20,7 +20,7 @@ router.get('/list', authenticate, async (req: AuthRequest, res) => {
 
     let whereClause = and(
       eq(userPhrases.user_id, userId),
-      eq(userPhrases.language_code, String(lang))
+      sql`LOWER(${userPhrases.language_code}) = LOWER(${String(lang)})`
     );
 
     if (search) {

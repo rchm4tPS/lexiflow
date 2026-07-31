@@ -1,3 +1,4 @@
+// TODO: [RESPONSIVE] Sub-tab LingQ Import belum responsive untuk layar mobile/tablet.
 import { useState } from 'react';
 import Swal from 'sweetalert2';
 import { useReaderStore } from '../../../store/useReaderStore';
@@ -200,7 +201,11 @@ export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImp
             
             {/* Import Progress Overlay */}
             {isImporting && (
-                <div className="absolute inset-0 bg-black/60 z-50 flex items-center justify-center p-8 backdrop-blur-sm">
+                <div 
+                    className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-8 backdrop-blur-sm touch-none overscroll-none"
+                    style={{ touchAction: 'none' }}
+                    onTouchMove={(e) => e.preventDefault()}
+                >
                     <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full flex flex-col items-center">
                         <Loader className="animate-spin text-orange-500 mb-4" size={48} />
                         <h3 className="text-xl font-black text-gray-800 mb-2">Importing Lessons</h3>

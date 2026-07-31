@@ -1255,6 +1255,10 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         activeCourseDetails: state.activeCourseDetails
           ? {
             ...state.activeCourseDetails,
+            course: {
+              ...state.activeCourseDetails.course,
+              lesson_count: Math.max(0, (state.activeCourseDetails.course.lesson_count || 1) - 1),
+            },
             lessons: state.activeCourseDetails.lessons?.filter((l: Lesson) => l.id !== lessonId) || []
           }
           : null
@@ -1317,49 +1321,84 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         .trim();
     }
 
+    // Optimistic UI Update: Render phrase immediately in React state (0ms delay)
+    const tempId = `temp_phrase_${Date.now()}`;
+    const tempDbPhrase: DbPhrase = {
+      id: tempId,
+      phrase_text: exactText.toLowerCase(),
+      meaning: meaning || '',
+      user_meaning: meaning || '',
+      stage: 1,
+    };
+
+    const optimisticDbPhrases = [...(state.dbPhrases || []), tempDbPhrase];
+    const optimisticPhraseInstances = buildPhraseInstances(state.tokens, optimisticDbPhrases);
+    const optimisticSelectedInstance = optimisticPhraseInstances.find(p =>
+      p.dbId === tempId && p.range.includes(firstWordId)
+    );
+    const optimisticPhraseMap = { ...state.phraseMap };
+    optimisticPhraseInstances.forEach(p => { optimisticPhraseMap[p.id] = p; });
+
+    set({
+      dbPhrases: optimisticDbPhrases,
+      phrases: optimisticPhraseInstances,
+      phraseMap: optimisticPhraseMap,
+      draftPhraseRange: null,
+      selectedId: optimisticSelectedInstance ? optimisticSelectedInstance.id : null,
+      totalCoins: state.totalCoins + 5,
+      lessonStructureHash: Date.now(),
+    });
+
+    get().updateDailyStats({ created: 1 });
+
+    // Background Async API Sync
     try {
       const res = await apiClient('/phrases', {
         method: 'POST',
         body: JSON.stringify({
           phrase_text: exactText,
           meaning: meaning,
-          user_meaning: meaning, // Keep for API compatibility
+          user_meaning: meaning,
           language_code: state.languageCode,
           related_phrase_occur: relatedPhraseOccur,
-          notes: meaning ? "" : undefined // Optional: ensure notes field is initialized if needed
+          notes: meaning ? "" : undefined
         })
       });
 
-      if (!res.phrase || !res.phrase.id) {
-        return;
+      if (res.phrase && res.phrase.id) {
+        // Swap temp phrase with real DB phrase
+        const currentDbPhrases = get().dbPhrases.map(p => p.id === tempId ? res.phrase : p);
+        const finalPhraseInstances = buildPhraseInstances(get().tokens, currentDbPhrases);
+        const finalSelectedInstance = finalPhraseInstances.find(p =>
+          p.dbId === res.phrase.id && p.range.includes(firstWordId)
+        );
+        const finalPhraseMap: Record<string, Phrase> = {};
+        finalPhraseInstances.forEach(p => { finalPhraseMap[p.id] = p; });
+
+        set(s => ({
+          dbPhrases: currentDbPhrases,
+          phrases: finalPhraseInstances,
+          phraseMap: finalPhraseMap,
+          selectedId: s.selectedId?.startsWith(tempId) ? (finalSelectedInstance?.id || s.selectedId) : s.selectedId,
+          lessonStructureHash: Date.now(),
+        }));
       }
-
-      const updatedDbPhrases = [...(state.dbPhrases || []), res.phrase];
-      const newPhraseInstances = buildPhraseInstances(state.tokens, updatedDbPhrases);
-
-      const selectedInstance = newPhraseInstances.find(p =>
-        p.dbId === res.phrase.id && p.range.includes(firstWordId)
-      );
-
-      const newPhraseMap = { ...state.phraseMap };
-      newPhraseInstances.forEach(p => { newPhraseMap[p.id] = p; });
-
-      set({
-        dbPhrases: updatedDbPhrases,
-        phrases: newPhraseInstances,
-        phraseMap: newPhraseMap,
-        draftPhraseRange: null,
-        selectedId: selectedInstance ? selectedInstance.id : null,
-        totalCoins: state.totalCoins + 5,
-        lessonStructureHash: Date.now(),
-      });
-
-      // Increment daily LingQ count for the new phrase
-      get().updateDailyStats({ created: 1 });
-
     } catch (err) {
-      console.error("Failed to save phrase", err);
-      set({ draftPhraseRange: null });
+      console.error("Failed to save phrase to server", err);
+      // Revert optimistic update on error
+      const revertedDbPhrases = get().dbPhrases.filter(p => p.id !== tempId);
+      const revertedInstances = buildPhraseInstances(get().tokens, revertedDbPhrases);
+      const revertedMap: Record<string, Phrase> = {};
+      revertedInstances.forEach(p => { revertedMap[p.id] = p; });
+
+      set(s => ({
+        dbPhrases: revertedDbPhrases,
+        phrases: revertedInstances,
+        phraseMap: revertedMap,
+        totalCoins: Math.max(0, s.totalCoins - 5),
+        selectedId: s.selectedId?.startsWith(tempId) ? null : s.selectedId,
+        lessonStructureHash: Date.now(),
+      }));
     }
   },
 

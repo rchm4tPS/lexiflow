@@ -52,6 +52,11 @@
     from { opacity: 1; }
     to { opacity: 0; }
   }
+  @keyframes chartLabelFadeIn {
+    0% { opacity: 0; }
+    50% { opacity: 0; }
+    100% { opacity: 1; }
+  }
 }
 
 #root {

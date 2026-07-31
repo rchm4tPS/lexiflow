@@ -103,8 +103,40 @@ export default function ReaderView() {
         };
     }, [showTranslation, dragY]);
 
+    useEffect(() => {
+        if (isLoadingLesson || !lessonStructureHash) {
+            document.documentElement.style.overflow = 'hidden';
+            document.documentElement.style.height = '100%';
+            document.body.style.overflow = 'hidden';
+            document.body.style.height = '100%';
+            document.body.style.touchAction = 'none';
+        } else {
+            document.documentElement.style.overflow = '';
+            document.documentElement.style.height = '';
+            document.body.style.overflow = '';
+            document.body.style.height = '';
+            document.body.style.touchAction = '';
+        }
+        return () => {
+            document.documentElement.style.overflow = '';
+            document.documentElement.style.height = '';
+            document.body.style.overflow = '';
+            document.body.style.height = '';
+            document.body.style.touchAction = '';
+        };
+    }, [isLoadingLesson, lessonStructureHash]);
+
     if (isLoadingLesson || !lessonStructureHash) {
-        return <div className="h-full flex items-center justify-center font-bold text-gray-400">Loading Lesson Content...</div>;
+        return (
+            <div 
+                className="fixed inset-0 z-[100] bg-[#f3f4f6] flex flex-col items-center justify-center font-black text-gray-500 text-base sm:text-lg select-none touch-none overscroll-none"
+                style={{ touchAction: 'none' }}
+                onTouchMove={(e) => e.preventDefault()}
+            >
+                <div className="w-10 h-10 border-4 border-gray-200 border-t-[#3890fc] rounded-full animate-spin mb-3" />
+                <span>Loading Lesson Content...</span>
+            </div>
+        );
     }
 
     return (

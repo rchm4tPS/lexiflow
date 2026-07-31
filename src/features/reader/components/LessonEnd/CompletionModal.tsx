@@ -1,3 +1,4 @@
+// TODO: [RESPONSIVE] Modal CompletionModal belum di-responsivekan untuk layar mobile/tablet.
 import { createPortal } from 'react-dom';
 import { useReaderStore } from '../../../../store/useReaderStore';
 

@@ -14,6 +14,7 @@ export default function DailyGoalWidget() {
 
     const activeTier = getTier(dailyGoalTier);
     const [timeframe, setTimeframe] = useState<'today' | '7d' | '30d'>('today');
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
     // Countdown to Midnight
     const [timeLeft, setTimeLeft] = useState("");
@@ -102,24 +103,33 @@ export default function DailyGoalWidget() {
                     <p className="text-xs font-bold text-gray-400 uppercase tracking-tight -mt-1">known words</p>
                 </div>
 
-                <div className="relative group w-full px-4">
-                    <div className="border border-gray-200 rounded px-3 py-1.5 flex justify-between items-center text-[11px] font-bold text-gray-500 bg-white cursor-pointer hover:border-gray-300">
+                <div className="relative w-full px-4">
+                    <button 
+                        type="button"
+                        onClick={() => setIsDropdownOpen(prev => !prev)}
+                        className="w-full border border-gray-200 rounded px-3 py-1.5 flex justify-between items-center text-[11px] font-bold text-gray-500 bg-white cursor-pointer hover:border-gray-300 shadow-xs"
+                    >
                         <span className="capitalize">{timeframe === '7d' ? 'last 7 days' : timeframe === '30d' ? 'last month' : 'today'}</span>
-                        <span className="text-[8px]">▼</span>
-                    </div>
+                        <span className={`text-[8px] transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`}>▼</span>
+                    </button>
                     
                     {/* Dropdown Menu */}
-                    <div className="absolute top-full left-4 right-4 bg-white border border-gray-200 rounded shadow-lg hidden group-hover:block z-20">
-                        {(['today', '7d', '30d'] as const).map(tf => (
-                            <div 
-                                key={tf}
-                                onClick={() => setTimeframe(tf)}
-                                className="px-3 py-2 text-[11px] font-bold text-gray-600 hover:bg-gray-50 cursor-pointer border-b last:border-0 border-gray-100 capitalize"
-                            >
-                                {tf === '7d' ? 'last 7 days' : tf === '30d' ? 'last month' : 'today'}
-                            </div>
-                        ))}
-                    </div>
+                    {isDropdownOpen && (
+                        <div className="absolute top-full left-4 right-4 bg-white border border-gray-200 rounded shadow-lg z-30 mt-1">
+                            {(['today', '7d', '30d'] as const).map(tf => (
+                                <div 
+                                    key={tf}
+                                    onClick={() => {
+                                        setTimeframe(tf);
+                                        setIsDropdownOpen(false);
+                                    }}
+                                    className="px-3 py-2 text-[11px] font-bold text-gray-600 hover:bg-gray-50 cursor-pointer border-b last:border-0 border-gray-100 capitalize"
+                                >
+                                    {tf === '7d' ? 'last 7 days' : tf === '30d' ? 'last month' : 'today'}
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
 

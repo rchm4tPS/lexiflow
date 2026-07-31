@@ -1,27 +1,9 @@
 export function extractSentencesFromText(text: string): string[] {
   if (!text || !text.trim()) return [];
-  const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
-  const result: string[] = [];
-
-  for (const line of lines) {
-    const sentenceRegex = /[^.!?。！？؟؛]+[.!?。！？؟؛]+/g;
-    const matches = line.match(sentenceRegex);
-
-    if (matches && matches.length > 0) {
-      let reconstructedLength = 0;
-      for (const match of matches) {
-        result.push(match.trim());
-        reconstructedLength += match.length;
-      }
-      if (reconstructedLength < line.length) {
-        const remainder = line.slice(reconstructedLength).trim();
-        if (remainder) result.push(remainder);
-      }
-    } else {
-      result.push(line.trim());
-    }
-  }
-  return result;
+  return text
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line.length > 0);
 }
 
 export function assignSentencePageIndexToTokens<T extends { text: string; isNewline?: boolean; sentencePageIndex?: number }>(

@@ -1,3 +1,4 @@
+// TODO: [RESPONSIVE] Halaman Edit Lesson belum responsive untuk layar mobile/tablet.
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useReaderStore } from '../store/useReaderStore';

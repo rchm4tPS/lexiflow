@@ -140,6 +140,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     fontSize, fontFamily, lineHeight, showMargins,
     showTranslation, setShowTranslation,
     lineGap, isLayoutReady, activeLessonOwnerId,
+    tokens, phrases,
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
     lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
@@ -150,18 +151,17 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     isStatsLoading: state.isStatsLoading, lessonAudio: state.lessonAudio, toggleSidebar: state.toggleSidebar, isSidebarVisible: state.isSidebarVisible,
     translationData: state.translationData, revealedSentenceIndices: state.revealedSentenceIndices, isLoadingTranslation: state.isLoadingTranslation,
     fontSize: state.fontSize, fontFamily: state.fontFamily, lineHeight: state.lineHeight, showMargins: state.showMargins,
-    showTranslation: state.showTranslation,         // <--- TAMBAHKAN INI JUGA
-    setShowTranslation: state.setShowTranslation,   // <--- TAMBAHKAN INI JUGA
+    showTranslation: state.showTranslation,
+    setShowTranslation: state.setShowTranslation,
     lineGap: state.lineGap ?? 6,
     isLayoutReady: state.isLayoutReady,
     activeLessonOwnerId: state.activeLessonOwnerId,
+    tokens: state.tokens,
+    phrases: state.phrases,
   })));
 
   const { user } = useAuthStore();
   const isOwner = Boolean(user?.id && activeLessonOwnerId && activeLessonOwnerId === user.id);
-
-  const tokens = useReaderStore.getState().tokens;
-  const phrases = useReaderStore.getState().phrases;
   const location = useLocation();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -385,15 +385,15 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   // → browser never re-lays-out → ghost columns persist).
   // const layoutChangedRef = React.useRef(false);
 
-  // Count of unique LingQs (stage 1, 2, 3) in the lesson
+  // Count of unique LingQs (stage 1, 2, 3, 4) in the lesson
   const uniqueLingQs = new Set(
     tokens
-      .filter(w => w.isLearnable && (w.stage ?? 0) > 0 && (w.stage ?? 0) < 4)
+      .filter(w => w.isLearnable && (w.stage ?? 0) >= 1 && (w.stage ?? 0) <= 4)
       .map(w => w.text.toLowerCase())
   );
   const uniquePhrases = new Set(
     phrases
-      .filter(p => (p.stage ?? 0) > 0 && (p.stage ?? 0) < 4)
+      .filter(p => (p.stage ?? 0) >= 1 && (p.stage ?? 0) <= 4)
       .map(p => p.text.toLowerCase())
   );
   const reviewCount = uniqueLingQs.size + uniquePhrases.size;
@@ -1016,7 +1016,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   // If complete, show the full-width Summary View
   if (showSummary) {
     return (
-      <div className="w-full bg-white h-full">
+      <div className="w-full bg-white h-full overflow-y-auto">
         <SummaryView />
       </div>
     );

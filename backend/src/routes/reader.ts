@@ -137,8 +137,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
     let [userProgress] = await db.select().from(userLessonProgress)
       .where(and(eq(userLessonProgress.lesson_id, String(lessonId)), eq(userLessonProgress.user_id, userId)));
 
-    // Update: Record visit time ONLY if progress sync happens, not on initial fetch
-    // If no progress row exists yet, create one (e.g. from feed) with null last_read_at
+    // Record visit time when user opens lesson in reader
     if (!userProgress) {
       [userProgress] = await db.insert(userLessonProgress).values({
         user_id: userId,
@@ -146,7 +145,13 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
         new_words_count: lesson.unique_words || 0,
         lingqs_count: 0,
         known_words_count: 0,
+        last_read_at: new Date(),
       }).returning();
+    } else if (!userProgress.last_read_at) {
+      await db.update(userLessonProgress)
+        .set({ last_read_at: new Date() })
+        .where(eq(userLessonProgress.id, userProgress.id));
+      userProgress.last_read_at = new Date();
     }
 
     let parsedAudioTimestamps = null;

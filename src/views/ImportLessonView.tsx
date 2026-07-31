@@ -1,3 +1,4 @@
+// TODO: [RESPONSIVE] Halaman Import Lesson belum responsive (termasuk layout tab, padding, dan susunan elemen di viewport mobile/tablet).
 import { useEffect, useState } from 'react';
 import { useReaderStore } from '../store/useReaderStore';
 import CreateCourseModal from '../features/import/components/CreateCourseModal';

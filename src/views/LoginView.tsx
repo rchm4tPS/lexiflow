@@ -1,3 +1,4 @@
+// TODO: [RESPONSIVE] Halaman LoginView belum di-responsivekan untuk layar mobile/tablet.
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';

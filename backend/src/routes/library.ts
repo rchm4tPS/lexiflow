@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/index.js';
 import { courses, lessons, userCourses, userLessonProgress, lessonContent, userVocabRelation, masterVocab, userLanguages, users } from '../db/schema.js';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
-import { eq, and, sql, notInArray, inArray, like, isNotNull, or } from 'drizzle-orm';
+import { eq, and, sql, notInArray, inArray, like, isNotNull, isNull, or } from 'drizzle-orm';
 import { LingqImportService } from '../services/lingq.service.js';
 import { LEVELS } from '../constants/levels.js';
 
@@ -110,13 +110,6 @@ router.get('/feed/:langCode', authenticate, async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Valid language code is required' });
     }
 
-    // Find all course IDs the user is already enrolled in
-    const enrolledCourses = await db.select({ course_id: userCourses.course_id })
-      .from(userCourses)
-      .where(eq(userCourses.user_id, userId));
-
-    const enrolledCourseIds = enrolledCourses.map(e => e.course_id);
-
     const { search, minLevel, maxLevel } = req.query;
     const searchPattern = search ? `%${String(search).toLowerCase()}%` : null;
 
@@ -130,7 +123,7 @@ router.get('/feed/:langCode', authenticate, async (req: AuthRequest, res) => {
       allowedLevels = LEVELS.slice(Math.min(startIdx, endIdx), Math.max(startIdx, endIdx) + 1);
     }
 
-    // Build the lesson feed, excluding lessons from enrolled courses
+    // Build the lesson feed, excluding individual lessons the user has already opened/started
     const feedQuery = db.select({
       id: lessons.id,
       title: lessons.title,
@@ -154,7 +147,10 @@ router.get('/feed/:langCode', authenticate, async (req: AuthRequest, res) => {
     ))
     .where(and(
       eq(courses.language_code, lang),
-      enrolledCourseIds.length > 0 ? notInArray(lessons.course_id, enrolledCourseIds) : sql`1=1`,
+      or(
+        isNull(userLessonProgress.id),
+        isNull(userLessonProgress.last_read_at)
+      ),
       searchPattern ? like(sql`lower(${lessons.title})`, searchPattern) : sql`1=1`,
       allowedLevels.length > 0 ? inArray(courses.level, allowedLevels) : sql`1=1`
     ));
@@ -217,16 +213,13 @@ router.get('/my-lessons', authenticate, async (req: AuthRequest, res) => {
       lingq_id: lessons.lingq_id,
       owner_id: courses.owner_id,
     })
-    .from(userCourses)
-    .innerJoin(courses, eq(userCourses.course_id, courses.id))
-    .innerJoin(lessons, eq(courses.id, lessons.course_id))
-    .leftJoin(userLessonProgress, and(
-      eq(userLessonProgress.lesson_id, lessons.id),
-      eq(userLessonProgress.user_id, userId)
-    ))
+    .from(userLessonProgress)
+    .innerJoin(lessons, eq(userLessonProgress.lesson_id, lessons.id))
+    .innerJoin(courses, eq(lessons.course_id, courses.id))
     .where(and(
+      eq(userLessonProgress.user_id, userId),
       eq(courses.language_code, String(lang)),
-      eq(userCourses.user_id, userId),
+      isNotNull(userLessonProgress.last_read_at),
       searchPattern ? like(sql`lower(${lessons.title})`, searchPattern) : sql`1=1`
     ));
 

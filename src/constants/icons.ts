@@ -15,7 +15,8 @@ import {
   TrendingUp,
   History,
   Archive,
-  Star
+  Star,
+  X
 } from 'lucide-react';
 
 export const Icons = {
@@ -35,5 +36,6 @@ export const Icons = {
   TrendingUp,
   History,
   Archive,
-  Star
+  Star,
+  X
 };

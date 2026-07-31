@@ -117,7 +117,7 @@ export default function LevelRangeDropdown() {
             <button
                 type="button"
                 onClick={() => setIsOpen(prev => !prev)}
-                className="border border-yellow-400 rounded w-fit mt-2 px-3 py-2 leading-[18px] text-sm font-bold text-gray-700 bg-white shadow-sm cursor-pointer hover:bg-yellow-50/60 transition-colors flex items-center gap-2 whitespace-nowrap"
+                className="border border-yellow-400 rounded-lg w-fit h-[38px] px-3 py-2 leading-[18px] text-sm font-bold text-gray-700 bg-white shadow-sm cursor-pointer hover:bg-yellow-50/60 transition-colors flex items-center gap-2 whitespace-nowrap"
             >
                 <span>{LEVELS[minLevelIndex]} - {LEVELS[maxLevelIndex]}</span>
                 <span className={`text-xs text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}>▼</span>
@@ -125,7 +125,7 @@ export default function LevelRangeDropdown() {
 
             {/* Popover Dropdown */}
             {isOpen && (
-                <div className="absolute left-0 top-full mt-2 w-84 bg-white border border-gray-200 rounded-xl shadow-xl p-5 z-50 animate-in fade-in zoom-in duration-100 font-nunito">
+                <div className="absolute right-0 top-full mt-2 w-80 sm:w-84 max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-xl shadow-xl p-4 sm:p-5 z-50 animate-in fade-in zoom-in duration-100 font-nunito">
                     <div className="flex justify-between items-center mb-1">
                         <span className="text-xs font-black text-gray-400 uppercase tracking-wider">Level Range Filter</span>
                         <button 
