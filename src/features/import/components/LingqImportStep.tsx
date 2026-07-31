@@ -295,7 +295,12 @@ export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImp
                                     <img src={course.image || 'https://via.placeholder.com/150'} alt={course.title} className="w-14 h-14 rounded-lg object-cover" />
                                     <div className="flex-1 min-w-0">
                                         <h3 className="font-black text-gray-800 text-base truncate">{course.title}</h3>
-                                        <div className="flex items-center gap-3 mt-1">
+                                        {course.description && (
+                                            <p className="text-xs text-gray-500 line-clamp-2 mt-0.5 leading-snug">
+                                                {course.description}
+                                            </p>
+                                        )}
+                                        <div className="flex items-center gap-3 mt-1.5">
                                             <span className="bg-gray-100 text-gray-600 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">
                                                 {course.level || 'Unknown Level'}
                                             </span>
@@ -327,6 +332,9 @@ export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImp
                                                 {(lessonsByCourse[course.id] || []).slice(0, (pagesByCourse[course.id] || 1) * 10).map(lesson => {
                                                     const isImported = existingLingqIds.has(lesson.id);
                                                     const isSelected = selectedLessons.some(l => l.lessonId === lesson.id);
+                                                    const hasAudio = !!(lesson.audio || lesson.audio_url || lesson.has_audio);
+                                                    const wordCount = lesson.new_word_count ?? lesson.newWordsCount ?? lesson.new_words_count ?? lesson.wordsCount ?? lesson.wordCount;
+                                                    const formattedDuration = lesson.duration > 0 ? `${Math.floor(lesson.duration / 60).toString().padStart(2, '0')}:${Math.floor(lesson.duration % 60).toString().padStart(2, '0')}` : null;
                                                     
                                                     return (
                                                         <label 
@@ -347,7 +355,30 @@ export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImp
                                                                     {lesson.title}
                                                                     {isImported && <span className="bg-green-100 text-green-700 text-[10px] px-1.5 rounded uppercase tracking-wider">Imported</span>}
                                                                 </div>
-                                                                <div className="text-xs text-gray-500 truncate mt-0.5">{lesson.description || 'No description'}</div>
+                                                                {lesson.description && (
+                                                                    <div className="text-xs text-gray-500 truncate mt-0.5">{lesson.description}</div>
+                                                                )}
+                                                                <div className="flex items-center gap-2 mt-1.5 flex-wrap text-[11px] font-semibold">
+                                                                    <span className={`px-1.5 py-0.5 rounded flex items-center gap-1 ${
+                                                                        hasAudio 
+                                                                            ? 'bg-blue-50 text-blue-600 border border-blue-100' 
+                                                                            : 'bg-gray-100 text-gray-400'
+                                                                    }`}>
+                                                                        {hasAudio ? '🎵 Audio Available' : '🚫 No Audio'}
+                                                                    </span>
+
+                                                                    {wordCount !== undefined && (
+                                                                        <span className="bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded">
+                                                                            ⚡ {wordCount} words
+                                                                        </span>
+                                                                    )}
+
+                                                                    {formattedDuration && (
+                                                                        <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-mono">
+                                                                            ⏱ {formattedDuration}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         </label>
                                                     );

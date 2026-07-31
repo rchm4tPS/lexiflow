@@ -27,7 +27,7 @@ export default function ManualImportForm({ languageCode, allCourses, onShowCours
     const [isPublic, setIsPublic] = useState(false);
     const [originalUrl, setOriginalUrl] = useState('');
     const [isSaving, setIsSaving] = useState(false);
-    const [activeTab, setActiveTab] = useState<'title-text' | 'resources' | 'clips'>('title-text');
+    const [activeTab, setActiveTab] = useState<'title-text' | 'timestamps' | 'resources' | 'clips'>('title-text');
 
     // Lesson image
     const [lessonImageFile, setLessonImageFile] = useState<File | null>(null);

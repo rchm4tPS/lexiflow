@@ -191,9 +191,17 @@ export class LingqImportService {
 
     const result = await this.getOrFetchTranslation(lessonData.lingq_id, lessonData.language_code);
 
-    await db.update(lessonContent)
-      .set({ audio_timestamps: result.timestamps })
+    // Only set default audio_timestamps if lesson_content currently has no timestamps,
+    // preserving any user-customized edits!
+    const [content] = await db.select({ audio_timestamps: lessonContent.audio_timestamps })
+      .from(lessonContent)
       .where(eq(lessonContent.lesson_id, lessonDbId));
+
+    if (!content?.audio_timestamps) {
+      await db.update(lessonContent)
+        .set({ audio_timestamps: result.timestamps })
+        .where(eq(lessonContent.lesson_id, lessonDbId));
+    }
 
     return result;
   }

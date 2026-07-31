@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { LEVELS } from '../../../constants/levels';
-
+import AudioTimestampEditor, { type TimestampEntry } from './AudioTimestampEditor';
+import { useReaderStore } from '../../../store/useReaderStore';
 import type { Course } from '../../../types/reader';
 
 interface LessonFormProps {
@@ -7,8 +9,8 @@ interface LessonFormProps {
     setTitle: (title: string) => void;
     text: string;
     setText: (text: string) => void;
-    activeTab: 'title-text' | 'resources' | 'clips';
-    setActiveTab: (tab: 'title-text' | 'resources' | 'clips') => void;
+    activeTab: 'title-text' | 'timestamps' | 'resources' | 'clips';
+    setActiveTab: (tab: 'title-text' | 'timestamps' | 'resources' | 'clips') => void;
     currentLang: { name: string; countryCode: string };
     selectedLevel: string;
     setSelectedLevel: (level: string) => void;
@@ -17,6 +19,9 @@ interface LessonFormProps {
     allCourses: Course[];
     onShowCourseModal?: () => void;
     isEditMode?: boolean;
+    audioSrc?: string | null;
+    audioTimestamps?: TimestampEntry[];
+    setAudioTimestamps?: (timestamps: TimestampEntry[]) => void;
 }
 
 export default function LessonForm({
@@ -24,27 +29,49 @@ export default function LessonForm({
     activeTab, setActiveTab,
     currentLang, selectedLevel, setSelectedLevel,
     selectedCourseId, setSelectedCourseId,
-    allCourses, onShowCourseModal, isEditMode = false
+    allCourses, onShowCourseModal, isEditMode = false,
+    audioSrc,
+    audioTimestamps = [],
+    setAudioTimestamps = () => {}
 }: LessonFormProps) {
+    const isRTL = useReaderStore(state => state.isRTL);
+    const hasAudio = !!audioSrc;
+    const [editorFontSize, setEditorFontSize] = useState<number>(16);
+    const [editorFontFamily, setEditorFontFamily] = useState<string>('default');
+
+    const activeFontStyle = {
+        fontSize: `${editorFontSize}px`,
+        ...(editorFontFamily !== 'default' ? { fontFamily: editorFontFamily } : {})
+    };
+
     return (
         <div className="flex flex-col flex-grow min-h-[520px]">
             {/* Tabs */}
             <div className="flex gap-5 border-b border-gray-200 px-6 pt-3">
-                {(['title-text', 'resources', 'clips'] as const).map((tab) => (
-                    <button
-                        key={tab}
-                        onClick={() => setActiveTab(tab)}
-                        className={`pb-3 text-sm font-bold capitalize transition-colors border-b-2 -mb-px ${
-                            activeTab === tab ? 'border-gray-800 text-gray-800' : 'border-transparent text-gray-400 hover:text-gray-600'
-                        }`}
-                    >
-                        {tab === 'title-text' ? 'Title & Text' : tab.charAt(0).toUpperCase() + tab.slice(1)}
-                    </button>
-                ))}
+                {(['title-text', 'timestamps', 'resources', 'clips'] as const).map((tab) => {
+                    const isDisabled = tab === 'timestamps' && !hasAudio;
+                    return (
+                        <button
+                            key={tab}
+                            onClick={() => !isDisabled && setActiveTab(tab)}
+                            disabled={isDisabled}
+                            title={isDisabled ? "No audio attached to this lesson" : ""}
+                            className={`pb-3 text-sm font-bold capitalize transition-colors border-b-2 -mb-px ${
+                                activeTab === tab 
+                                    ? 'border-gray-800 text-gray-800' 
+                                    : isDisabled 
+                                        ? 'border-transparent text-gray-300 cursor-not-allowed' 
+                                        : 'border-transparent text-gray-400 hover:text-gray-600'
+                            }`}
+                        >
+                            {tab === 'title-text' ? 'Title & Text' : tab === 'timestamps' ? 'Audio Timestamps' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                        </button>
+                    );
+                })}
             </div>
 
             {/* Metadata Bar */}
-            <div className="flex items-center gap-2 px-6 py-3 border-b border-gray-100">
+            <div className="flex items-center gap-2 px-6 py-3 border-b border-gray-100 flex-wrap">
                 {/* Language (Read-only) */}
                 <div className="border border-gray-300 rounded px-2 py-1.5 text-xs text-gray-700 bg-gray-100 flex items-center gap-1.5 min-w-[110px] cursor-default">
                     <div className="w-5 h-4 rounded-sm overflow-hidden shrink-0 flex items-center justify-center">
@@ -68,7 +95,7 @@ export default function LessonForm({
                 </select>
 
                 {/* Course Select */}
-                <div className="flex items-center gap-1 flex-grow">
+                <div className="flex items-center gap-1 flex-grow min-w-[150px]">
                     <select
                         value={selectedCourseId}
                         onChange={(e) => setSelectedCourseId(e.target.value)}
@@ -88,36 +115,97 @@ export default function LessonForm({
                         </button>
                     )}
                 </div>
+
+                {/* Session Font Family Selector */}
+                <select
+                    value={editorFontFamily}
+                    onChange={(e) => setEditorFontFamily(e.target.value)}
+                    className="border border-gray-300 rounded px-2 py-1 bg-gray-50 text-xs text-gray-700 outline-none shrink-0"
+                    title="Select font family for editing session"
+                >
+                    <option value="default">Default Font</option>
+                    <option value="'Nunito', sans-serif">Sans-Serif (Nunito)</option>
+                    <option value="ui-serif, Georgia, serif">Serif</option>
+                    <option value="ui-monospace, SFMono-Regular, monospace">Monospace</option>
+                    <option value="'Parastoo', 'Tahoma', serif">Parastoo (Arabic/Farsi)</option>
+                    <option value="'LingqFont', serif">Traditional Farsi</option>
+                </select>
+
+                {/* Session Font Size Adjuster */}
+                <div className="flex items-center gap-1 border border-gray-300 rounded px-2 py-1 bg-gray-50 text-xs text-gray-700 shrink-0">
+                    <span className="font-bold text-gray-500 mr-1 select-none">Aa</span>
+                    <button
+                        type="button"
+                        onClick={() => setEditorFontSize(prev => Math.max(12, prev - 2))}
+                        className="w-5 h-5 flex items-center justify-center bg-white border border-gray-200 rounded font-bold hover:bg-gray-100 transition cursor-pointer"
+                        title="Decrease text size"
+                    >
+                        -
+                    </button>
+                    <span className="font-mono text-xs font-bold w-8 text-center select-none">{editorFontSize}px</span>
+                    <button
+                        type="button"
+                        onClick={() => setEditorFontSize(prev => Math.min(36, prev + 2))}
+                        className="w-5 h-5 flex items-center justify-center bg-white border border-gray-200 rounded font-bold hover:bg-gray-100 transition cursor-pointer"
+                        title="Increase text size"
+                    >
+                        +
+                    </button>
+                </div>
             </div>
 
             {/* Content Area */}
-            {activeTab === 'title-text' ? (
-                <>
-                    <div className="px-6 pt-4">
-                        <input
-                            type="text"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            placeholder="Type the Title of your Lesson..."
-                            className="w-full text-xl font-bold text-gray-700 outline-none pb-2 border-b border-gray-100 focus:border-[#3890fc] transition-colors bg-transparent"
-                            autoFocus={!isEditMode}
-                        />
-                    </div>
-
-                    <div className="flex-grow px-6 pt-3 pb-4">
-                        <textarea
-                            value={text}
-                            onChange={(e) => setText(e.target.value)}
-                            placeholder="Type the lesson text here..."
-                            className="w-full h-full min-h-[200px] resize-none outline-none text-sm text-gray-600 leading-relaxed bg-transparent"
-                        />
-                    </div>
-                </>
-            ) : (
-                <div className="flex-grow flex items-center justify-center text-gray-400 italic">
-                    {activeTab} content coming soon...
+            <div className={activeTab === 'title-text' ? 'flex flex-col flex-grow' : 'hidden'}>
+                <div className="px-6 pt-4">
+                    <input
+                        type="text"
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        dir={isRTL ? 'rtl' : 'ltr'}
+                        placeholder="Type the Title of your Lesson..."
+                        className={`w-full text-xl font-bold text-gray-700 outline-none pb-2 border-b border-gray-100 focus:border-[#3890fc] transition-colors bg-transparent ${
+                            isRTL && editorFontFamily === 'default' ? 'font-farsi-trad text-right' : (isRTL ? 'text-right' : 'text-left')
+                        }`}
+                        autoFocus={!isEditMode}
+                    />
                 </div>
-            )}
+
+                <div className="flex-grow px-6 pt-3 pb-4">
+                    <textarea
+                        value={text}
+                        onChange={(e) => setText(e.target.value)}
+                        dir={isRTL ? 'rtl' : 'ltr'}
+                        style={activeFontStyle}
+                        placeholder="Type the lesson text here..."
+                        className={`w-full h-full min-h-[200px] resize-none outline-none text-gray-600 leading-relaxed bg-transparent ${
+                            isRTL && editorFontFamily === 'default' ? 'font-farsi-trad text-right' : (isRTL ? 'text-right' : 'text-left')
+                        }`}
+                    />
+                </div>
+            </div>
+
+            <div className={activeTab === 'timestamps' ? 'flex-grow p-6 flex flex-col' : 'hidden'}>
+                {hasAudio ? (
+                    <AudioTimestampEditor
+                        audioSrc={audioSrc || null}
+                        text={text}
+                        onTextChange={setText}
+                        timestamps={audioTimestamps}
+                        onTimestampsChange={setAudioTimestamps}
+                        editorFontSize={editorFontSize}
+                        editorFontFamily={editorFontFamily}
+                        isRTL={isRTL}
+                    />
+                ) : (
+                    <div className="flex-grow flex flex-col items-center justify-center text-gray-400 p-8 border-2 border-dashed border-gray-200 rounded-xl">
+                        <span className="text-3xl mb-2">🎵</span>
+                        <p className="font-bold text-sm text-gray-600 mb-1">No Audio Attached</p>
+                        <p className="text-xs text-gray-400 text-center max-w-sm">
+                            Attach an audio file or audio URL in the sidebar to enable audio timestamp alignment for this lesson.
+                        </p>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

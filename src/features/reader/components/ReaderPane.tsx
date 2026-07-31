@@ -1,7 +1,7 @@
 import React, { type ReactNode, useRef, useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import Swal from 'sweetalert2';
-import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settings, ChevronLeft, ChevronRight, X, SquarePen } from 'lucide-react';
+import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settings, ChevronLeft, ChevronRight, X, SquarePen, Play, Pause } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
 import { apiClient } from '../../../api/client';
@@ -38,6 +38,87 @@ const ReaderSkeleton = () => {
   );
 };
 
+const SentenceAudioButton = React.memo(function SentenceAudioButton({ currentSentenceIndex, compact = false }: { currentSentenceIndex: number; compact?: boolean }) {
+  const isAudioPlaying = useReaderStore(state => state.isAudioPlaying);
+  const playingSentenceIndex = useReaderStore(state => state.playingSentenceIndex);
+  const lessonAudio = useReaderStore(state => state.lessonAudio);
+  const audioTimestamps = useReaderStore(state => state.audioTimestamps);
+  const playSentenceAudio = useReaderStore(state => state.playSentenceAudio);
+  const stopSentenceAudio = useReaderStore(state => state.stopSentenceAudio);
+
+  const isPlayingCurrent = playingSentenceIndex === currentSentenceIndex && isAudioPlaying;
+
+  if (compact) {
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!lessonAudio) return;
+          if (isPlayingCurrent) {
+            stopSentenceAudio();
+          } else {
+            playSentenceAudio(currentSentenceIndex);
+          }
+        }}
+        disabled={!lessonAudio}
+        className={`inline-flex items-center gap-1 mx-2 px-2.5 py-0.5 rounded-full text-xs font-bold shadow-sm transition align-middle cursor-pointer border ${
+          !lessonAudio
+            ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+            : isPlayingCurrent
+            ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+            : 'bg-[#3a92fb] text-white border-blue-600 hover:bg-blue-600'
+        }`}
+        title={lessonAudio ? "Play Audio for this Sentence" : "No Audio Attached"}
+      >
+        {isPlayingCurrent ? (
+          <Pause className="w-3 h-3 fill-current" />
+        ) : (
+          <Play className="w-3 h-3 fill-current ml-0.5" />
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => {
+        if (!lessonAudio) return;
+        if (isPlayingCurrent) {
+          stopSentenceAudio();
+        } else {
+          playSentenceAudio(currentSentenceIndex);
+        }
+      }}
+      disabled={!lessonAudio}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-bold text-xs shadow-sm transition cursor-pointer border ${
+        !lessonAudio
+          ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+          : isPlayingCurrent
+          ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+          : 'bg-[#3a92fb] text-white border-blue-600 hover:bg-blue-600'
+      }`}
+      title={lessonAudio ? "Play Audio for this Sentence" : "No Audio Attached"}
+    >
+      {isPlayingCurrent ? (
+        <>
+          <Pause className="w-3.5 h-3.5 fill-current" />
+          <span>Pause Sentence</span>
+        </>
+      ) : (
+        <>
+          <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+          <span>Play Sentence</span>
+        </>
+      )}
+      {audioTimestamps && audioTimestamps[currentSentenceIndex] ? (
+        <span className="text-[10px] opacity-85 font-mono ml-1">
+          ({audioTimestamps[currentSentenceIndex].start.toFixed(2)}s - {audioTimestamps[currentSentenceIndex].end.toFixed(2)}s)
+        </span>
+      ) : null}
+    </button>
+  );
+});
+
 interface ReaderPaneProps {
   courseId?: string | null;
   courseTitle: string;
@@ -57,7 +138,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     translationData, revealedSentenceIndices, isLoadingTranslation,
     fontSize, fontFamily, lineHeight, showMargins,
     showTranslation, setShowTranslation,
-    lineGap
+    lineGap, isLayoutReady,
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
     lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
@@ -71,12 +152,32 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     showTranslation: state.showTranslation,         // <--- TAMBAHKAN INI JUGA
     setShowTranslation: state.setShowTranslation,   // <--- TAMBAHKAN INI JUGA
     lineGap: state.lineGap ?? 6,
+    isLayoutReady: state.isLayoutReady,
   })));
 
   const tokens = useReaderStore.getState().tokens;
   const phrases = useReaderStore.getState().phrases;
   const location = useLocation();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Save progress on unmount or hard refresh / browser window close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const { activeLessonId, syncLessonProgress } = useReaderStore.getState();
+      if (activeLessonId) {
+        syncLessonProgress(activeLessonId);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handleBeforeUnload);
+      handleBeforeUnload();
+    };
+  }, []);
 
   // --- STABLE CALLBACKS FOR WORD TOKENS ---
   const handleWordClick = React.useCallback((tokenId: string, e: React.MouseEvent) => {
@@ -253,6 +354,24 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   // --- NEW: CSS Columns Dynamic Layout State ---
   const anchorTokenRef = useRef<string | null>(null);
   const [columnWidthPx, setColumnWidthPx] = React.useState(0);
+  const isFirstLayoutCompleteRef = useRef(false);
+
+  // Reset initial transition flag when lesson changes or starts loading
+  useEffect(() => {
+    if (isLoadingLesson || !isLayoutReady) {
+      isFirstLayoutCompleteRef.current = false;
+    }
+  }, [isLoadingLesson, isLayoutReady, activeLessonId]);
+
+  // Enable smooth CSS transitions only after initial page restoration has committed
+  useEffect(() => {
+    if (isLayoutReady && !isFirstLayoutCompleteRef.current) {
+      const raf = requestAnimationFrame(() => {
+        isFirstLayoutCompleteRef.current = true;
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [isLayoutReady]);
   // Track previous layout settings to detect changes that require a re-measurement
   // const layoutSettingsRef = React.useRef({ showMargins, fontSize, fontFamily, lineHeight });
   // When a layout-affecting setting changes we need to force-reflow CSS multi-column.
@@ -276,12 +395,24 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
   // Update anchor token and mark as read when page changes
   React.useLayoutEffect(() => {
-    if (initialTokenIndex !== null) return;
+    console.log('[ReaderPane:PageChangeEffect]', {
+      currentPage,
+      initialTokenIndex,
+      isLayoutReady,
+      hasTokensOnPage: !!columnMapping[currentPage],
+      tokensOnPageCount: columnMapping[currentPage]?.length || 0,
+      firstTokenOnPage: columnMapping[currentPage]?.[0] || null
+    });
+    if (initialTokenIndex !== null || !isLayoutReady) {
+      console.log('[ReaderPane:PageChangeEffect] Skipped markTokensAsRead because layout is not ready or initialTokenIndex is pending:', { initialTokenIndex, isLayoutReady });
+      return;
+    }
     if (columnMapping[currentPage] && columnMapping[currentPage].length > 0) {
       anchorTokenRef.current = columnMapping[currentPage][0];
+      console.log('[ReaderPane:PageChangeEffect] Set anchorTokenRef:', anchorTokenRef.current, 'and marking tokens as read');
       useReaderStore.getState().markTokensAsRead(columnMapping[currentPage]);
     }
-  }, [currentPage, columnMapping, initialTokenIndex]);
+  }, [currentPage, columnMapping, initialTokenIndex, isLayoutReady]);
 
   // Measurement Engine
   // --- FINAL OPTIMIZED MEASUREMENT ENGINE WITH ANCHOR PRESERVATION ---
@@ -292,14 +423,14 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
     // 1. Capture user's currently visible anchor token before layout recalculation
     const stateBefore = useReaderStore.getState();
-    const currentVisibleToken =
-      stateBefore.columnMapping[stateBefore.currentPage]?.[0] || anchorTokenRef.current;
-
-    if (currentVisibleToken) {
-      anchorTokenRef.current = currentVisibleToken;
+    if (stateBefore.initialTokenIndex !== null && stateBefore.tokens[stateBefore.initialTokenIndex]) {
+      anchorTokenRef.current = stateBefore.tokens[stateBefore.initialTokenIndex].id;
+    } else if (!anchorTokenRef.current && stateBefore.columnMapping[stateBefore.currentPage]?.[0]) {
+      anchorTokenRef.current = stateBefore.columnMapping[stateBefore.currentPage][0];
     }
 
-    const measure = (_caller = 'unknown') => {
+    const measure = (_reason = 'unknown') => {
+      const container = scrollContainerRef.current;
       if (!container) return;
 
       const containerRect = container.getBoundingClientRect();
@@ -309,6 +440,44 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
       if (columnWidthPx === 0 && availableWidth > 0) {
         setColumnWidthPx(availableWidth);
+      }
+
+      const { readerMode: currentReaderMode, tokens: allTokens } = useReaderStore.getState();
+
+      // IN SENTENCE VIEW: Pagination is strictly 1 sentence per page (matches audio timestamps 1-to-1)
+      if (currentReaderMode === 'sentence') {
+        const sentenceMapping: Record<number, string[]> = {};
+        allTokens.forEach(t => {
+          const sIdx = t.sentencePageIndex ?? 0;
+          if (!sentenceMapping[sIdx]) sentenceMapping[sIdx] = [];
+          sentenceMapping[sIdx].push(t.id);
+        });
+        const totalSentencePages = Object.keys(sentenceMapping).length || 1;
+        const currentMapping = useReaderStore.getState().columnMapping;
+        const currentPages = useReaderStore.getState().totalPages;
+
+        const { initialTokenIndex, setInitialTokenIndex, currentPage } = useReaderStore.getState();
+        let targetSentencePage = currentPage;
+
+        if (initialTokenIndex !== null && initialTokenIndex >= 0 && initialTokenIndex < allTokens.length) {
+          const tok = allTokens[initialTokenIndex];
+          if (tok && tok.sentencePageIndex !== undefined) {
+            targetSentencePage = tok.sentencePageIndex;
+          }
+          setInitialTokenIndex(null);
+        }
+
+        const mappingChanged =
+          totalSentencePages !== currentPages ||
+          Object.keys(sentenceMapping).length !== Object.keys(currentMapping).length ||
+          targetSentencePage !== currentPage;
+
+        if (mappingChanged) {
+          useReaderStore.getState().setPagination(totalSentencePages, sentenceMapping, targetSentencePage);
+        }
+        if (!useReaderStore.getState().isLayoutReady) {
+          useReaderStore.getState().setIsLayoutReady(true);
+        }
         return;
       }
 
@@ -343,8 +512,6 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
       // Restore transform
       container.style.transform = origTransform;
-
-      const { tokens: allTokens } = useReaderStore.getState();
 
       const tokenToPage: Record<string, number> = {};
       for (const [col, ids] of Object.entries(mapping)) {
@@ -398,16 +565,43 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       let newColForAnchor = -1;
       const { initialTokenIndex, tokens: storeTokens, setInitialTokenIndex } = useReaderStore.getState();
 
+      const candidateTokenIds: string[] = [];
       if (initialTokenIndex !== null && initialTokenIndex >= 0 && initialTokenIndex < storeTokens.length) {
-        const targetTokenId = storeTokens[initialTokenIndex].id;
-        for (const [col, ids] of Object.entries(mapping)) {
-          if (ids.includes(targetTokenId)) { newColForAnchor = parseInt(col); break; }
+        for (let i = initialTokenIndex; i < Math.min(initialTokenIndex + 20, storeTokens.length); i++) {
+          if (!storeTokens[i].isNewline && storeTokens[i].text?.trim()) {
+            candidateTokenIds.push(storeTokens[i].id);
+          }
         }
+      }
+      if (anchorTokenRef.current) {
+        candidateTokenIds.push(anchorTokenRef.current);
+      }
+
+      for (const targetId of candidateTokenIds) {
+        for (const [col, ids] of Object.entries(mapping)) {
+          if (ids.includes(targetId)) {
+            newColForAnchor = parseInt(col);
+            break;
+          }
+        }
+        if (newColForAnchor !== -1) break;
+      }
+
+      const isFontLoading = Boolean(document.fonts && document.fonts.status === 'loading');
+
+      if (newColForAnchor !== -1 && initialTokenIndex !== null && columnWidthPx > 0 && !isFontLoading) {
         setInitialTokenIndex(null);
-      } else if (anchorTokenRef.current) {
-        for (const [col, ids] of Object.entries(mapping)) {
-          if (ids.includes(anchorTokenRef.current)) { newColForAnchor = parseInt(col); break; }
-        }
+      }
+
+      // 3. Smoothly navigate user to the exact new page of their anchor token (clamped to max pages)
+      const targetPage = newColForAnchor !== -1
+        ? Math.min(newColForAnchor, newTotalPages - 1)
+        : Math.min(useReaderStore.getState().currentPage, newTotalPages - 1);
+
+      const safePage = Math.max(0, targetPage);
+
+      if (mapping[safePage] && mapping[safePage].length > 0) {
+        anchorTokenRef.current = mapping[safePage][0];
       }
 
       const currentTotalPages = useReaderStore.getState().totalPages;
@@ -422,18 +616,31 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             ids.some((id, i) => id !== currentColumnMapping[Number(key)]?.[i])
         );
 
+      console.log(`[ReaderPane:MeasurementEngine:${_reason}]`, {
+        availableWidth,
+        freshContainerWidth: freshContainerRect.width,
+        columnWidthAndGap,
+        initialTokenIndex: useReaderStore.getState().initialTokenIndex,
+        anchorToken: anchorTokenRef.current,
+        totalDOMTokensFound: tokenNodes.length,
+        newTotalPages,
+        newColForAnchor,
+        targetPage,
+        safePage,
+        currentPageInStore: useReaderStore.getState().currentPage,
+        mappingChanged,
+        pageMappingCounts: Object.fromEntries(
+          Object.entries(mapping).map(([page, ids]) => [page, ids.length])
+        )
+      });
+
       if (mappingChanged) {
-        useReaderStore.getState().setPagination(newTotalPages || 1, mapping);
-      }
-
-      // 3. Smoothly navigate user to the exact new page of their anchor token (clamped to max pages)
-      const targetPage = newColForAnchor !== -1
-        ? Math.min(newColForAnchor, newTotalPages - 1)
-        : Math.min(useReaderStore.getState().currentPage, newTotalPages - 1);
-
-      const safePage = Math.max(0, targetPage);
-      if (safePage !== useReaderStore.getState().currentPage) {
+        useReaderStore.getState().setPagination(newTotalPages || 1, mapping, safePage);
+      } else if (safePage !== useReaderStore.getState().currentPage) {
         useReaderStore.getState().setPage(safePage);
+      }
+      if (!useReaderStore.getState().isLayoutReady && columnWidthPx > 0 && !isFontLoading) {
+        useReaderStore.getState().setIsLayoutReady(true);
       }
     };
 
@@ -748,6 +955,59 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   };
 
 
+  const stillHasBlueWords = useReaderStore(state => state.tokens.some(w => w.isLearnable && (w.stage ?? 0) === 0));
+
+  // Sentence View: currentSentenceIndex is strictly 1-to-1 with currentPage
+  const currentSentenceIndex = React.useMemo(() => {
+    if (readerMode !== 'sentence') return null;
+    return currentPage;
+  }, [readerMode, currentPage]);
+
+  const renderedTree = React.useMemo(() => {
+    if (isLoadingLesson || tokens.length === 0) return null;
+
+    const displayTokens = readerMode === 'sentence' && currentSentenceIndex !== null
+      ? tokens.filter(t => t.sentencePageIndex === currentSentenceIndex)
+      : tokens;
+
+    const showHeaderBox = readerMode === 'sentence' ? currentPage === 0 : true;
+
+    return (
+      <>
+        {showHeaderBox && (
+          <div className={`hidden xl:flex mb-2 lg:mb-4 mt-1 lg:mt-2 ${isRTL ? 'border-b' : ''}`} style={{ breakInside: 'avoid' }}>
+            <div className={`rounded-lg ${lessonImg ? '' : ' bg-gradient-to-tr from-green-200 to-blue-300'} w-24 h-24 lg:w-32.5 lg:h-35 content-center text-center shrink-0`}>
+              {
+                !lessonImg
+                  ? <div className="w-full h-full flex items-center justify-center text-blue-400 text-4xl lg:text-6xl">📖</div>
+                  : <img className="object-cover rounded-lg w-full h-full" src={lessonImg} />
+              }
+            </div>
+            <div className={`flex-col p-2 lg:p-3 max-w-[80%] ${isRTL ? 'border-gray-400 xl:h-38' : ''}`}>
+              {courseId ? (
+                <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</Link>
+              ) : (
+                <p className="text-[#4F8EF8] text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</p>
+              )}
+              <p className={`text-[#454646] text-[20px] lg:text-[30px] font-extrabold line-clamp-2 ${isRTL ? 'leading-normal' : 'leading-tight'} lg:leading-13`}>{lessonTitle}</p>
+            </div>
+          </div>
+        )}
+        <div className="inline">
+          {renderTree(displayTokens, phrases, true)}
+          {readerMode === 'sentence' && lessonAudio && currentSentenceIndex !== null && (
+            <SentenceAudioButton currentSentenceIndex={currentSentenceIndex} compact={true} />
+          )}
+        </div>
+      </>
+    );
+  }, [
+    lessonStructureHash, courseId, languageCode, courseTitle, lessonImg, lessonTitle, 
+    isRTL, handleWordClick, handlePhraseClick, readerMode, currentPage, currentSentenceIndex, draftPhraseRange, isLoadingLesson,
+    showMargins, fontSize, fontFamily, lineHeight, // <--- PASTIKAN showMargins ADA DI SINI agar token tree re-render seketika!
+    lineGap
+  ]);
+
   // If complete, show the full-width Summary View
   if (showSummary) {
     return (
@@ -756,51 +1016,6 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       </div>
     );
   }
-
-  const stillHasBlueWords = useReaderStore(state => state.tokens.some(w => w.isLearnable && (w.stage ?? 0) === 0));
-
-  // Sentence View: every token on the current page belongs to the same sentence (see the
-  // column-break logic in renderTree below), so the first mapped token's index is enough.
-  const currentSentenceIndex = React.useMemo(() => {
-    if (readerMode !== 'sentence') return null;
-    const idsOnPage = columnMapping[currentPage] || [];
-    for (const id of idsOnPage) {
-      const t = tokens.find(tk => tk.id === id);
-      if (t?.sentencePageIndex !== undefined) return t.sentencePageIndex;
-    }
-    return null;
-  }, [readerMode, columnMapping, currentPage, tokens]);
-
-  const renderedTree = React.useMemo(() => {
-    if (isLoadingLesson || tokens.length === 0) return null;
-    return (
-      <>
-        <div className={`hidden xl:flex mb-2 lg:mb-4 mt-1 lg:mt-2 ${isRTL ? 'border-b' : ''}`} style={{ breakInside: 'avoid' }}>
-          <div className={`rounded-lg ${lessonImg ? '' : ' bg-gradient-to-tr from-green-200 to-blue-300'} w-24 h-24 lg:w-32.5 lg:h-35 content-center text-center shrink-0`}>
-            {
-              !lessonImg
-                ? <div className="w-full h-full flex items-center justify-center text-blue-400 text-4xl lg:text-6xl">📖</div>
-                : <img className="object-cover rounded-lg w-full h-full" src={lessonImg} />
-            }
-          </div>
-          <div className={`flex-col p-2 lg:p-3 max-w-[80%] ${isRTL ? 'border-gray-400 xl:h-38' : ''}`}>
-            {courseId ? (
-              <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</Link>
-            ) : (
-              <p className="text-[#4F8EF8] text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</p>
-            )}
-            <p className={`text-[#454646] text-[20px] lg:text-[30px] font-extrabold line-clamp-2 ${isRTL ? 'leading-normal' : 'leading-tight'} lg:leading-13`}>{lessonTitle}</p>
-          </div>
-        </div>
-        {renderTree(tokens, phrases, true)}
-      </>
-    );
-  }, [
-    lessonStructureHash, courseId, languageCode, courseTitle, lessonImg, lessonTitle, 
-    isRTL, handleWordClick, handlePhraseClick, readerMode, draftPhraseRange, isLoadingLesson,
-    showMargins, fontSize, fontFamily, lineHeight, // <--- PASTIKAN showMargins ADA DI SINI agar token tree re-render seketika!
-    lineGap
-  ]);
 
 
   return (
@@ -817,7 +1032,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         showModal && stillHasBlueWords && <CompletionModal />
       }
       {/* Conditional Header Rendering */}
-      {currentPage <= 0 ? (
+      {(currentPage <= 0 && initialTokenIndex === null) ? (
         <div className="flex items-center h-fit mt-1.5 pt-2 px-4">
           <div className={`hidden md:flex xl:hidden ${isRTL ? 'font-farsi' : 'font-nunito'} shrink min-w-0 max-w-60 h-fit leading-6`}>
             {isLoadingLesson || isStatsLoading ? (
@@ -901,15 +1116,14 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                       <Info className="w-5 h-5 text-gray-400" />
                       <span>Lesson Info</span>
                     </div>
-                    <div
+                    <Link
+                      to={`/me/${languageCode}/import/edit/${activeLessonId}`}
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
-                      onClick={() => {
-                        // TO DO: Close the dropdown, close the reader page, and move towards edit lesson page
-                      }}
+                      onClick={closeDropdown}
                     >
                       <SquarePen className="w-5 h-5 text-gray-400" />
                       <span>Edit Lesson</span>
-                    </div>
+                    </Link>
                     <div
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={handleDownloadAudio}
@@ -1064,15 +1278,14 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                       <Info className="w-5 h-5 text-gray-400" />
                       <span>Lesson Info</span>
                     </div>
-                    <div
+                    <Link
+                      to={`/me/${languageCode}/import/edit/${activeLessonId}`}
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
-                      onClick={() => {
-                        // TO DO: Close the dropdown, close the reader page, and move towards edit lesson page
-                      }}
+                      onClick={closeDropdown}
                     >
                       <SquarePen className="w-5 h-5 text-gray-400" />
                       <span>Edit Lesson</span>
-                    </div>
+                    </Link>
                     <div
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={handleDownloadAudio}
@@ -1155,11 +1368,16 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         </div>
 
         <div className={`flex flex-col mt-2 lg:mt-4 grow min-w-0 min-h-0 ${isRTL ? 'font-farsi-trad' : 'font-nunito'} relative bg-white rounded-md`}>
-          <div className={`w-full min-h-0 overflow-hidden relative ${readerMode === 'sentence' ? 'shrink-0' : 'flex-1'} ${isRTL ? 'pt-1 pb-3 lg:pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pb-3 lg:pb-6 px-3 lg:px-5'}`}>
+          <div className={`w-full min-h-0 overflow-hidden relative ${readerMode === 'sentence' ? 'shrink-0' : 'flex-1'} ${isRTL ? 'pt-3 lg:pt-5 pb-3 lg:pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pt-3 lg:pt-5 pb-3 lg:pb-6 px-3 lg:px-5'}`}>
+            {(!isLayoutReady || isLoadingLesson) && (
+              <div className="absolute inset-0 z-20 bg-white">
+                <ReaderSkeleton />
+              </div>
+            )}
             <div
               key={`reader-container-${showMargins}-${fontSize}-${fontFamily}-${lineHeight}-${lineGap}`}
               ref={scrollContainerRef}
-              className={`w-full ${readerMode === 'sentence' ? 'h-auto' : 'h-full'} text-gray-800 font-medium`}
+              className={`w-full ${readerMode === 'sentence' ? 'h-auto' : 'h-full'} text-gray-800 font-medium ${!isLayoutReady ? 'invisible' : 'visible'}`}
               style={{
                 direction: isRTL ? 'rtl' : 'ltr',
                 fontSize: `${fontSize}px`,
@@ -1172,44 +1390,41 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                 columnWidth: columnWidthPx > 0 ? `${columnWidthPx}px` : 'auto',
                 columnGap: '3rem',
                 columnFill: 'auto',
-                transform: `translateX(calc(${isRTL ? '' : '-'}${currentPage} * (100% + 3rem)))`,
-                transition: 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)',  // <--- TAMBAHKAN INI (Animasi Slide Mulus)
-                willChange: 'transform',                                      // <--- TAMBAHKAN INI (Akselerasi GPU)
+                transform: readerMode === 'sentence' ? 'none' : `translateX(calc(${isRTL ? '' : '-'}${currentPage} * (100% + 3rem)))`,
+                transition: (isLayoutReady && isFirstLayoutCompleteRef.current) ? 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)' : 'none',
+                willChange: 'transform',
               }}
               onMouseDown={handleMouseDown}
               onMouseUp={handleMouseUp}
             >
-              {isLoadingLesson ? (
-                <ReaderSkeleton />
-              ) : (
-                <>
-                  {renderedTree}
-                </>
-              )}
+              {renderedTree}
+
+                  {/* SENTENCE VIEW: inline translation reveal directly below sentence text */}
+                  {readerMode === 'sentence' && currentSentenceIndex !== null && (
+                    <div className="mt-6 pt-3 border-t border-gray-100 flex flex-col items-start gap-2 text-left dir-ltr" style={{ direction: 'ltr' }}>
+                      {/* Show / Hide Translation Button */}
+                      <button
+                        onClick={() => handleToggleSentenceTranslation(currentSentenceIndex)}
+                        className="inline-flex items-center gap-1.5 text-[#3a92fb] hover:text-blue-600 text-xs font-bold cursor-pointer transition py-1 px-2.5 rounded-md hover:bg-blue-50"
+                      >
+                        <Languages className="w-4 h-4" />
+                        {revealedSentenceIndices.has(currentSentenceIndex) ? 'Hide Translation' : 'Show Translation'}
+                      </button>
+
+                      {/* Revealed Translation Text */}
+                      {revealedSentenceIndices.has(currentSentenceIndex) && (
+                        <div className="mt-1 text-gray-600 text-[15px] font-normal leading-relaxed">
+                          {isLoadingTranslation ? (
+                            <div className="h-5 bg-gray-200 animate-shimmer rounded w-2/3" />
+                          ) : (
+                            translationData[currentSentenceIndex] || 'Translation unavailable for this sentence.'
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
             </div>
           </div>
-
-          {/* SENTENCE VIEW: inline per-sentence translation reveal */}
-          {readerMode === 'sentence' && !isLoadingLesson && currentSentenceIndex !== null && (
-            <div className="flex-1 px-3 lg:px-5 pt-2 pb-2">
-              <button
-                onClick={() => handleToggleSentenceTranslation(currentSentenceIndex)}
-                className="flex items-center gap-1.5 text-[#3a92fb] hover:text-blue-600 text-sm font-semibold cursor-pointer transition"
-              >
-                <Languages className="w-4 h-4" />
-                {revealedSentenceIndices.has(currentSentenceIndex) ? 'Hide Translation' : 'Show Translation'}
-              </button>
-              {revealedSentenceIndices.has(currentSentenceIndex) && (
-                <div className="mt-1.5 text-gray-600 text-[15px] leading-relaxed">
-                  {isLoadingTranslation ? (
-                    <div className="h-5 bg-gray-200 animate-shimmer rounded w-2/3" />
-                  ) : (
-                    translationData[currentSentenceIndex] || 'Translation unavailable for this sentence.'
-                  )}
-                </div>
-              )}
-            </div>
-          )}
 
           {/* MORPHING PAGE DOTS FOR MOBILE/TABLET (< 1024px) */}
           <div className="flex lg:hidden w-full justify-center pb-4 shrink-0" dir="ltr">

@@ -14,9 +14,17 @@ export function PhraseGroup({ phraseId, onPhraseClick, children, depth = 0 }: Ph
   const isSelected = useReaderStore(state => state.selectedId === phraseId);
   const fontSize = useReaderStore(state => state.fontSize);
   const lineHeight = useReaderStore(state => state.lineHeight);
-  const isAudioPlaying = useReaderStore(state => state.isAudioPlaying);
-  const activeSentenceIndex = useReaderStore(state => state.activeSentenceIndex);
-  const tokenMap = useReaderStore(state => state.tokenMap);
+
+  // Audio dimming: returns boolean directly inside Zustand selector to avoid unnecessary renders.
+  const isDimmed = useReaderStore(React.useCallback(state => {
+    if (state.readerMode === 'sentence' || !state.isAudioPlaying || state.activeSentenceIndex === null) return false;
+    const range = state.phraseMap[phraseId]?.range;
+    if (!range || range.length === 0) return false;
+    return range.every(id => {
+      const sentenceIdx = state.tokenMap[id]?.sentencePageIndex;
+      return sentenceIdx !== undefined && sentenceIdx !== state.activeSentenceIndex;
+    });
+  }, [phraseId]));
 
   if (!phrase) return <>{children}</>;
 
@@ -37,16 +45,6 @@ export function PhraseGroup({ phraseId, onPhraseClick, children, depth = 0 }: Ph
     paddingTop: `${vPadding}px`,
     paddingBottom: `${vPadding}px`,
   };
-
-  // Audio dimming: dim the phrase if none of its tokens are in the active sentence.
-  // If at least one token is in the active sentence, keep the phrase bright.
-  let isDimmed = false;
-  if (isAudioPlaying && activeSentenceIndex !== null && phrase.range.length > 0) {
-    isDimmed = phrase.range.every(id => {
-      const sentenceIdx = tokenMap[id]?.sentencePageIndex;
-      return sentenceIdx !== undefined && sentenceIdx !== activeSentenceIndex;
-    });
-  }
 
   // Known phrase outline
   const outlineClass = stage === 6 ? "border-2 border-gray-300" : "";
@@ -80,13 +78,12 @@ const WordToken = React.memo(function WordToken({ tokenId, onClick }: WordTokenP
   const token = useReaderStore(React.useCallback(state => state.tokenMap[tokenId], [tokenId]));
   const isSelected = useReaderStore(state => state.selectedId === tokenId || !!state.draftPhraseRange?.includes(tokenId));
   
-  // Real-time Audio Dimming Selector (Langsung merespons perubahan kalimat aktif)
-  const isAudioPlaying = useReaderStore(state => state.isAudioPlaying);
-  const activeSentenceIndex = useReaderStore(state => state.activeSentenceIndex);
-
-  const isDimmed = isAudioPlaying && activeSentenceIndex !== null && (
-    token?.sentencePageIndex === undefined || token?.sentencePageIndex !== activeSentenceIndex
-  );
+  // Optimized Real-time Audio Dimming Selector (Zero re-renders in Sentence View)
+  const isDimmed = useReaderStore(React.useCallback(state => {
+    if (state.readerMode === 'sentence' || !state.isAudioPlaying || state.activeSentenceIndex === null) return false;
+    const sentenceIdx = state.tokenMap[tokenId]?.sentencePageIndex;
+    return sentenceIdx === undefined || sentenceIdx !== state.activeSentenceIndex;
+  }, [tokenId]));
 
   // WIRING LINE GAP & SHOW MARGINS LANGSUNG DARI ZUSTAND STORE
   const showMargins = useReaderStore(state => state.showMargins);

@@ -8,6 +8,7 @@ import { LANG_MAP } from '../constants/languages';
 
 import LessonForm from '../features/lesson/components/LessonForm';
 import LessonSidebar from '../features/lesson/components/LessonSidebar';
+import type { TimestampEntry } from '../features/lesson/components/AudioTimestampEditor';
 
 import type { Course } from '../types/reader';
 
@@ -31,7 +32,8 @@ export default function EditLessonView() {
     const [originalUrl, setOriginalUrl] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<'title-text' | 'resources' | 'clips'>('title-text');
+    const [activeTab, setActiveTab] = useState<'title-text' | 'timestamps' | 'resources' | 'clips'>('title-text');
+    const [audioTimestamps, setAudioTimestamps] = useState<TimestampEntry[]>([]);
 
     // ── Lesson image ──────────────────────────────────────────────────────────
     const [lessonImageFile, setLessonImageFile] = useState<File | null>(null);
@@ -80,13 +82,18 @@ export default function EditLessonView() {
                 setLessonImagePreview(data.image_url);
                 setExistingAudioUrl(data.audio_url);
                 setExistingAudioDuration(data.duration || 0);
+                if (data.audio_timestamps) {
+                    setAudioTimestamps(data.audio_timestamps);
+                }
                 if (data.audio_url) {
                     setAudioMode('url');
                     setAudioUrl(data.audio_url);
                 }
                 setIsLoading(false);
-            } catch {
-                Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to load lesson for editing.', confirmButtonColor: '#3890fc' });
+            } catch (err: unknown) {
+                console.error("Failed to load lesson for editing:", err);
+                const errorMsg = err instanceof Error ? err.message : 'Failed to load lesson for editing.';
+                Swal.fire({ icon: 'error', title: 'Error', text: errorMsg, confirmButtonColor: '#3890fc' });
                 navigate(`/me/${languageCode}`);
             }
         };
@@ -94,13 +101,6 @@ export default function EditLessonView() {
     }, [lessonId, navigate, languageCode]);
 
     const effectiveLevel = selectedLevel ?? selectedCourseRecord?.level ?? '';
-
-    // ── Sync level with selected course ───────────────────────────────────────
-    // useEffect(() => {
-    //     if (selectedCourseId && selectedCourseRecord) {
-    //         setSelectedLevel(selectedCourseRecord.level || '');
-    //     }
-    // }, [selectedCourseId, selectedCourseRecord]);
 
     const handleLessonImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -116,6 +116,10 @@ export default function EditLessonView() {
         setAudioFileName(file.name);
         setAudioMode('file');
     };
+
+    const currentAudioSrc = audioMode === 'file' && audioFile 
+        ? URL.createObjectURL(audioFile) 
+        : (audioMode === 'url' ? audioUrl : existingAudioUrl);
 
     const handleSave = async (openAfter = false) => {
         if (!title.trim()) {
@@ -158,29 +162,32 @@ export default function EditLessonView() {
                     audioDuration: parsedAudioDuration,
                     isPublic: effectiveIsPublic,
                     originalUrl,
-                    languageCode
+                    languageCode,
+                    audioTimestamps
                 })
             });
 
             setIsSaving(false);
             const lang = languageCode || 'de';
             
-            Swal.fire({
-                icon: 'success',
-                title: 'Changes Saved!',
-                text: `"${title}" has been updated.`,
-                confirmButtonColor: '#3890fc',
-                confirmButtonText: openAfter ? 'Open Lesson' : 'Go to My Lessons',
-                showCancelButton: !openAfter,
-                cancelButtonText: 'Open Lesson',
-                cancelButtonColor: '#6b7280',
-            }).then((result) => {
-                if (openAfter || result.dismiss === Swal.DismissReason.cancel) {
-                    navigate(`/me/${lang}/reader/${lessonId}`);
-                } else {
-                    navigate(`/me/${lang}`);
-                }
-            });
+            if (openAfter) {
+                navigate(`/me/${lang}/reader/${lessonId}`);
+            } else {
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Changes Saved!',
+                    text: `"${title}" has been updated.`,
+                    confirmButtonColor: '#3890fc',
+                    confirmButtonText: 'Keep Editing',
+                    showCancelButton: true,
+                    cancelButtonText: 'Open Lesson',
+                    cancelButtonColor: '#6b7280',
+                }).then((result) => {
+                    if (result.dismiss === Swal.DismissReason.cancel) {
+                        navigate(`/me/${lang}/reader/${lessonId}`);
+                    }
+                });
+            }
 
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : "Error saving lesson!"
@@ -229,6 +236,9 @@ export default function EditLessonView() {
                             selectedCourseId={selectedCourseId} setSelectedCourseId={setSelectedCourseId}
                             allCourses={allCourses}
                             isEditMode={true}
+                            audioSrc={currentAudioSrc}
+                            audioTimestamps={audioTimestamps}
+                            setAudioTimestamps={setAudioTimestamps}
                         />
                     </div>
 

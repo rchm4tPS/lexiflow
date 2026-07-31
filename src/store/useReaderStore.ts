@@ -1,10 +1,38 @@
 // frontend/src/store/useReaderStore.ts
+/**
+ * TODO: PAGINATION BUG INVESTIGATION & HANDOVER NOTES
+ * 
+ * Issue: Reader pagination resets to Page 1 (Page 0) on hard refresh (F5), re-visiting a lesson,
+ * or switching between Paragraph View and Sentence View.
+ * 
+ * Root Cause Analysis:
+ * 1. Database Overwrite: `syncLessonProgress()` evaluates `columnMapping[currentPage]` or `initialTokenIndex`.
+ *    When `ReaderPane.tsx` calls `setInitialTokenIndex(null)` after mounting to clear the initial anchor,
+ *    subsequent `syncLessonProgress()` calls read `initialTokenIndex = null` and fall back to `0`,
+ *    overwriting `highest_page_read` in the SQLite DB (`user_lesson_progress` table) with `0`.
+ * 2. Asynchronous Column Measurement vs Pagination Clamping: In `ReaderPane.tsx`, `measure()` calculates CSS multi-column
+ *    token positions asynchronously after DOM mount. During the first layout pass, `columnWidthPx` is `0`, causing
+ *    `columnMapping` to be empty `{}`. Calling `setPagination()` before `columnMapping` is built clamps `currentPage` to `0`.
+ * 3. Sentence View Page Index Mapping: In Sentence View (`readerMode === 'sentence'`), pages map 1-to-1 with `sentencePageIndex`.
+ *    If `initialTokenIndex` (the raw token offset from DB) is not mapped to `sentencePageIndex` before `setPagination()` commits,
+ *    Sentence View falls back to Page 0.
+ * 4. Disappearing Text Gap / Header Box Height Offset: In Paragraph View, hiding the 150px lesson title header box on `currentPage > 0`
+ *    causes CSS multi-column height to change between Page 0 and Page 1, causing column break reflow and hiding tokens (e.g. lines G & H).
+ * 
+ * Required Architecture for Next AI / Developer:
+ * - Decouple `savedHighestTokenIndex` (permanent progress state) from `initialTokenIndex` (transient DOM scroll anchor).
+ * - Ensure `syncLessonProgress` never writes `0` to DB when `savedHighestTokenIndex > 0`.
+ * - Synchronize `sentencePageIndex` conversion atomically before `setPagination()` renders the DOM tree.
+ */
 import { create } from 'zustand';
 import { useAuthStore } from './useAuthStore';
 import { apiClient, BASE_URL } from '../api/client'; // Your fetch wrapper
 import { buildPhraseInstances } from '../utils/phraseMatcher';
+import { assignSentencePageIndexToTokens } from '../utils/sentenceUtils';
 import { getTier } from '../constants/tiers';
 import type { Token, Phrase, DbPhrase, Lesson, Course, CourseDetail, UpdatePayload, WordHint, UserStats } from '../types/reader';
+
+let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 interface SupportedLanguage {
   code: string;
@@ -171,7 +199,7 @@ interface ReaderState {
   // Dynamic CSS Pagination State
   totalPages: number;
   columnMapping: Record<number, string[]>;
-  setPagination: (totalPages: number, columnMapping: Record<number, string[]>) => void;
+  setPagination: (totalPages: number, columnMapping: Record<number, string[]>, overridePage?: number) => void;
 
   handlePageAdvance: (newPage: number) => void;
   ticksSinceLastSync: number;
@@ -199,11 +227,17 @@ interface ReaderState {
   // Audio-sync State — sentence-level start/end timestamps (seconds), aligned by index
   // with each token's sentencePageIndex.
   audioTimestamps: { start: number; end: number }[] | null;
+  savedHighestTokenIndex: number;
   activeSentenceIndex: number | null;
   isAudioPlaying: boolean;
+  playingSentenceIndex: number | null;
+  sentenceAudioTrigger: { sentenceIndex: number; action: 'play' | 'stop'; id: number } | null;
   setAudioTimestamps: (timestamps: { start: number; end: number }[] | null) => void;
   setActiveSentenceIndex: (index: number | null) => void;
   setIsAudioPlaying: (playing: boolean) => void;
+  setPlayingSentenceIndex: (index: number | null) => void;
+  playSentenceAudio: (sentenceIndex: number) => void;
+  stopSentenceAudio: () => void;
   syncPageWithinSentence: (sentenceIndex: number, timeFraction: number) => void;
 
   // Sentence View — per-sentence inline translation reveal (independent of the Translation drawer)
@@ -223,6 +257,9 @@ interface ReaderState {
   setShowMargins: (show: boolean) => void;
   setLineGap: (gap: number) => void;
   setShowSettingsDrawer: (show: boolean) => void;
+
+  isLayoutReady: boolean;
+  setIsLayoutReady: (ready: boolean) => void;
 }
 
 export const useReaderStore = create<ReaderState>((set, get) => ({
@@ -244,6 +281,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   guidedCourses: [],
   activeCourseDetails: null,
   activeLessonId: null,
+  savedHighestTokenIndex: 0,
   prevLessonId: null,
   nextLessonId: null,
 
@@ -332,12 +370,22 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   audioTimestamps: null,
   activeSentenceIndex: null,
   isAudioPlaying: false,
+  playingSentenceIndex: null,
+  sentenceAudioTrigger: null,
   setAudioTimestamps: (timestamps) => set({ audioTimestamps: timestamps }),
   setActiveSentenceIndex: (index) => {
     set({ activeSentenceIndex: index });
     if (index === null) return;
     get().syncPageWithinSentence(index, 0);
   },
+  setIsAudioPlaying: (playing) => set({ isAudioPlaying: playing }),
+  setPlayingSentenceIndex: (index) => set({ playingSentenceIndex: index }),
+  playSentenceAudio: (sentenceIndex) => set({
+    sentenceAudioTrigger: { sentenceIndex, action: 'play', id: Date.now() }
+  }),
+  stopSentenceAudio: () => set({
+    sentenceAudioTrigger: { sentenceIndex: -1, action: 'stop', id: Date.now() }
+  }),
   // A sentence can span multiple pages (Sentence View forces a page break per sentence,
   // but Paragraph View pages are laid out by column width and don't respect sentence
   // boundaries at all). We can't just jump to the sentence's *first* page and stop —
@@ -365,7 +413,6 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       }
     }
   },
-  setIsAudioPlaying: (playing) => set({ isAudioPlaying: playing }),
 
   revealedSentenceIndices: new Set<number>(),
   toggleSentenceReveal: (index) => {
@@ -773,10 +820,33 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   setLibrarySidebarTab: (tab) => set({ librarySidebarTab: tab }),
   setLibrarySearch: (term) => set({ librarySearch: term }),
   toggleReaderMode: () => {
-    const { readerMode } = get();
+    const { readerMode, currentPage, columnMapping, tokens } = get();
     const newMode = readerMode === 'paragraph' ? 'sentence' : 'paragraph';
+
+    let targetPage = 0;
+
+    if (newMode === 'sentence') {
+      // Switching Paragraph -> Sentence View:
+      // Find sentencePageIndex of the first token on current paragraph page
+      const currentTokenId = columnMapping[currentPage]?.[0];
+      const token = tokens.find(t => t.id === currentTokenId);
+      if (token && token.sentencePageIndex !== undefined) {
+        targetPage = token.sentencePageIndex;
+      }
+    } else {
+      // Switching Sentence -> Paragraph View:
+      // Find token index of first valid word/text token in current sentence (skip newlines)
+      const currentToken = tokens.find(t => t.sentencePageIndex === currentPage && !t.isNewline && t.text && t.text.trim().length > 0);
+      if (currentToken) {
+        const tokenIdx = tokens.findIndex(t => t.id === currentToken.id);
+        if (tokenIdx !== -1) {
+          set({ initialTokenIndex: tokenIdx });
+        }
+      }
+    }
+
     localStorage.setItem('lingq_reader_mode', newMode);
-    set({ readerMode: newMode });
+    set({ readerMode: newMode, currentPage: targetPage });
   },
 
   fetchMyCoursesDropdown: async () => {
@@ -832,21 +902,14 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   fetchLesson: async (lessonId: string) => {
-    set({ isLoadingLesson: true });
+    set({ isLoadingLesson: true, isLayoutReady: false });
     try {
       const data = await apiClient(`/lessons/${lessonId}`);
       const { tokens } = data as { tokens: Token[] };
 
-      // --- CALCULATE SENTENCE PAGINATION ---
-      let sentenceIdx = 0;
-      const tokensWithSentencePaging = (tokens || []).map((t: Token) => {
-        const isSentenceEnd = /[.!?。！？]/.test(t.text);
-        const updated = { ...t, sentencePageIndex: sentenceIdx };
-        if (isSentenceEnd) {
-          sentenceIdx++;
-        }
-        return updated;
-      });
+      // --- CALCULATE SENTENCE PAGINATION (Syncs 1-to-1 with audio_timestamps) ---
+      const rawTextForSentences = (data as { originalText?: string }).originalText || (tokens || []).map(t => t.text).join('');
+      const tokensWithSentencePaging = assignSentencePageIndexToTokens(tokens || [], rawTextForSentences);
 
       const instances = buildPhraseInstances(tokensWithSentencePaging, data.phrases || []);
 
@@ -885,7 +948,12 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           isRTL: data.isRTL || false,
           totalCoins: data.totalCoins || 0,
           totalKnownWords: data.totalKnownWords || 0,
+          playingSentenceIndex: null,
+          isAudioPlaying: false,
+          sentenceAudioTrigger: null,
           currentPage: 0,
+          isLayoutReady: false,
+          savedHighestTokenIndex: data.highestPageRead || 0,
           initialTokenIndex: data.highestPageRead || 0,
           selectedId: null,
           draftPhraseRange: null,
@@ -909,6 +977,14 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         }
       });
 
+      console.log('[ReaderStore:fetchLesson]', {
+        lessonId,
+        highestPageRead: data.highestPageRead,
+        initialTokenIndex: data.highestPageRead || 0,
+        tokensCount: tokensWithSentencePaging.length,
+        isSameLesson: get().activeLessonId === lessonId
+      });
+
       // We no longer manually call setPage here because ReaderPane will calculate the layout
       // and use initialTokenIndex to find the correct dynamic CSS column page on its first render!
       // This ensures responsiveness across devices and reader modes.
@@ -920,10 +996,12 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   fetchUserTags: async () => {
     try {
-      const lang = get().languageCode || 'de';
+      const lang = get().languageCode || 'en';
       const data = await apiClient(`/vocab/tags?lang=${lang}`);
       set({ userTags: data });
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error("Failed to fetch user tags", err);
+    }
   },
 
   setPage: (page) => {
@@ -935,12 +1013,24 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     });
   },
 
-  setPagination: (totalPages, columnMapping) => {
+  setPagination: (totalPages, columnMapping, overridePage) => {
     // Clamp currentPage atomically in the same set() call — the same pattern used by
     // syncPageWithinSentence / setActiveSentenceIndex — so the page is always valid
     // the moment the new mapping is committed (no extra render cycle needed).
     const { currentPage } = get();
-    const clampedPage = Math.max(0, Math.min(currentPage, totalPages - 1));
+    const target = overridePage !== undefined ? overridePage : currentPage;
+    const clampedPage = Math.max(0, Math.min(target, totalPages - 1));
+    
+    console.log('[ReaderStore:setPagination]', {
+      totalPages,
+      overridePage,
+      previousCurrentPage: currentPage,
+      clampedPage,
+      pageMappingCounts: Object.fromEntries(
+        Object.entries(columnMapping).map(([page, ids]) => [page, ids.length])
+      )
+    });
+
     set({ totalPages, columnMapping, currentPage: clampedPage });
   },
 
@@ -959,6 +1049,14 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           newWordsAdded++;
         }
       }
+    });
+
+    console.log('[ReaderStore:markTokensAsRead]', {
+      inputTokenIdsCount: tokenIds.length,
+      newWordsAdded,
+      sessionWordsReadBefore: sessionWordsRead,
+      sessionWordsReadAfter: sessionWordsRead + newWordsAdded,
+      totalReadTokenIdsCount: newReadTokens.size
     });
 
     if (newWordsAdded > 0) {
@@ -1249,6 +1347,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       tokens,
       currentPage,
       activeLessonId,
+      isLayoutReady,
       sessionListeningTicks,
       sessionWordsRead,
       sessionDailyLingqs,
@@ -1259,13 +1358,42 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     const targetId = lessonId || activeLessonId;
     if (!targetId) return;
 
-    let highestTokenIndex = 0;
-    const { columnMapping } = get();
-    const tokensOnPage = columnMapping[currentPage];
-    if (tokensOnPage && tokensOnPage.length > 0) {
-      highestTokenIndex = tokens.findIndex(t => t.id === tokensOnPage[0]);
-      if (highestTokenIndex === -1) highestTokenIndex = 0;
+    if (!isLayoutReady && !isCompleted) return;
+
+    const { columnMapping, readerMode, savedHighestTokenIndex } = get();
+    let highestTokenIndex = savedHighestTokenIndex || 0;
+
+    if (readerMode === 'sentence') {
+      const firstTokenInSentence = tokens.find(t => t.sentencePageIndex === currentPage && !t.isNewline && t.text && t.text.trim());
+      if (firstTokenInSentence) {
+        const idx = tokens.findIndex(t => t.id === firstTokenInSentence.id);
+        if (idx !== -1) {
+          highestTokenIndex = idx;
+          set({ savedHighestTokenIndex: idx });
+        }
+      }
+    } else {
+      const tokensOnPage = columnMapping[currentPage];
+      if (tokensOnPage && tokensOnPage.length > 0) {
+        const idx = tokens.findIndex(t => t.id === tokensOnPage[0]);
+        if (idx !== -1) {
+          highestTokenIndex = idx;
+          set({ savedHighestTokenIndex: idx });
+        }
+      }
     }
+
+    console.log('[ReaderStore:syncLessonProgress]', {
+      lessonIdPassed: lessonId,
+      targetId,
+      currentPage,
+      highestTokenIndexCalculated: highestTokenIndex,
+      isCompleted,
+      sessionWordsRead,
+      sessionListeningTicks,
+      readerMode,
+      tokensOnCurrentPageCount: columnMapping[currentPage]?.length || 0
+    });
 
     const learnableTokens = tokens.filter(t => t.isLearnable && !t.isNewline);
     const newWordsCount = new Set(learnableTokens.filter(t => (t.stage ?? 0) === 0).map(t => t.text.toLowerCase())).size;
@@ -1320,10 +1448,32 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   handlePageAdvance: (newPage: number) => {
     get().setPage(newPage);
-    const { activeLessonId, syncLessonProgress } = get();
-    if (activeLessonId) {
-      syncLessonProgress(activeLessonId);
+    const { columnMapping, tokens, readerMode, activeLessonId, syncLessonProgress } = get();
+
+    let tokenIdx = -1;
+    if (readerMode === 'sentence') {
+      const firstTokenInSentence = tokens.find(t => t.sentencePageIndex === newPage && !t.isNewline && t.text && t.text.trim());
+      if (firstTokenInSentence) {
+        tokenIdx = tokens.findIndex(t => t.id === firstTokenInSentence.id);
+      }
+    } else {
+      const tokensOnPage = columnMapping[newPage];
+      if (tokensOnPage && tokensOnPage.length > 0) {
+        tokenIdx = tokens.findIndex(t => t.id === tokensOnPage[0]);
+      }
     }
+
+    if (tokenIdx !== -1) {
+      set({ savedHighestTokenIndex: tokenIdx });
+    }
+
+    // Debounced background auto-save: saves progress 2s after resting on a page
+    if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
+    syncDebounceTimer = setTimeout(() => {
+      if (activeLessonId) {
+        syncLessonProgress(activeLessonId);
+      }
+    }, 2000);
   },
 
   getPageForToken: (tokenId: string) => {
@@ -1370,7 +1520,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   completeLesson: async () => {
     const state = get();
 
-    const remainingBlueTokens = state.tokens.filter(t => (t.stage === 0 || t.status === 'new') && t.isLearnable);
+    const remainingBlueTokens = state.tokens.filter(t => t.isLearnable && (t.stage ?? 0) === 0);
 
     if (remainingBlueTokens.length === 0) {
       set({ showSummary: true, showModal: false });
@@ -1384,15 +1534,21 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     const coinDelta = uniqueBlueTexts.length * 15;
     const knownDelta = uniqueBlueTexts.length;
 
+    const updatedTokenMap = { ...state.tokenMap };
     const updatedTokens = state.tokens.map(t => {
-      if (t.isLearnable && (t.stage === 0 || t.status === 'new')) {
-        return { ...t, stage: 5, status: 'known' as const };
+      if (t.isLearnable && (t.stage ?? 0) === 0) {
+        const updated = { ...t, stage: 5, status: 'known' as const };
+        if (updatedTokenMap[t.id]) {
+          updatedTokenMap[t.id] = updated;
+        }
+        return updated;
       }
       return t;
     });
 
     set((state) => ({
       tokens: updatedTokens,
+      tokenMap: updatedTokenMap,
       totalCoins: state.totalCoins + coinDelta,
       totalKnownWords: state.totalKnownWords + knownDelta,
       showSummary: true,
@@ -1621,5 +1777,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   resetCompletion: () => set({ showSummary: false }),
+
+  isLayoutReady: false,
+  setIsLayoutReady: (ready) => set({ isLayoutReady: ready }),
 }));
 

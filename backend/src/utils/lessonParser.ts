@@ -17,19 +17,32 @@ export async function parseAndSaveLessonContent(
     rawText: string, 
     languageCode: string, 
     userIdForProgress?: string,
-    isPreSegmented: boolean = false
+    isPreSegmented: boolean = false,
+    audioTimestamps?: { start: number; end: number }[]
 ) {
     let segments: { segment: string; isWordLike: boolean }[] = [];
 
     if (isPreSegmented) {
         // LingQ provides pre-segmented text where words are separated by spaces.
         // We extract non-whitespace chunks and individual spaces/newlines.
-        const tokens = rawText.match(/\S+|\n|\s/g) || [];
+        const CJK_LANGS = ['ja', 'zh', 'th', 'ko'];
+        const isCjk = CJK_LANGS.includes(languageCode.toLowerCase());
+        const rawTokens = rawText.match(/\S+|\n|\s/g) || [];
         
-        for (const token of tokens) {
+        for (const token of rawTokens) {
             // Is it a pure whitespace/newline token?
             if (/^\s+$/.test(token)) {
                 segments.push({ segment: token, isWordLike: false });
+                continue;
+            }
+
+            // HYBRID CJK FALLBACK: If user typed/edited long unspaced Japanese/Chinese text without spaces
+            if (isCjk && token.length > 4 && /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(token)) {
+                const subSegmenter = new Intl.Segmenter(languageCode, { granularity: 'word' });
+                const subSegs = Array.from(subSegmenter.segment(token));
+                for (const sub of subSegs) {
+                    segments.push({ segment: sub.segment, isWordLike: sub.isWordLike === true });
+                }
                 continue;
             }
             
@@ -65,14 +78,37 @@ export async function parseAndSaveLessonContent(
         }));
     }
 
-    const processedTokens = [];
-    let currentPageIndex = 0;
-    let wordCountOnPage = 0;
-    
-    // CONFIG: soft target for word count, hard limit to force breaks on sentences
-    const SOFT_TARGET = 40;
-    const HARD_LIMIT = 50;
+    // --- BULK MASTER VOCAB OPTIMIZATION (Eliminates N+1 Queries) ---
+    const learnableTerms = segments
+        .filter(s => s.isWordLike)
+        .map(s => s.segment.toLowerCase());
 
+    const uniqueTermsSet = new Set(learnableTerms);
+    const uniqueTermsArray = Array.from(uniqueTermsSet);
+
+    if (uniqueTermsArray.length > 0) {
+        const chunkSize = 500;
+        for (let i = 0; i < uniqueTermsArray.length; i += chunkSize) {
+            const chunk = uniqueTermsArray.slice(i, i + chunkSize);
+            const existingMaster = await db.select({ word: masterVocab.original_word })
+                .from(masterVocab)
+                .where(and(eq(masterVocab.language_code, languageCode), inArray(masterVocab.original_word, chunk)));
+            
+            const existingWordsSet = new Set(existingMaster.map(m => m.word));
+            const missingWords = chunk.filter(w => !existingWordsSet.has(w));
+            
+            if (missingWords.length > 0) {
+                await db.insert(masterVocab).values(
+                    missingWords.map(w => ({
+                        original_word: w,
+                        language_code: languageCode
+                    }))
+                ).onConflictDoNothing();
+            }
+        }
+    }
+
+    const processedTokens = [];
     let totalOriginalWordInLesson = 0;
     
     for (const [index, segmentData] of segments.entries()) {
@@ -80,19 +116,8 @@ export async function parseAndSaveLessonContent(
         const isNewline = text === '\n' || text === '\r\n';
         const isLearnable = segmentData.isWordLike;
 
-        const isSentenceEnd = /[.!?。！？]/.test(text);
-
         if (isLearnable) {
             totalOriginalWordInLesson++;
-            let [masterWord] = await db.select().from(masterVocab)
-                .where(and(eq(masterVocab.original_word, text.toLowerCase()), eq(masterVocab.language_code, languageCode)));
-
-            if (!masterWord) {
-                [masterWord] = await db.insert(masterVocab).values({
-                    original_word: text.toLowerCase(),
-                    language_code: languageCode,
-                }).returning();
-            }
         }
 
         processedTokens.push({
@@ -100,24 +125,8 @@ export async function parseAndSaveLessonContent(
             text: isNewline ? '\n\n' : text,
             isNewline,
             isLearnable,
-            pageIndex: currentPageIndex
+            pageIndex: 0
         });
-
-        if (isLearnable) {
-            wordCountOnPage++;
-        }
-
-        // --- SMART PAGINATION LOGIC ---
-        // 1. Break on Paragraph (newline) if SOFT_TARGET reached
-        if (isNewline && wordCountOnPage >= SOFT_TARGET) {
-            currentPageIndex++;
-            wordCountOnPage = 0;
-        } 
-        // 2. OR Break on Sentence if HARD_LIMIT reached (fallback for long paragraphs)
-        else if (isSentenceEnd && wordCountOnPage >= HARD_LIMIT) {
-            currentPageIndex++;
-            wordCountOnPage = 0;
-        }
     }
 
     const setOfUniqueWordInLesson = new Set(
@@ -135,12 +144,25 @@ export async function parseAndSaveLessonContent(
     }).where(eq(lessons.id, lessonId));
 
     // 3. Update lesson_content
-    await db.insert(lessonContent).values({
+    const contentPayload: {
+        lesson_id: string;
+        raw_text: string;
+        audio_timestamps?: { start: number; end: number }[] | null;
+    } = {
         lesson_id: lessonId,
         raw_text: JSON.stringify(processedTokens),
-    }).onConflictDoUpdate({
+    };
+
+    if (audioTimestamps !== undefined) {
+        contentPayload.audio_timestamps = audioTimestamps;
+    }
+
+    await db.insert(lessonContent).values(contentPayload).onConflictDoUpdate({
         target: lessonContent.lesson_id,
-        set: { raw_text: JSON.stringify(processedTokens) }
+        set: {
+            raw_text: JSON.stringify(processedTokens),
+            ...(audioTimestamps !== undefined ? { audio_timestamps: audioTimestamps } : {})
+        }
     });
 
     // 4. (Optional) Initialize/Update user progress

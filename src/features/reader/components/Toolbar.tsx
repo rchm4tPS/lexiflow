@@ -4,11 +4,12 @@ import { useReaderStore } from '../../../store/useReaderStore';
 import { Play, Pause, Square } from 'lucide-react';
 
 export default function Toolbar() {
-    const { tokens, phrases, handlePageAdvance, currentPage, showSummary, isRTL, lessonAudio, incrementListeningTicks, totalPages, columnMapping } = useReaderStore(useShallow(state => ({
+    const { tokens, phrases, handlePageAdvance, currentPage, showSummary, isRTL, lessonAudio, incrementListeningTicks, totalPages, columnMapping, readerMode, sentenceAudioTrigger } = useReaderStore(useShallow(state => ({
         tokens: state.tokens, phrases: state.phrases, handlePageAdvance: state.handlePageAdvance,
         currentPage: state.currentPage, showSummary: state.showSummary, isRTL: state.isRTL,
         lessonAudio: state.lessonAudio, incrementListeningTicks: state.incrementListeningTicks,
-        totalPages: state.totalPages, columnMapping: state.columnMapping
+        totalPages: state.totalPages, columnMapping: state.columnMapping,
+        readerMode: state.readerMode, sentenceAudioTrigger: state.sentenceAudioTrigger
     })));
     
     const reviewCount = useMemo(() => {
@@ -27,6 +28,8 @@ export default function Toolbar() {
     }, [tokens, phrases]);
 
     const audioRef = useRef<HTMLAudioElement>(null);
+    const stopAtTimeRef = useRef<number | null>(null);
+    const lastTriggerIdRef = useRef<number | null>(useReaderStore.getState().sentenceAudioTrigger?.id ?? null);
     const [audioState, setAudioState] = useState<'stopped' | 'playing' | 'paused'>('stopped');
     const [playbackRate, setPlaybackRate] = useState(1);
     const [currentTime, setCurrentTime] = useState(0);
@@ -48,12 +51,69 @@ export default function Toolbar() {
         return () => clearInterval(interval);
     }, [audioState, incrementListeningTicks, playbackRate]);
 
+    // Clear bounded playback when returning to paragraph / normal view
+    useEffect(() => {
+        if (readerMode === 'paragraph') {
+            stopAtTimeRef.current = null;
+            useReaderStore.getState().setPlayingSentenceIndex(null);
+        }
+    }, [readerMode]);
+
+    // Handle Sentence Audio Play Triggers from Sentence View
+    useEffect(() => {
+        if (!sentenceAudioTrigger || sentenceAudioTrigger.id === lastTriggerIdRef.current) return;
+        lastTriggerIdRef.current = sentenceAudioTrigger.id;
+
+        const { sentenceIndex, action } = sentenceAudioTrigger;
+        if (action === 'stop' || sentenceIndex === -1) {
+            if (audioRef.current) {
+                audioRef.current.pause();
+            }
+            setAudioState('stopped');
+            stopAtTimeRef.current = null;
+            useReaderStore.getState().setIsAudioPlaying(false);
+            useReaderStore.getState().setPlayingSentenceIndex(null);
+            return;
+        }
+
+        if (!audioRef.current || !lessonAudio) return;
+
+        const { audioTimestamps, playingSentenceIndex } = useReaderStore.getState();
+
+        // Toggle pause if clicking already playing sentence
+        if (playingSentenceIndex === sentenceIndex && audioState === 'playing') {
+            audioRef.current.pause();
+            setAudioState('paused');
+            stopAtTimeRef.current = null;
+            useReaderStore.getState().setIsAudioPlaying(false);
+            useReaderStore.getState().setPlayingSentenceIndex(null);
+            return;
+        }
+
+        const ts = audioTimestamps?.[sentenceIndex];
+        if (ts) {
+            audioRef.current.currentTime = ts.start;
+            setCurrentTime(ts.start);
+            stopAtTimeRef.current = ts.end;
+        } else {
+            stopAtTimeRef.current = null;
+        }
+
+        audioRef.current.play().then(() => {
+            setAudioState('playing');
+            useReaderStore.getState().setIsAudioPlaying(true);
+            useReaderStore.getState().setPlayingSentenceIndex(sentenceIndex);
+        }).catch(e => console.error("Sentence playback failed", e));
+    }, [sentenceAudioTrigger, lessonAudio, audioState]);
+
     const handlePlayPause = () => {
         if (!audioRef.current) return;
+        stopAtTimeRef.current = null;
         if (audioState === 'playing') {
             audioRef.current.pause();
             setAudioState('paused');
             useReaderStore.getState().setIsAudioPlaying(false);
+            useReaderStore.getState().setPlayingSentenceIndex(null);
         } else {
             setCurrentTime(audioRef.current.currentTime);
             audioRef.current.play().then(() => {
@@ -68,8 +128,10 @@ export default function Toolbar() {
             audioRef.current.pause();
             setAudioState('stopped');
             setCurrentTime(0);
+            stopAtTimeRef.current = null;
             useReaderStore.getState().setIsAudioPlaying(false);
             useReaderStore.getState().setActiveSentenceIndex(null);
+            useReaderStore.getState().setPlayingSentenceIndex(null);
         }
     };
 
@@ -82,8 +144,23 @@ export default function Toolbar() {
                 setDuration(audioRef.current.duration);
             }
 
-            // --- Read-along sync: find which sentence is currently playing ---
-            const { audioTimestamps, activeSentenceIndex, setActiveSentenceIndex, syncPageWithinSentence } = useReaderStore.getState();
+            // Bounded Sentence Playback Check
+            if (stopAtTimeRef.current !== null && time >= stopAtTimeRef.current) {
+                audioRef.current.pause();
+                stopAtTimeRef.current = null;
+                setAudioState('stopped');
+                useReaderStore.getState().setIsAudioPlaying(false);
+                useReaderStore.getState().setPlayingSentenceIndex(null);
+                return;
+            }
+
+            // --- Read-along sync: ONLY during FULL audio playback ---
+            // Must NOT run when audio is paused/stopped OR during inline bounded sentence playback
+            const { isAudioPlaying, playingSentenceIndex, audioTimestamps, activeSentenceIndex, setActiveSentenceIndex, syncPageWithinSentence } = useReaderStore.getState();
+            if (!isAudioPlaying || playingSentenceIndex !== null || stopAtTimeRef.current !== null) {
+                return;
+            }
+
             if (audioTimestamps) {
                 const idx = audioTimestamps.findIndex(t => time >= t.start && time < t.end);
                 if (idx !== activeSentenceIndex) {
@@ -164,8 +241,8 @@ export default function Toolbar() {
         <div className="bg-[#f0f3f6] lg:rounded-lg shadow-sm flex flex-col relative border-t lg:border border-[#d8dee4] h-fit lg:mb-1" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between w-full px-3 pt-3 pb-3 relative">
                 
-                {/* Audio Controls Container - fixed widths prevent layout jump */}
-                <div className="flex items-center shrink-0 min-w-min xl:min-w-[280px]">
+                {/* Audio Controls Container - fixed widths prevent layout jump (hidden in Sentence View) */}
+                <div className={`flex items-center shrink-0 min-w-min xl:min-w-[280px] ${readerMode === 'sentence' ? 'hidden' : ''}`}>
                     <audio 
                         src={lessonAudio || '#'} 
                         ref={audioRef} 
@@ -275,7 +352,7 @@ export default function Toolbar() {
             </div>
 
             {/* AUDIO PROGRESS BAR (Top on mobile, Bottom on desktop) */}
-            {audioState !== 'stopped' && (
+            {audioState !== 'stopped' && readerMode !== 'sentence' && (
                 <div className="w-full h-1.5 bg-gray-400 absolute -top-0 lg:top-auto lg:-bottom-1 left-0 group flex items-center z-10 ">
                     <div 
                         className="absolute left-0 h-full bg-[#EF4444] pointer-events-none transition-all duration-75"
