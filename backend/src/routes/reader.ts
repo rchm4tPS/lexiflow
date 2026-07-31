@@ -170,6 +170,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       courseId: course.id,
       courseTitle: course.title,
       courseLevel: course.level,
+      ownerId: course.owner_id,
       lessonTitle: lesson.title,
       lessonImg: lesson.image_url,
       lessonAudio: lesson.audio_url,

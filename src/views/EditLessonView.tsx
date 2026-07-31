@@ -91,8 +91,8 @@ export default function EditLessonView() {
                 }
                 setIsLoading(false);
             } catch (err: unknown) {
-                console.error("Failed to load lesson for editing:", err);
                 const errorMsg = err instanceof Error ? err.message : 'Failed to load lesson for editing.';
+                console.warn("Failed to load lesson for editing:", errorMsg);
                 Swal.fire({ icon: 'error', title: 'Error', text: errorMsg, confirmButtonColor: '#3890fc' });
                 navigate(`/me/${languageCode}`);
             }

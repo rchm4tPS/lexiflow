@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { db } from '../db/index.js';
-import { courses, lessons, userCourses, userLessonProgress, lessonContent, userVocabRelation, masterVocab, userLanguages } from '../db/schema.js';
+import { courses, lessons, userCourses, userLessonProgress, lessonContent, userVocabRelation, masterVocab, userLanguages, users } from '../db/schema.js';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
-import { eq, and, sql, notInArray, inArray, like, isNotNull } from 'drizzle-orm';
+import { eq, and, sql, notInArray, inArray, like, isNotNull, or } from 'drizzle-orm';
 import { LingqImportService } from '../services/lingq.service.js';
+import { LEVELS } from '../constants/levels.js';
 
 
 const router = Router();
@@ -116,8 +117,18 @@ router.get('/feed/:langCode', authenticate, async (req: AuthRequest, res) => {
 
     const enrolledCourseIds = enrolledCourses.map(e => e.course_id);
 
-    const { search } = req.query;
+    const { search, minLevel, maxLevel } = req.query;
     const searchPattern = search ? `%${String(search).toLowerCase()}%` : null;
+
+    const levelsArray: readonly string[] = LEVELS;
+    let allowedLevels: string[] = [...LEVELS];
+    if (minLevel || maxLevel) {
+      const minIdx = minLevel ? levelsArray.indexOf(String(minLevel)) : 0;
+      const maxIdx = maxLevel ? levelsArray.indexOf(String(maxLevel)) : levelsArray.length - 1;
+      const startIdx = minIdx !== -1 ? minIdx : 0;
+      const endIdx = maxIdx !== -1 ? maxIdx : levelsArray.length - 1;
+      allowedLevels = LEVELS.slice(Math.min(startIdx, endIdx), Math.max(startIdx, endIdx) + 1);
+    }
 
     // Build the lesson feed, excluding lessons from enrolled courses
     const feedQuery = db.select({
@@ -133,6 +144,7 @@ router.get('/feed/:langCode', authenticate, async (req: AuthRequest, res) => {
       is_bookmarked: userLessonProgress.is_bookmarked,
       is_completed: userLessonProgress.is_completed,
       lingq_id: lessons.lingq_id,
+      owner_id: courses.owner_id,
     })
     .from(lessons)
     .innerJoin(courses, eq(lessons.course_id, courses.id))
@@ -143,7 +155,8 @@ router.get('/feed/:langCode', authenticate, async (req: AuthRequest, res) => {
     .where(and(
       eq(courses.language_code, lang),
       enrolledCourseIds.length > 0 ? notInArray(lessons.course_id, enrolledCourseIds) : sql`1=1`,
-      searchPattern ? like(sql`lower(${lessons.title})`, searchPattern) : sql`1=1`
+      searchPattern ? like(sql`lower(${lessons.title})`, searchPattern) : sql`1=1`,
+      allowedLevels.length > 0 ? inArray(courses.level, allowedLevels) : sql`1=1`
     ));
 
     const feed = await feedQuery;
@@ -202,6 +215,7 @@ router.get('/my-lessons', authenticate, async (req: AuthRequest, res) => {
       is_completed: userLessonProgress.is_completed,
       is_bookmarked: userLessonProgress.is_bookmarked,
       lingq_id: lessons.lingq_id,
+      owner_id: courses.owner_id,
     })
     .from(userCourses)
     .innerJoin(courses, eq(userCourses.course_id, courses.id))
@@ -307,12 +321,14 @@ router.get('/continue-studying', authenticate, async (req: AuthRequest, res) => 
     const recentLessons = await db.select({
       id: lessons.id,
       title: lessons.title,
+      course_id: lessons.course_id,
       course_title: courses.title,
       image_url: lessons.image_url,
       unique_words: lessons.unique_words,
       user_new_words: userLessonProgress.new_words_count,
       is_completed: userLessonProgress.is_completed,
       last_read_at: userLessonProgress.last_read_at,
+      owner_id: courses.owner_id,
     })
     .from(userLessonProgress)
     .innerJoin(lessons, eq(userLessonProgress.lesson_id, lessons.id))
@@ -337,7 +353,8 @@ router.get('/continue-studying', authenticate, async (req: AuthRequest, res) => 
 router.get('/guided-courses', authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
-    const { lang } = req.query;
+    const { lang, search } = req.query;
+    const searchPattern = search ? `%${String(search).toLowerCase()}%` : null;
 
     const allCourses = await db.select({
       id: courses.id,
@@ -345,14 +362,25 @@ router.get('/guided-courses', authenticate, async (req: AuthRequest, res) => {
       description: courses.description,
       image_url: courses.image_url,
       level: courses.level,
+      owner_id: courses.owner_id,
+      owner_username: users.username,
       is_enrolled: sql<boolean>`CASE WHEN ${userCourses.course_id} IS NOT NULL THEN 1 ELSE 0 END`
     })
     .from(courses)
+    .leftJoin(users, eq(courses.owner_id, users.id))
     .leftJoin(userCourses, and(
       eq(userCourses.course_id, courses.id),
       eq(userCourses.user_id, userId)
     ))
-    .where(eq(courses.language_code, String(lang)));
+    .where(and(
+      eq(courses.language_code, String(lang)),
+      searchPattern
+        ? or(
+            like(sql`lower(${courses.title})`, searchPattern),
+            like(sql`lower(${courses.description})`, searchPattern)
+          )
+        : sql`1=1`
+    ));
 
     const courseStats = await Promise.all(allCourses.map(async (course) => {
       const courseLessons = await db.select({
@@ -501,7 +529,14 @@ router.get('/courses/:id/lessons', authenticate, async (req: AuthRequest, res) =
     if (typeof courseId !== 'string')
       return res.status(400).json({ message: 'Course ID is invalid!' });
 
-    const [courseDetails] = await db.select().from(courses).where(eq(courses.id, String(courseId))).limit(1);
+    const [courseDetails] = await db.select({
+      course: courses,
+      owner_username: users.username
+    })
+    .from(courses)
+    .leftJoin(users, eq(courses.owner_id, users.id))
+    .where(eq(courses.id, String(courseId)))
+    .limit(1);
 
     if (!courseDetails) {
       return res.status(404).json({ message: 'Course not found' });
@@ -527,7 +562,7 @@ router.get('/courses/:id/lessons', authenticate, async (req: AuthRequest, res) =
 
     // Calculate progress for unseen/missing setup lessons immediately
     const missingLessonIds = courseLessons.filter(l => l.user_new_words === null).map(l => l.id);
-    const initializedProgressMap = await initializeMissingProgress(userId, courseDetails.language_code, missingLessonIds);
+    const initializedProgressMap = await initializeMissingProgress(userId, courseDetails.course.language_code, missingLessonIds);
 
     const normalizedLessons = courseLessons.map(l => {
       let new_words = l.user_new_words;
@@ -545,8 +580,9 @@ router.get('/courses/:id/lessons', authenticate, async (req: AuthRequest, res) =
 
       return {
         ...l,
-        course_title: courseDetails?.title,
-        course_level: courseDetails?.level,
+        course_title: courseDetails.course?.title,
+        course_level: courseDetails.course?.level,
+        owner_id: courseDetails.course?.owner_id,
         user_new_words: new_words !== null ? new_words : l.unique_words,
         user_lingqs: lingqs,
         is_completed: completed,
@@ -569,7 +605,8 @@ router.get('/courses/:id/lessons', authenticate, async (req: AuthRequest, res) =
 
     res.json({
       course: {
-        ...courseDetails,
+        ...courseDetails.course,
+        owner_username: courseDetails.owner_username || 'LingQ',
         lesson_count: courseLessons.length,
         total_unique_words: totalUnique,
         completed_lessons: completedCount,

@@ -17,7 +17,7 @@ export default function CourseSidebar({ course }: CourseSidebarProps) {
     const totalLingqs = course.total_lingqs ?? 0;
     const level = course.level
 
-    const { currentUsername, deleteCourse, languageCode } = useReaderStore();
+    const { deleteCourse, languageCode } = useReaderStore();
     const { user } = useAuthStore();
     const navigate = useNavigate();
 
@@ -139,7 +139,7 @@ export default function CourseSidebar({ course }: CourseSidebarProps) {
             <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-5 flex flex-col gap-4">
                 <div className='flex justify-between'>
                     <p className='font-bold'>Shared by</p>
-                    <p className='text-blue-400 font-bold'>{currentUsername}</p>
+                    <p className='text-blue-400 font-bold'>{course.owner_username || 'LingQ'}</p>
                 </div>
                 <hr className='text-gray-400' />
                 <div className='flex justify-between'>

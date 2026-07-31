@@ -57,6 +57,7 @@ export interface Lesson {
   user_lingqs?: number;
   course_level?: string;
   lingq_id?: number;
+  owner_id?: string;
 }
 
 export interface Course {
@@ -77,6 +78,7 @@ export interface Course {
   blue_remaining_pct?: number;
   total_lingqs?: number;
   owner_id?: string;
+  owner_username?: string;
   total_duration?: number;
   lingq_id?: number;
 }

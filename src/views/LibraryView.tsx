@@ -15,6 +15,7 @@ import CourseCard from '../features/library/components/CourseCard';
 import CourseSidebar from '../features/library/components/CourseSidebar';
 import ContinueStudyingWidget from '../features/library/components/ContinueStudyingWidget';
 import DailyGoalWidget from '../features/library/components/DailyGoalWidget';
+import LevelRangeDropdown from '../features/library/components/LevelRangeDropdown';
 import { Icons } from '../constants/icons';
 
 // ─── Main LibraryView ────────────────────────────────────────────────────────
@@ -25,7 +26,7 @@ export default function LibraryView() {
         clearActiveCourse, toggleLessonBookmark, checkAndUpdateCompletions,
         setMyLessonsSubTab, setLibrarySidebarTab, recalculateStats,
         guidedCourses, activeCourseDetails, librarySidebarTab, myLessonsSubTab,
-        librarySearch, setLibrarySearch, isStatsLoading
+        librarySearch, setLibrarySearch, isStatsLoading, minLevelIndex, maxLevelIndex
     } = useReaderStore();
 
     const navigate = useNavigate();
@@ -71,7 +72,8 @@ export default function LibraryView() {
 
     useEffect(() => {
         const loadView = async () => {
-            setIsLoading(true);
+            // Only show full skeleton loader on tab/feed/language switch
+            setIsLoading(prev => (guidedCourses.length === 0 && myCourses.length === 0) ? true : prev);
             try {
                 await Promise.all([
                     checkAndUpdateCompletions(),
@@ -83,11 +85,11 @@ export default function LibraryView() {
             } catch (err) {
                 console.error("View loading failed", err);
             } finally {
-                setTimeout(() => setIsLoading(false), 250);
+                setIsLoading(false);
             }
         };
         loadView();
-    }, [activeTab, currentFeed, languageCode, librarySearch, fetchGuidedCourses, fetchLibrary, fetchMyLessons, checkAndUpdateCompletions, fetchContinueStudying]);
+    }, [activeTab, currentFeed, languageCode, librarySearch, minLevelIndex, maxLevelIndex, fetchGuidedCourses, fetchLibrary, fetchMyLessons, checkAndUpdateCompletions, fetchContinueStudying]);
 
     useEffect(() => {
         recalculateStats();
@@ -179,9 +181,7 @@ export default function LibraryView() {
                             <div className="flex flex-grow overflow-hidden">
                                 {librarySidebarTab === 'lesson-feed' && !activeCourseDetails && (
                                     <div className="flex-grow px-4 pb-6 flex flex-col gap-4 bg-gray-50/30">
-                                        <div className="border border-yellow-400 rounded w-fit mt-2 px-3 py-4 leading-[18px] text-sm font-bold text-gray-700 bg-white shadow-sm cursor-pointer whitespace-nowrap">
-                                            Beginner 1 - Advanced 2 ▼
-                                        </div>
+                                        <LevelRangeDropdown />
                                         {isLoading ? (
                                             <div className="flex flex-col gap-4">
                                                 {[1, 2, 3, 4].map(i => <LessonCardSkeleton key={i} />)}

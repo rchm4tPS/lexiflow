@@ -4,6 +4,7 @@ import Swal from 'sweetalert2';
 import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settings, ChevronLeft, ChevronRight, X, SquarePen, Play, Pause } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
+import { useAuthStore } from '../../../store/useAuthStore';
 import { apiClient } from '../../../api/client';
 import SummaryView from './LessonEnd/SummaryView';
 import CompletionModal from './LessonEnd/CompletionModal';
@@ -138,7 +139,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     translationData, revealedSentenceIndices, isLoadingTranslation,
     fontSize, fontFamily, lineHeight, showMargins,
     showTranslation, setShowTranslation,
-    lineGap, isLayoutReady,
+    lineGap, isLayoutReady, activeLessonOwnerId,
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
     lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
@@ -153,7 +154,11 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     setShowTranslation: state.setShowTranslation,   // <--- TAMBAHKAN INI JUGA
     lineGap: state.lineGap ?? 6,
     isLayoutReady: state.isLayoutReady,
+    activeLessonOwnerId: state.activeLessonOwnerId,
   })));
+
+  const { user } = useAuthStore();
+  const isOwner = Boolean(user?.id && activeLessonOwnerId && activeLessonOwnerId === user.id);
 
   const tokens = useReaderStore.getState().tokens;
   const phrases = useReaderStore.getState().phrases;
@@ -1116,14 +1121,16 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                       <Info className="w-5 h-5 text-gray-400" />
                       <span>Lesson Info</span>
                     </div>
-                    <Link
-                      to={`/me/${languageCode}/import/edit/${activeLessonId}`}
-                      className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
-                      onClick={closeDropdown}
-                    >
-                      <SquarePen className="w-5 h-5 text-gray-400" />
-                      <span>Edit Lesson</span>
-                    </Link>
+                    {isOwner && (
+                      <Link
+                        to={`/me/${languageCode}/import/edit/${activeLessonId}`}
+                        className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                        onClick={closeDropdown}
+                      >
+                        <SquarePen className="w-5 h-5 text-gray-400" />
+                        <span>Edit Lesson</span>
+                      </Link>
+                    )}
                     <div
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={handleDownloadAudio}
@@ -1278,14 +1285,16 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                       <Info className="w-5 h-5 text-gray-400" />
                       <span>Lesson Info</span>
                     </div>
-                    <Link
-                      to={`/me/${languageCode}/import/edit/${activeLessonId}`}
-                      className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
-                      onClick={closeDropdown}
-                    >
-                      <SquarePen className="w-5 h-5 text-gray-400" />
-                      <span>Edit Lesson</span>
-                    </Link>
+                    {isOwner && (
+                      <Link
+                        to={`/me/${languageCode}/import/edit/${activeLessonId}`}
+                        className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
+                        onClick={closeDropdown}
+                      >
+                        <SquarePen className="w-5 h-5 text-gray-400" />
+                        <span>Edit Lesson</span>
+                      </Link>
+                    )}
                     <div
                       className="flex items-center gap-4 px-3 py-2.5 hover:bg-white/10 rounded-lg cursor-pointer transition"
                       onClick={handleDownloadAudio}

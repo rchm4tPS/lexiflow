@@ -30,6 +30,7 @@ import { apiClient, BASE_URL } from '../api/client'; // Your fetch wrapper
 import { buildPhraseInstances } from '../utils/phraseMatcher';
 import { assignSentencePageIndexToTokens } from '../utils/sentenceUtils';
 import { getTier } from '../constants/tiers';
+import { LEVELS } from '../constants/levels';
 import type { Token, Phrase, DbPhrase, Lesson, Course, CourseDetail, UpdatePayload, WordHint, UserStats } from '../types/reader';
 
 let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -59,6 +60,7 @@ interface ReaderState {
   guidedCourses: Course[];
   activeCourseDetails: CourseDetail | null;
   activeLessonId: string | null;
+  activeLessonOwnerId: string | null;
   prevLessonId: string | null;
   nextLessonId: string | null;
 
@@ -112,6 +114,9 @@ interface ReaderState {
   hasImportedFromLingq: boolean;
   isLoadingLesson: boolean;
   librarySearch: string;
+  minLevelIndex: number;
+  maxLevelIndex: number;
+  setLevelRange: (minIdx: number, maxIdx: number) => void;
   readerMode: 'paragraph' | 'sentence';
   initialTokenIndex: number | null;
   setInitialTokenIndex: (idx: number | null) => void;
@@ -281,6 +286,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   guidedCourses: [],
   activeCourseDetails: null,
   activeLessonId: null,
+  activeLessonOwnerId: null,
   savedHighestTokenIndex: 0,
   prevLessonId: null,
   nextLessonId: null,
@@ -354,6 +360,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   hasImportedFromLingq: false,
   isLoadingLesson: false,
   librarySearch: '',
+  minLevelIndex: 0,
+  maxLevelIndex: 5,
+  setLevelRange: (minIdx, maxIdx) => set({ minLevelIndex: minIdx, maxLevelIndex: maxIdx }),
   readerMode: (localStorage.getItem('lingq_reader_mode') as 'paragraph' | 'sentence') || 'paragraph',
   initialTokenIndex: null,
   setInitialTokenIndex: (idx) => set({ initialTokenIndex: idx }),
@@ -713,12 +722,16 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     try {
       const state = get();
       const lang = state.languageCode || 'de';
-      const data = await apiClient(`/library/guided-courses?lang=${lang}`);
+      const search = state.librarySearch;
+      const data = await apiClient(`/library/guided-courses?lang=${lang}&search=${encodeURIComponent(search)}`);
       if (get().languageCode !== lang) return;
       if (data) {
         set({ guidedCourses: data });
       }
-    } catch (err) { console.error(err); }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn("Failed to fetch guided courses:", message);
+    }
   },
 
   fetchCourseDetails: async (courseId: string) => {
@@ -759,13 +772,16 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       const state = get();
       const lang = state.languageCode || 'de';
       const search = state.librarySearch;
-      const data = await apiClient(`/library/feed/${lang}?search=${encodeURIComponent(search)}`);
+      const minLevel = LEVELS[state.minLevelIndex] || 'Beginner 1';
+      const maxLevel = LEVELS[state.maxLevelIndex] || 'Advanced 2';
+      const data = await apiClient(`/library/feed/${lang}?search=${encodeURIComponent(search)}&minLevel=${encodeURIComponent(minLevel)}&maxLevel=${encodeURIComponent(maxLevel)}`);
       if (get().languageCode !== lang) return;
       if (data) {
         set({ myCourses: data });
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn("Failed to fetch library feed:", message);
     }
   },
 
@@ -926,6 +942,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
         return {
           activeLessonId: lessonId,
+          activeLessonOwnerId: data.ownerId || null,
           courseId: data.courseId || null,
           courseTitle: data.courseTitle,
           courseLevel: data.courseLevel,
@@ -1234,6 +1251,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         myLessons: state.myLessons.filter(l => l.id !== lessonId),
         completedLessons: state.completedLessons.filter(l => l.id !== lessonId),
         myCourses: state.myCourses.filter(l => l.id !== lessonId),
+        continueStudying: state.continueStudying.filter(l => l.id !== lessonId),
         activeCourseDetails: state.activeCourseDetails
           ? {
             ...state.activeCourseDetails,
@@ -1241,8 +1259,11 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           }
           : null
       }));
-    } catch (err) {
-      console.error("Failed to delete lesson", err);
+
+      await get().fetchContinueStudying();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn("Failed to delete lesson:", message);
       throw err;
     }
   },
@@ -1758,8 +1779,11 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       // Update local state
       set(s => ({
         myCourses: s.myCourses.filter(c => c.id !== courseId),
-        guidedCourses: s.guidedCourses.filter(c => c.id !== courseId)
+        guidedCourses: s.guidedCourses.filter(c => c.id !== courseId),
+        continueStudying: s.continueStudying.filter(l => l.course_id !== courseId)
       }));
+
+      await get().fetchContinueStudying();
 
       return { success: true };
     } catch (err: unknown) {
@@ -1771,7 +1795,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           message: "This course contains lessons. Deleting it will permanently remove all of them."
         };
       }
-      console.error("Delete course failed", err);
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn("Delete course failed:", message);
       throw err;
     }
   },
