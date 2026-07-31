@@ -354,6 +354,24 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   // --- NEW: CSS Columns Dynamic Layout State ---
   const anchorTokenRef = useRef<string | null>(null);
   const [columnWidthPx, setColumnWidthPx] = React.useState(0);
+  const isFirstLayoutCompleteRef = useRef(false);
+
+  // Reset initial transition flag when lesson changes or starts loading
+  useEffect(() => {
+    if (isLoadingLesson || !isLayoutReady) {
+      isFirstLayoutCompleteRef.current = false;
+    }
+  }, [isLoadingLesson, isLayoutReady, activeLessonId]);
+
+  // Enable smooth CSS transitions only after initial page restoration has committed
+  useEffect(() => {
+    if (isLayoutReady && !isFirstLayoutCompleteRef.current) {
+      const raf = requestAnimationFrame(() => {
+        isFirstLayoutCompleteRef.current = true;
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [isLayoutReady]);
   // Track previous layout settings to detect changes that require a re-measurement
   // const layoutSettingsRef = React.useRef({ showMargins, fontSize, fontFamily, lineHeight });
   // When a layout-affecting setting changes we need to force-reflow CSS multi-column.
@@ -377,12 +395,24 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
   // Update anchor token and mark as read when page changes
   React.useLayoutEffect(() => {
-    if (initialTokenIndex !== null) return;
+    console.log('[ReaderPane:PageChangeEffect]', {
+      currentPage,
+      initialTokenIndex,
+      isLayoutReady,
+      hasTokensOnPage: !!columnMapping[currentPage],
+      tokensOnPageCount: columnMapping[currentPage]?.length || 0,
+      firstTokenOnPage: columnMapping[currentPage]?.[0] || null
+    });
+    if (initialTokenIndex !== null || !isLayoutReady) {
+      console.log('[ReaderPane:PageChangeEffect] Skipped markTokensAsRead because layout is not ready or initialTokenIndex is pending:', { initialTokenIndex, isLayoutReady });
+      return;
+    }
     if (columnMapping[currentPage] && columnMapping[currentPage].length > 0) {
       anchorTokenRef.current = columnMapping[currentPage][0];
+      console.log('[ReaderPane:PageChangeEffect] Set anchorTokenRef:', anchorTokenRef.current, 'and marking tokens as read');
       useReaderStore.getState().markTokensAsRead(columnMapping[currentPage]);
     }
-  }, [currentPage, columnMapping, initialTokenIndex]);
+  }, [currentPage, columnMapping, initialTokenIndex, isLayoutReady]);
 
   // Measurement Engine
   // --- FINAL OPTIMIZED MEASUREMENT ENGINE WITH ANCHOR PRESERVATION ---
@@ -395,13 +425,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     const stateBefore = useReaderStore.getState();
     if (stateBefore.initialTokenIndex !== null && stateBefore.tokens[stateBefore.initialTokenIndex]) {
       anchorTokenRef.current = stateBefore.tokens[stateBefore.initialTokenIndex].id;
-    } else {
-      const currentVisibleToken =
-        stateBefore.columnMapping[stateBefore.currentPage]?.[0] || anchorTokenRef.current;
-
-      if (currentVisibleToken) {
-        anchorTokenRef.current = currentVisibleToken;
-      }
+    } else if (!anchorTokenRef.current && stateBefore.columnMapping[stateBefore.currentPage]?.[0]) {
+      anchorTokenRef.current = stateBefore.columnMapping[stateBefore.currentPage][0];
     }
 
     const measure = (_reason = 'unknown') => {
@@ -562,7 +587,9 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         if (newColForAnchor !== -1) break;
       }
 
-      if (newColForAnchor !== -1 && initialTokenIndex !== null) {
+      const isFontLoading = Boolean(document.fonts && document.fonts.status === 'loading');
+
+      if (newColForAnchor !== -1 && initialTokenIndex !== null && columnWidthPx > 0 && !isFontLoading) {
         setInitialTokenIndex(null);
       }
 
@@ -572,6 +599,10 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         : Math.min(useReaderStore.getState().currentPage, newTotalPages - 1);
 
       const safePage = Math.max(0, targetPage);
+
+      if (mapping[safePage] && mapping[safePage].length > 0) {
+        anchorTokenRef.current = mapping[safePage][0];
+      }
 
       const currentTotalPages = useReaderStore.getState().totalPages;
       const currentColumnMapping = useReaderStore.getState().columnMapping;
@@ -585,12 +616,30 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             ids.some((id, i) => id !== currentColumnMapping[Number(key)]?.[i])
         );
 
+      console.log(`[ReaderPane:MeasurementEngine:${_reason}]`, {
+        availableWidth,
+        freshContainerWidth: freshContainerRect.width,
+        columnWidthAndGap,
+        initialTokenIndex: useReaderStore.getState().initialTokenIndex,
+        anchorToken: anchorTokenRef.current,
+        totalDOMTokensFound: tokenNodes.length,
+        newTotalPages,
+        newColForAnchor,
+        targetPage,
+        safePage,
+        currentPageInStore: useReaderStore.getState().currentPage,
+        mappingChanged,
+        pageMappingCounts: Object.fromEntries(
+          Object.entries(mapping).map(([page, ids]) => [page, ids.length])
+        )
+      });
+
       if (mappingChanged) {
         useReaderStore.getState().setPagination(newTotalPages || 1, mapping, safePage);
       } else if (safePage !== useReaderStore.getState().currentPage) {
         useReaderStore.getState().setPage(safePage);
       }
-      if (!useReaderStore.getState().isLayoutReady) {
+      if (!useReaderStore.getState().isLayoutReady && columnWidthPx > 0 && !isFontLoading) {
         useReaderStore.getState().setIsLayoutReady(true);
       }
     };
@@ -906,15 +955,6 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   };
 
 
-  // If complete, show the full-width Summary View
-  if (showSummary) {
-    return (
-      <div className="w-full bg-white h-full">
-        <SummaryView />
-      </div>
-    );
-  }
-
   const stillHasBlueWords = useReaderStore(state => state.tokens.some(w => w.isLearnable && (w.stage ?? 0) === 0));
 
   // Sentence View: currentSentenceIndex is strictly 1-to-1 with currentPage
@@ -968,6 +1008,15 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     lineGap
   ]);
 
+  // If complete, show the full-width Summary View
+  if (showSummary) {
+    return (
+      <div className="w-full bg-white h-full">
+        <SummaryView />
+      </div>
+    );
+  }
+
 
   return (
     <div
@@ -983,7 +1032,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         showModal && stillHasBlueWords && <CompletionModal />
       }
       {/* Conditional Header Rendering */}
-      {currentPage <= 0 ? (
+      {(currentPage <= 0 && initialTokenIndex === null) ? (
         <div className="flex items-center h-fit mt-1.5 pt-2 px-4">
           <div className={`hidden md:flex xl:hidden ${isRTL ? 'font-farsi' : 'font-nunito'} shrink min-w-0 max-w-60 h-fit leading-6`}>
             {isLoadingLesson || isStatsLoading ? (
@@ -1342,7 +1391,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                 columnGap: '3rem',
                 columnFill: 'auto',
                 transform: readerMode === 'sentence' ? 'none' : `translateX(calc(${isRTL ? '' : '-'}${currentPage} * (100% + 3rem)))`,
-                transition: isLayoutReady ? 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)' : 'none',
+                transition: (isLayoutReady && isFirstLayoutCompleteRef.current) ? 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)' : 'none',
                 willChange: 'transform',
               }}
               onMouseDown={handleMouseDown}

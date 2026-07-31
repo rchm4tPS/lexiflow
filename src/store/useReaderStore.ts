@@ -977,6 +977,14 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         }
       });
 
+      console.log('[ReaderStore:fetchLesson]', {
+        lessonId,
+        highestPageRead: data.highestPageRead,
+        initialTokenIndex: data.highestPageRead || 0,
+        tokensCount: tokensWithSentencePaging.length,
+        isSameLesson: get().activeLessonId === lessonId
+      });
+
       // We no longer manually call setPage here because ReaderPane will calculate the layout
       // and use initialTokenIndex to find the correct dynamic CSS column page on its first render!
       // This ensures responsiveness across devices and reader modes.
@@ -988,10 +996,12 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   fetchUserTags: async () => {
     try {
-      const lang = get().languageCode || 'de';
+      const lang = get().languageCode || 'en';
       const data = await apiClient(`/vocab/tags?lang=${lang}`);
       set({ userTags: data });
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error("Failed to fetch user tags", err);
+    }
   },
 
   setPage: (page) => {
@@ -1010,6 +1020,17 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     const { currentPage } = get();
     const target = overridePage !== undefined ? overridePage : currentPage;
     const clampedPage = Math.max(0, Math.min(target, totalPages - 1));
+    
+    console.log('[ReaderStore:setPagination]', {
+      totalPages,
+      overridePage,
+      previousCurrentPage: currentPage,
+      clampedPage,
+      pageMappingCounts: Object.fromEntries(
+        Object.entries(columnMapping).map(([page, ids]) => [page, ids.length])
+      )
+    });
+
     set({ totalPages, columnMapping, currentPage: clampedPage });
   },
 
@@ -1028,6 +1049,14 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           newWordsAdded++;
         }
       }
+    });
+
+    console.log('[ReaderStore:markTokensAsRead]', {
+      inputTokenIdsCount: tokenIds.length,
+      newWordsAdded,
+      sessionWordsReadBefore: sessionWordsRead,
+      sessionWordsReadAfter: sessionWordsRead + newWordsAdded,
+      totalReadTokenIdsCount: newReadTokens.size
     });
 
     if (newWordsAdded > 0) {
@@ -1354,6 +1383,18 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       }
     }
 
+    console.log('[ReaderStore:syncLessonProgress]', {
+      lessonIdPassed: lessonId,
+      targetId,
+      currentPage,
+      highestTokenIndexCalculated: highestTokenIndex,
+      isCompleted,
+      sessionWordsRead,
+      sessionListeningTicks,
+      readerMode,
+      tokensOnCurrentPageCount: columnMapping[currentPage]?.length || 0
+    });
+
     const learnableTokens = tokens.filter(t => t.isLearnable && !t.isNewline);
     const newWordsCount = new Set(learnableTokens.filter(t => (t.stage ?? 0) === 0).map(t => t.text.toLowerCase())).size;
     const lingqsCount = new Set(learnableTokens.filter(t => (t.stage ?? 0) >= 1 && (t.stage ?? 0) <= 4).map(w => w.text.toLowerCase())).size;
@@ -1479,7 +1520,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   completeLesson: async () => {
     const state = get();
 
-    const remainingBlueTokens = state.tokens.filter(t => (t.stage === 0 || t.status === 'new') && t.isLearnable);
+    const remainingBlueTokens = state.tokens.filter(t => t.isLearnable && (t.stage ?? 0) === 0);
 
     if (remainingBlueTokens.length === 0) {
       set({ showSummary: true, showModal: false });
@@ -1493,15 +1534,21 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     const coinDelta = uniqueBlueTexts.length * 15;
     const knownDelta = uniqueBlueTexts.length;
 
+    const updatedTokenMap = { ...state.tokenMap };
     const updatedTokens = state.tokens.map(t => {
-      if (t.isLearnable && (t.stage === 0 || t.status === 'new')) {
-        return { ...t, stage: 5, status: 'known' as const };
+      if (t.isLearnable && (t.stage ?? 0) === 0) {
+        const updated = { ...t, stage: 5, status: 'known' as const };
+        if (updatedTokenMap[t.id]) {
+          updatedTokenMap[t.id] = updated;
+        }
+        return updated;
       }
       return t;
     });
 
     set((state) => ({
       tokens: updatedTokens,
+      tokenMap: updatedTokenMap,
       totalCoins: state.totalCoins + coinDelta,
       totalKnownWords: state.totalKnownWords + knownDelta,
       showSummary: true,
