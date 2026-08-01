@@ -63,6 +63,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       word: masterVocab.original_word,
       stage: userVocabRelation.stage,
       meaning: userVocabRelation.user_meaning,
+      meanings: userVocabRelation.meanings,
       word_tag: userVocabRelation.word_tag,
       notes: userVocabRelation.notes
     })
@@ -85,6 +86,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
         ...t,
         stage: userData?.stage ?? 0,
         meaning: userData?.meaning ?? "",
+        meanings: userData?.meanings ?? [],
         notes: userData?.notes ?? "",
         status: userData?.stage === 5 ? 'known' : (userData ? 'learning' : 'new'),
         word_tags: userData?.word_tag ? userData.word_tag.split(',') : [] // NEW: Array of tags

@@ -64,20 +64,108 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
 
     const [meaningInput, setMeaningInput] = useState(word.meaning || "");
 
+    // Multi-meaning support: array of all meanings (index 0 = primary)
+    const [meanings, setMeanings] = useState<string[]>(() => {
+        if (word.meanings && word.meanings.length > 0) return word.meanings;
+        return word.meaning ? [word.meaning] : [];
+    });
+
     useEffect(() => {
         setMeaningInput(word.meaning || "");
     }, [word.meaning]);
 
+    useEffect(() => {
+        if (word.meanings && word.meanings.length > 0) {
+            setMeanings(word.meanings);
+        } else {
+            setMeanings(word.meaning ? [word.meaning] : []);
+        }
+    }, [word.meaning, word.meanings]);
+
+    // Helper: save meanings + meaning to parent, ensuring index 0 stays in sync
+    const saveMeanings = (updatedMeanings: string[], primaryInput?: string) => {
+        if (!word.id) return;
+        const primary = primaryInput !== undefined ? primaryInput : (updatedMeanings[0] || "");
+        const merged = [primary, ...updatedMeanings.slice(1)].filter(m => m !== undefined);
+        setMeanings(merged);
+        setMeaningInput(primary);
+        onUpdateStage({
+            id: word.id,
+            stage,
+            meaning: primary,
+            meanings: merged.filter(m => m.trim() !== ""),
+            tags,
+            notes: noteVal
+        });
+    };
+
     const handleMeaningBlur = () => {
-        if (word.id && meaningInput !== word.meaning) {
+        if (!word.id) return;
+
+        // Case 1: Primary input cleared but more meanings exist → promote meanings[1] to primary
+        if (meaningInput.trim() === "" && meanings.length > 1) {
+            const shifted = meanings.slice(1).filter(m => m !== undefined && m.trim() !== "");
+            if (shifted.length > 0) {
+                setMeanings(shifted);
+                setMeaningInput(shifted[0]);
+                onUpdateStage({
+                    id: word.id, stage,
+                    meaning: shifted[0],
+                    meanings: shifted,
+                    tags, notes: noteVal
+                });
+                return;
+            }
+        }
+
+        // Case 2: Normal save — sync meanings[0] with what's in the primary input
+        if (!word.id) return;
+        const merged = [meaningInput, ...meanings.slice(1)].filter(m => m !== undefined);
+        const nonEmpty = merged.filter(m => m.trim() !== "");
+        const prevMeaning = word.meaning;
+        setMeanings(nonEmpty);
+        if (meaningInput !== prevMeaning) {
             onUpdateStage({
-                id: word.id,
-                stage,
+                id: word.id, stage,
                 meaning: meaningInput,
-                tags,
-                notes: noteVal
+                meanings: nonEmpty,
+                tags, notes: noteVal
             });
         }
+    };
+
+    // Add an empty additional meaning slot
+    const handleAddMeaning = () => {
+        const updated = [...meanings, ""];
+        setMeanings(updated);
+    };
+
+    // Update a specific additional meaning at index (1-based)
+    const handleAdditionalMeaningChange = (index: number, value: string) => {
+        const updated = [...meanings];
+        updated[index] = value;
+        setMeanings(updated);
+    };
+
+    // Remove an additional meaning
+    const handleRemoveMeaning = (index: number) => {
+        const updated = meanings.filter((_, i) => i !== index);
+        saveMeanings(updated.length > 0 ? updated : [meaningInput], meaningInput);
+    };
+
+    // Blur handler for additional meaning inputs
+    const handleAdditionalMeaningBlur = (_index: number) => {
+        if (!word.id) return;
+        const trimmed = meanings.filter(m => m !== undefined);
+        const nonEmpty = trimmed.filter(m => m.trim() !== "");
+        onUpdateStage({
+            id: word.id,
+            stage,
+            meaning: nonEmpty[0] || "",
+            meanings: nonEmpty,
+            tags,
+            notes: noteVal
+        });
     };
     const cleanWord = (word.text || '')
         .replace(/[.,?!„”":;/]/g, '')
@@ -113,7 +201,8 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
             onUpdateStage({
                 id: word.id,
                 stage,
-                meaning: word.meaning,
+                meaning: meaningInput,
+                meanings: meanings.filter(m => m.trim() !== ""),
                 tags: updatedTags,
                 notes: noteVal
             });
@@ -127,7 +216,8 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
             onUpdateStage({
                 id: word.id,
                 stage,
-                meaning: word.meaning,
+                meaning: meaningInput,
+                meanings: meanings.filter(m => m.trim() !== ""),
                 tags: updatedTags,
                 notes: noteVal
             });
@@ -227,17 +317,60 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                 <input
                     type="text"
                     value={meaningInput}
-                    onChange={(e) => setMeaningInput(e.target.value)}
+                    onChange={(e) => {
+                        setMeaningInput(e.target.value);
+                        // Keep meanings[0] in sync so additional inputs don't flicker stale data
+                        setMeanings(prev => {
+                            const updated = [...prev];
+                            updated[0] = e.target.value;
+                            return updated;
+                        });
+                    }}
                     onBlur={handleMeaningBlur}
                     onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                     disabled={isIgnored}
                     className="flex-1 outline-none text-gray-800 font-medium ml-2 text-[15px]"
                     placeholder='Type in the meaning of the word here'
                 />
-                {!isIgnored && <div className="w-6 h-6 bg-[#fde05f] rounded-full flex items-center justify-center text-yellow-800 cursor-pointer shadow-sm hover:bg-yellow-400">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                </div>}
+                {!isIgnored && (
+                    <button
+                        type="button"
+                        onClick={handleAddMeaning}
+                        className="w-6 h-6 bg-[#fde05f] rounded-full flex items-center justify-center text-yellow-800 cursor-pointer shadow-sm hover:bg-yellow-400 transition-colors shrink-0"
+                        title="Add another meaning"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                    </button>
+                )}
             </div>
+
+            {/* Additional meanings (index >= 1) */}
+            {!isIgnored && meanings.length > 1 && meanings.slice(1).map((m, i) => {
+                const actualIdx = i + 1; // real index in meanings array
+                return (
+                    <div key={actualIdx} className={`bg-white border rounded-md p-2 flex items-center shadow-sm mb-2 ${isIgnored ? 'opacity-50 border-gray-400' : 'border-yellow-200'}`}>
+                        <span className="text-gray-400 text-xs font-bold mr-2 w-4 text-center">{i + 2}</span>
+                        <input
+                            type="text"
+                            value={m}
+                            onChange={(e) => handleAdditionalMeaningChange(actualIdx, e.target.value)}
+                            onBlur={() => handleAdditionalMeaningBlur(actualIdx)}
+                            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                            disabled={isIgnored}
+                            className="flex-1 outline-none text-gray-700 font-medium text-[15px]"
+                            placeholder={`Additional meaning ${i + 2}...`}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => handleRemoveMeaning(actualIdx)}
+                            className="ml-1 w-5 h-5 rounded-full flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 cursor-pointer transition-colors shrink-0"
+                            title="Remove this meaning"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                );
+            })}
 
             <div className="flex justify-between items-center text-[#3a92fb] text-sm font-bold mb-4 px-1 cursor-pointer">
                 <span className="hover:underline" onClick={() => setShowDicts(!showDicts)}>Check/Manage dictionaries</span>
@@ -251,8 +384,15 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                             key={idx}
                             onClick={() => {
                                 if (word.id) {
-                                    onUpdateStage({ id: word.id, stage, meaning: m.text, tags, notes: noteVal });
-                                    setMeaningInput(m.text);
+                                    // Add to meanings array if not already present
+                                    const alreadyExists = meanings.some(ex => ex.toLowerCase().trim() === m.text.toLowerCase().trim());
+                                    if (!alreadyExists) {
+                                        const updatedMeanings = [...meanings, m.text];
+                                        setMeanings(updatedMeanings);
+                                        const nonEmpty = updatedMeanings.filter(s => s.trim() !== "");
+                                        onUpdateStage({ id: word.id, stage, meaning: nonEmpty[0] || "", meanings: nonEmpty, tags, notes: noteVal });
+                                        setMeaningInput(meanings[0] || m.text);
+                                    }
                                 }
                             }}
                             className="bg-[#3a92fb] text-white px-2 py-1.5 lg:py-1.5 lg:px-3 xl:px-3 xl:py-2 rounded-md cursor-pointer flex justify-between gap-2 items-center shadow-sm hover:bg-blue-600 transition"
@@ -291,7 +431,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                 onChange={(e) => setNoteVal(e.target.value)}
                 onBlur={() => {
                     if (noteVal !== (word.notes || "") && word.id) {
-                        onUpdateStage({ id: word.id, stage, meaning: meaningInput, tags, notes: noteVal });
+                        onUpdateStage({ id: word.id, stage, meaning: meaningInput, meanings: meanings.filter(m => m.trim() !== ""), tags, notes: noteVal });
                     }
                 }}
             ></textarea>
@@ -303,7 +443,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                             key={num}
                             onClick={() => {
                                 if (word.id) {
-                                    onUpdateStage({ id: word.id, stage: num, meaning: meaningInput, tags, notes: noteVal });
+                                    onUpdateStage({ id: word.id, stage: num, meaning: meaningInput, meanings: meanings.filter(m => m.trim() !== ""), tags, notes: noteVal });
                                 }
                             }}
                             className={`w-10 h-8 font-bold text-sm flex items-center justify-center border-r border-gray-100 last:border-0 

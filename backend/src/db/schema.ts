@@ -130,9 +130,11 @@ export const userVocabRelation = sqliteTable("user_vocab_relation", {
   id: text("id").primaryKey().$defaultFn(() => randomUUID()),
   user_id: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   master_word_id: text("master_word_id").references(() => masterVocab.id, { onDelete: "cascade" }).notNull(),
-  stage: integer("stage").default(0), 
+  stage: integer("stage").default(0),
   user_meaning: text("user_meaning"),
-  word_tag: text("word_tag"), 
+  /** JSON array of multiple meanings — first element is the primary meaning */
+  meanings: text("meanings", { mode: "json" }).$type<string[]>(),
+  word_tag: text("word_tag"),
   notes: text("notes"),
   related_phrase_occur: text("related_phrase_occur"),
   is_ignored_initially: integer("is_ignored_initially", { mode: "boolean" }).default(false),
@@ -147,6 +149,8 @@ export const userPhrases = sqliteTable("user_phrases", {
   language_code: text("language_code").references(() => languages.code, { onDelete: "cascade" }).notNull(),
   phrase_text: text("phrase_text").notNull(),
   user_meaning: text("user_meaning"),
+  /** JSON array of multiple meanings — first element is the primary meaning */
+  meanings: text("meanings", { mode: "json" }).$type<string[]>(),
   stage: integer("stage").default(1),
   phrase_tags: text("phrase_tags"),
   notes: text("notes"),

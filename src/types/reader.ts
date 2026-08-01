@@ -8,6 +8,8 @@ export interface Token {
   status?: 'new' | 'learning' | 'known' | 'ignored';
   stage?: number;
   meaning?: string;
+  /** JSON array of multiple meanings — first element is the primary meaning */
+  meanings?: string[];
   notes?: string;
   word_tags?: string[];
   isIgnoredInitially?: boolean;
@@ -22,6 +24,8 @@ export interface Phrase {
   range: string[];
   stage: number;
   meaning?: string;
+  /** JSON array of multiple meanings — first element is the primary meaning */
+  meanings?: string[];
   phrase_tags?: string | string[];
   notes?: string;
   word_tags?: string[];
@@ -121,6 +125,8 @@ export interface UpdatePayload {
   id: string;
   stage: number;
   meaning?: string;
+  /** JSON array of multiple meanings — first element is the primary meaning */
+  meanings?: string[];
   tags?: string[];
   notes?: string;
 }
@@ -132,6 +138,8 @@ export interface DraftPhrase {
   isDraft: true;
   isPhrase?: false;
   meaning?: string;
+  /** JSON array of multiple meanings — first element is the primary meaning */
+  meanings?: string[];
   notes?: string;
   word_tags?: string[];
 }

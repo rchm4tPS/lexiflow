@@ -1,10 +1,13 @@
-import { useState, useRef } from 'react';
+﻿import { useState, useRef, useEffect } from 'react';
+import { Edit as EditIcon } from 'lucide-react';
 import { VocabRowSkeleton } from '../../../components/ui/Skeletons';
 
 type VocabItem = {
   id: string;
   word: string;
   meaning: string | null;
+  /** JSON array of multiple meanings — first is primary */
+  meanings?: string[] | null;
   stage: 1 | 2 | 3 | 4 | 5 | 6;
   word_tags?: string[];
   related_phrase_occur?: string | null;
@@ -33,23 +36,25 @@ export default function VocabTable({
     onStartEditing, onSetEditMeaning, onSaveEdit,
     onClearSelection: _onClearSelection
 }: VocabTableProps) {
-    
+    // Single-source-of-truth: only one row's status popover can be open at a time
+    const [openStatusRowId, setOpenStatusRowId] = useState<string | null>(null);
+
     return (
         <div className="flex flex-col grow w-full">
             {/* Desktop Table Header (>= 640px ONLY) */}
             <div className="hidden sm:flex text-xs font-bold text-gray-400 mb-2 px-4 shadow-2xs pb-2 border-b">
-                <div className="w-[30%] flex items-center">
-                    <input 
-                        type="checkbox" 
-                        className="mr-2 cursor-pointer" 
+                <div className="w-[25%] flex items-center">
+                    <input
+                        type="checkbox"
+                        className="mr-2 cursor-pointer"
                         checked={items.length > 0 && selectedIds.length === items.length}
-                        onChange={onToggleSelectAll} 
-                    /> 
+                        onChange={onToggleSelectAll}
+                    />
                     TERM ({items.length} IN VIEW)
                 </div>
-                <div className="w-[30%]">TRANSLATION</div>
-                <div className="w-[25%]">CONTEXT PHRASE</div>
-                <div className="w-[15%] text-center">STATUS</div>
+                <div className="w-[25%]">TRANSLATION</div>
+                <div className="w-[15%]">CONTEXT PHRASE</div>
+                <div className="w-[35%] text-center">STATUS</div>
             </div>
 
             {/* Table Body */}
@@ -57,7 +62,7 @@ export default function VocabTable({
                 {isLoading ? (
                     [...Array(10)].map((_, i) => <VocabRowSkeleton key={i} />)
                 ) : items.length !== 0 ? items.map((item, idx) => (
-                    <VocabRow 
+                    <VocabRow
                         key={item.id}
                         item={item}
                         isEven={idx % 2 === 0}
@@ -70,6 +75,9 @@ export default function VocabTable({
                         onStartEditing={() => onStartEditing(item)}
                         onSetEditMeaning={onSetEditMeaning}
                         onSaveEdit={() => onSaveEdit(item)}
+                        isStatusOpen={openStatusRowId === item.id}
+                        onToggleStatus={() => setOpenStatusRowId(prev => prev === item.id ? null : item.id)}
+                        onCloseStatus={() => setOpenStatusRowId(null)}
                     />
                 )) : (
                     <div className="p-10 flex flex-col gap-6 text-center">
@@ -94,25 +102,77 @@ interface VocabRowProps {
     onStartEditing: () => void;
     onSetEditMeaning: (meaning: string) => void;
     onSaveEdit: () => void;
+    isStatusOpen: boolean;
+    onToggleStatus: () => void;
+    onCloseStatus: () => void;
 }
 
-function VocabRow({ 
-    item, isEven, isSelected, isSelectionActive, onToggleSelect, 
-    onUpdateStage, isEditing, editMeaning, 
-    onStartEditing, onSetEditMeaning, onSaveEdit 
+function VocabRow({
+    item, isEven, isSelected, isSelectionActive, onToggleSelect,
+    onUpdateStage, isEditing, editMeaning,
+    onStartEditing, onSetEditMeaning, onSaveEdit,
+    isStatusOpen, onToggleStatus, onCloseStatus
 }: VocabRowProps) {
-    const [isStatusOpen, setIsStatusOpen] = useState(false);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const statusRef = useRef<HTMLDivElement>(null);
+    const touchStartYRef = useRef<number | null>(null);
+    const [popoverUpward, setPopoverUpward] = useState(false);
 
-    // Long press handler for mobile selection mode
-    const handlePressStart = () => {
+    // Close status popover when clicking outside
+    const handleStatusToggle = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        // Check position before toggling: if the badge is near the bottom,
+        // render the popover upward to avoid being clipped by BottomNav / screen edge
+        if (statusRef.current) {
+            const rect = statusRef.current.getBoundingClientRect();
+            const bottomNavH = 64; // BottomNav h-16
+            const popoverH = 200; // estimated max popover height
+            const spaceBelow = window.innerHeight - rect.bottom - bottomNavH;
+            setPopoverUpward(spaceBelow < popoverH);
+        }
+        onToggleStatus();
+    };
+
+    // Close popover when clicking outside
+    useEffect(() => {
+        if (!isStatusOpen) return;
+        const handleClick = (e: MouseEvent) => {
+            if (statusRef.current && !statusRef.current.contains(e.target as Node)) {
+                onCloseStatus();
+            }
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, [isStatusOpen, onCloseStatus]);
+
+    const handlePressStart = (e: React.TouchEvent | React.MouseEvent) => {
+        if ('touches' in e) {
+            touchStartYRef.current = e.touches[0].clientY;
+        } else {
+            touchStartYRef.current = e.clientY;
+        }
         timerRef.current = setTimeout(() => {
             onToggleSelect();
         }, 600);
     };
 
+    const handleTouchMove = (e: React.TouchEvent) => {
+        if (touchStartYRef.current !== null) {
+            const delta = Math.abs(e.touches[0].clientY - touchStartYRef.current);
+            if (delta > 10) {
+                // User is scrolling, cancel the long-press timer
+                if (timerRef.current) {
+                    clearTimeout(timerRef.current);
+                    timerRef.current = null;
+                }
+                touchStartYRef.current = null;
+            }
+        }
+    };
+
     const handlePressEnd = () => {
         if (timerRef.current) clearTimeout(timerRef.current);
+        touchStartYRef.current = null;
     };
 
     const handleRowClick = () => {
@@ -147,9 +207,10 @@ function VocabRow({
     };
 
     return (
-        <div 
+        <div
             onClick={handleRowClick}
             onTouchStart={handlePressStart}
+            onTouchMove={handleTouchMove}
             onTouchEnd={handlePressEnd}
             onMouseDown={handlePressStart}
             onMouseUp={handlePressEnd}
@@ -159,10 +220,10 @@ function VocabRow({
             {/* ── MOBILE ROW (< 640px) matching screenshot ── */}
             <div className="flex sm:hidden items-center w-full min-w-0 py-1">
                 {/* 1. Stage Badge Pill (Far Left) */}
-                <div className="w-10 shrink-0 flex flex-col items-center justify-center mr-3 relative">
+                <div className="w-10 shrink-0 flex flex-col items-center justify-center mr-3 relative" ref={statusRef}>
                     <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); setIsStatusOpen(prev => !prev); }}
+                        onClick={handleStatusToggle}
                         className={`w-7 h-7 rounded-full border-2 flex items-center justify-center font-extrabold text-xs shadow-2xs transition-transform active:scale-95 cursor-pointer ${getStageStyle(item.stage)}`}
                         title="Change Stage"
                     >
@@ -179,29 +240,29 @@ function VocabRow({
                         ))}
                     </div>
 
-                    {/* Stage Popover Dropdown */}
+                    {/* Stage Popover Dropdown — renders upward if near bottom edge */}
                     {isStatusOpen && (
-                        <div 
+                        <div
                             onClick={(e) => e.stopPropagation()}
-                            className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-50 py-1 min-w-[120px] font-bold text-xs"
+                            className={`absolute left-0 ${popoverUpward ? 'bottom-full mb-1' : 'top-full mt-1'} bg-white border border-gray-200 rounded-lg shadow-xl z-50 py-1 min-w-[120px] font-bold text-xs`}
                         >
                             {[1, 2, 3, 4].map(num => (
                                 <div
                                     key={num}
-                                    onClick={() => { onUpdateStage(num); setIsStatusOpen(false); }}
+                                    onClick={() => { onUpdateStage(num); onCloseStatus(); }}
                                     className={`px-3 py-1.5 flex items-center gap-2 cursor-pointer hover:bg-amber-50 ${item.stage === num ? 'text-amber-700 bg-amber-50/80' : 'text-gray-700'}`}
                                 >
                                     <span className="w-4 text-center font-extrabold">{num}</span> Stage {num}
                                 </div>
                             ))}
                             <div
-                                onClick={() => { onUpdateStage(5); setIsStatusOpen(false); }}
+                                onClick={() => { onUpdateStage(5); onCloseStatus(); }}
                                 className={`px-3 py-1.5 flex items-center gap-2 cursor-pointer hover:bg-green-50 text-green-600 ${item.stage === 5 ? 'bg-green-50/50' : ''}`}
                             >
                                 <span className="w-4 text-center font-extrabold">✔</span> Known
                             </div>
                             <div
-                                onClick={() => { onUpdateStage(6); setIsStatusOpen(false); }}
+                                onClick={() => { onUpdateStage(6); onCloseStatus(); }}
                                 className={`px-3 py-1.5 flex items-center gap-2 cursor-pointer hover:bg-red-50 text-red-500 ${item.stage === 6 ? 'bg-red-50/50' : ''}`}
                             >
                                 <span className="w-4 text-center font-extrabold">⊘</span> Ignore
@@ -234,13 +295,13 @@ function VocabRow({
                 </div>
 
                 {/* 3. Translation Column starting at fixed column position with UK flag (Matching Screenshot!) */}
-                <div 
-                    className="flex-1 min-w-0 flex items-center text-left text-gray-600 text-xs sm:text-sm pl-1 cursor-text"
+                <div
+                    className="flex-1 min-w-0 flex items-center text-left text-gray-600 text-xs sm:text-sm pl-1 cursor-text group/trans"
                     onClick={(e) => { e.stopPropagation(); onStartEditing(); }}
                 >
-                    <span className="mr-1.5 text-base shrink-0">🇬🇧</span> 
+                    <span className="mr-1.5 text-base shrink-0">🇬🇧</span>
                     {isEditing ? (
-                        <input 
+                        <input
                             autoFocus
                             className="border border-blue-400 rounded px-2 py-0.5 outline-none font-medium text-xs w-full"
                             value={editMeaning}
@@ -250,8 +311,14 @@ function VocabRow({
                             onClick={(e) => e.stopPropagation()}
                         />
                     ) : (
-                        <span className={`break-words whitespace-normal text-left ${item.meaning ? 'text-gray-700 font-medium' : 'italic text-gray-400'}`}>
-                            {item.meaning || 'Add translation...'}
+                        <span className={`break-words whitespace-normal text-left flex items-center gap-1 ${item.meaning ? 'text-gray-700 font-medium' : 'italic text-gray-400'}`}>
+                            <span>{item.meaning || 'Add translation...'}</span>
+                            {item.meanings && item.meanings.length > 1 && (
+                                <span className="bg-amber-100 text-amber-700 text-[9px] font-bold px-1 rounded-full ml-0.5 shrink-0" title={item.meanings.slice(1).join(', ')}>
+                                    +{item.meanings.length - 1}
+                                </span>
+                            )}
+                            <EditIcon size={10} className="text-gray-400/50 shrink-0 cursor-pointer transition-opacity hover:opacity-100" />
                         </span>
                     )}
                 </div>
@@ -261,7 +328,7 @@ function VocabRow({
             {/* ── DESKTOP ROW (>= 640px ONLY) ── */}
             <div className="hidden sm:flex items-center w-full">
                 {/* Term */}
-                <div className="w-[30%] flex flex-col justify-center pr-2">
+                <div className="w-[25%] flex flex-col justify-center pr-2">
                     <div className="flex items-center text-base font-black text-gray-800 break-words whitespace-normal">
                         <input 
                             type="checkbox" 
@@ -289,13 +356,13 @@ function VocabRow({
                 </div>
 
                 {/* Translation */}
-                <div 
-                    className="w-[30%] flex items-center text-gray-700 font-medium text-sm pr-4 cursor-text"
+                <div
+                    className="w-[25%] flex items-center text-gray-700 font-medium text-sm pr-4 cursor-text group/trans"
                     onDoubleClick={onStartEditing}
                 >
-                    <span className="mr-2 text-lg">🇬🇧</span> 
+                    <span className="mr-2 text-lg shrink-0">🇬🇧</span>
                     {isEditing ? (
-                        <input 
+                        <input
                             autoFocus
                             className="border border-blue-400 rounded px-2 py-1 flex-1 outline-none font-medium"
                             value={editMeaning}
@@ -305,42 +372,48 @@ function VocabRow({
                             onClick={(e) => e.stopPropagation()}
                         />
                     ) : (
-                        <span 
-                            className={item.meaning ? '' : 'italic text-gray-400 cursor-pointer'}
+                        <span
+                            className={item.meaning ? 'flex items-center gap-1 min-w-0' : 'italic text-gray-400 cursor-pointer flex items-center gap-1 min-w-0'}
                             onClick={(e) => { e.stopPropagation(); onStartEditing(); }}
                         >
-                            {item.meaning || 'Add translation...'}
+                            <span className="truncate">{item.meaning || 'Add translation...'}</span>
+                            {item.meanings && item.meanings.length > 1 && (
+                                <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-1.5 rounded-full shrink-0" title={item.meanings.slice(1).join(', ')}>
+                                    +{item.meanings.length - 1}
+                                </span>
+                            )}
+                            <EditIcon size={12} className="text-gray-400/40 shrink-0 cursor-pointer transition-opacity hover:opacity-100" />
                         </span>
                     )}
                 </div>
 
                 {/* Phrase Context */}
-                <div className="w-[25%] text-gray-500 text-sm pr-4 italic" title={item.related_phrase_occur || ''}>
+                <div className="w-[15%] text-gray-500 text-sm pr-4 italic" title={item.related_phrase_occur || ''}>
                     {item.related_phrase_occur 
                         ? `"... ${item.related_phrase_occur} ..."` 
                         : <span className="text-gray-300">No context available</span>}
                 </div>
 
                 {/* Status Widget — Desktop */}
-                <div className="w-[15%] flex justify-center" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex border border-gray-200 rounded-full overflow-hidden bg-white shadow-xs hover:shadow-md transition">
+                <div className="w-[35%] flex justify-center" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex border border-gray-200 rounded-full overflow-hidden bg-white shadow-xs hover:shadow-md transition w-full max-w-xs">
                         {[1, 2, 3, 4].map(num => (
-                            <div 
-                                key={num} 
+                            <div
+                                key={num}
                                 onClick={() => onUpdateStage(num)}
-                                className={`w-6 h-6 flex items-center justify-center text-xs font-bold cursor-pointer transition
-                                ${item.stage === num ? 'bg-[#3890fc] text-white' : 'text-gray-500 hover:bg-gray-100 border-r border-gray-100'}`}
+                                className={`flex-1 flex items-center justify-center text-sm font-extrabold cursor-pointer transition
+                                ${item.stage === num ? 'bg-[#3890fc] text-white' : 'text-gray-500 hover:bg-gray-100 border-r border-gray-100'} h-10`}
                             >
                                 {num}
                             </div>
                         ))}
-                        <div 
+                        <div
                             onClick={() => onUpdateStage(5)}
-                            className={`w-6 h-6 flex items-center justify-center cursor-pointer border-l border-gray-200 transition
+                            className={`flex-1 flex items-center justify-center cursor-pointer border-l border-gray-200 transition h-10 text-sm
                             ${item.stage === 5 ? 'bg-green-400 text-white' : 'text-green-500 hover:bg-green-50'}`}>✔</div>
-                        <div 
+                        <div
                             onClick={() => onUpdateStage(6)}
-                            className={`w-6 h-6 flex items-center justify-center cursor-pointer transition text-gray-400 hover:bg-red-50 hover:text-red-500`}>⊘</div>
+                            className={`flex-1 flex items-center justify-center cursor-pointer transition h-10 text-sm text-gray-400 hover:bg-red-50 hover:text-red-500`}>⊘</div>
                     </div>
                 </div>
             </div>

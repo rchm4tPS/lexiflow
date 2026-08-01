@@ -74,7 +74,7 @@ export default function DailyGoalWidget() {
     const readingProgress = Math.min(100, (currentStats.words / readGoal) * 100);
 
     return (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden flex flex-col sticky top-22 z-10 transition-all">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-100 flex flex-col transition-all">
             <div className="p-4 border-t border-gray-100 bg-gray-50/30 flex flex-col gap-3">
                 <p className="text-[14px] font-black text-gray-700 text-center">DAILY STREAK & GOALS</p>
             </div>

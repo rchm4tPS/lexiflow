@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useReaderStore } from '../../store/useReaderStore';
 import { Library, BookMarked, Layers, BarChart3, User } from 'lucide-react';
+import { useSlidingIndicator } from '../../hooks/useSlidingIndicator';
 
 export default function BottomNav() {
     const location = useLocation();
@@ -53,21 +54,29 @@ export default function BottomNav() {
         },
     ];
 
-    // Hide bottom nav in reader view if needed, or keep everywhere except reader
-    const isReaderPage = path.includes('/reader/');
-    if (isReaderPage) return null;
+    const activeIndex = navItems.findIndex(item => item.isActive);
+
+    const { containerRef, tabRef, indicatorStyle } = useSlidingIndicator({
+        activeIndex: activeIndex >= 0 ? activeIndex : 0,
+        orientation: 'horizontal',
+    });
+
+    // Hide bottom nav on reader, import lesson, and edit lesson pages
+    const hideOnPaths = ['/reader/', '/import'];
+    if (hideOnPaths.some(p => path.includes(p))) return null;
 
     return (
-        <nav className="xl:hidden fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-gray-200 z-50 flex items-center justify-around px-1 shadow-[0_-4px_15px_rgba(0,0,0,0.06)]">
-            {navItems.map((item) => {
+        <nav ref={containerRef} className="xl:hidden fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-gray-200 z-50 flex items-center justify-around px-1 shadow-[0_-4px_15px_rgba(0,0,0,0.06)]">
+            {navItems.map((item, i) => {
                 const IconComponent = item.icon;
                 return (
                     <button
                         key={item.key}
+                        ref={tabRef(i)}
                         onClick={() => navigate(item.path)}
                         className={`flex flex-col items-center justify-center flex-1 h-full py-1 px-0.5 transition-all cursor-pointer relative ${
                             item.isActive
-                                ? 'text-[#3890fc] font-black bg-blue-50/70 before:absolute before:top-0 before:left-0 before:right-0 before:h-1.5 before:bg-[#3890fc] before:rounded-b-full'
+                                ? 'text-[#3890fc] font-black bg-blue-50/70'
                                 : 'text-gray-500 hover:text-gray-800 font-semibold hover:bg-gray-50/50'
                         }`}
                     >
@@ -79,6 +88,14 @@ export default function BottomNav() {
                     </button>
                 );
             })}
+            {/* Sliding indicator bar */}
+            {activeIndex >= 0 && (
+                <div
+                    style={indicatorStyle}
+                    className="top-0 h-1.5 bg-[#3890fc] rounded-b-full pointer-events-none"
+                    aria-hidden="true"
+                />
+            )}
         </nav>
     );
 }

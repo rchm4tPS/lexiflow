@@ -13,6 +13,8 @@ export default function MetricsView() {
 
     const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
     const langMenuRef = useRef<HTMLDivElement>(null);
+    // Track button position for fixed-position dropdown that escapes scroll container
+    const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
     useEffect(() => {
         recalculateStats();
@@ -27,6 +29,17 @@ export default function MetricsView() {
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
+
+    const toggleLangMenu = () => {
+        if (!isLangMenuOpen) {
+            const btn = langMenuRef.current?.querySelector('button');
+            if (btn) {
+                const rect = btn.getBoundingClientRect();
+                setDropdownPos({ top: rect.bottom + 8, left: rect.left, width: rect.width });
+            }
+        }
+        setIsLangMenuOpen(!isLangMenuOpen);
+    };
 
     const renderLanguageItem = (l: any) => (
         <div 
@@ -63,7 +76,7 @@ export default function MetricsView() {
                     {/* Language dropdown button */}
                     <div className="relative" ref={langMenuRef}>
                         <button
-                            onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}
+                            onClick={toggleLangMenu}
                             className="flex items-center gap-2 bg-white text-[#3890fc] px-3 py-1.5 rounded-lg shadow-sm hover:bg-gray-50 transition-colors cursor-pointer"
                         >
                             <svg className="w-4 h-4 text-[#3890fc]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -75,9 +88,12 @@ export default function MetricsView() {
                             <span className="text-gray-800 font-black">{totalKnownWords?.toLocaleString() || 0}</span>
                         </button>
 
-                        {/* Dropdown Menu */}
-                        {isLangMenuOpen && (
-                            <div className="absolute left-0 mt-2 w-72 bg-white rounded-lg shadow-2xl py-2 z-[60] border border-gray-200 text-gray-800 overflow-hidden">
+                        {/* Dropdown Menu - fixed positioning to escape scroll container clipping */}
+                        {isLangMenuOpen && dropdownPos && (
+                            <div
+                                style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, width: '18rem' }}
+                                className="bg-white rounded-lg shadow-2xl py-2 z-[60] border border-gray-200 text-gray-800 overflow-hidden"
+                            >
                                 <div className="max-h-[60vh] overflow-y-auto">
                                     {enrolledLanguages?.length > 0 && (
                                         <>

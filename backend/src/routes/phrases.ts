@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { db } from '../db/index.js';
-import { userPhrases, users, userLanguages } from '../db/schema.js';
+import { userPhrases, users, userLanguages, userDailyStats } from '../db/schema.js';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { updateDailyStatsAndStreak } from '../utils/statsEngine.js';
+import { getUserMidnight } from '../utils/timezone.js';
 import { VocabHistoryService } from '../services/vocabHistory.service.js';
 
 const router = Router();
@@ -66,6 +67,7 @@ router.get('/list', authenticate, async (req: AuthRequest, res) => {
       id: userPhrases.id,
       phrase_text: userPhrases.phrase_text,
       user_meaning: userPhrases.user_meaning,
+      meanings: userPhrases.meanings,
       stage: userPhrases.stage,
       phrase_tags: userPhrases.phrase_tags,
       notes: userPhrases.notes,
@@ -158,7 +160,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
 // NEW: Update phrase stage/meaning
 router.put('/:id', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { stage, user_meaning, wordTags, related_phrase_occur, notes } = req.body;
+    const { stage, user_meaning, meanings, wordTags, related_phrase_occur, notes } = req.body;
     const userId = req.user!.id;
     const phraseIdRaw = req.params.id;
     if (typeof phraseIdRaw !== 'string') return res.status(400).json({ error: 'Invalid phrase id' });
@@ -166,6 +168,7 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
 
     const updatePayload: Record<string, unknown> = { stage, last_reviewed: new Date() };
     if (user_meaning !== undefined) updatePayload.user_meaning = user_meaning;
+    if (meanings !== undefined) updatePayload.meanings = meanings;
     if (notes !== undefined) updatePayload.notes = notes;
     
     if (wordTags !== undefined) {
@@ -225,17 +228,63 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
 router.delete('/', authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
-    const { ids } = req.body;
-    
+    const { ids, languageCode } = req.body;
+
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: "Missing or invalid ids array" });
     }
+
+    // Count phrase deletions to decrement total_lingqs (all phrases are LingQs)
+    const deletedPhrases = await db.select({
+      language_code: userPhrases.language_code,
+      created_at: userPhrases.created_at
+    })
+      .from(userPhrases)
+      .where(and(
+        eq(userPhrases.user_id, userId),
+        inArray(userPhrases.id, ids)
+      ));
 
     await db.delete(userPhrases)
        .where(and(
          eq(userPhrases.user_id, userId),
          inArray(userPhrases.id, ids)
        ));
+
+    const removedCount = deletedPhrases.length;
+    const lang = languageCode || deletedPhrases[0]?.language_code;
+
+    if (removedCount > 0 && lang) {
+      await db.update(userLanguages)
+        .set({ total_lingqs: sql`MAX(0, ${userLanguages.total_lingqs} - ${removedCount})` })
+        .where(and(eq(userLanguages.user_id, userId), eq(userLanguages.language_code, lang)));
+
+      // Also decrement daily lingqs_created for phrases created today
+      const tzOffset = req.headers['x-timezone-offset'] as string | undefined;
+      const today = getUserMidnight(tzOffset);
+
+      const createdTodayCount = deletedPhrases.filter(p => {
+        if (!p.created_at) return false;
+        const createdAt = new Date(p.created_at);
+        return createdAt >= today && createdAt < new Date(today.getTime() + 86400000);
+      }).length;
+
+      if (createdTodayCount > 0) {
+        const [dailyRecord] = await db.select({ id: userDailyStats.id })
+          .from(userDailyStats)
+          .where(and(
+            eq(userDailyStats.user_id, userId),
+            eq(userDailyStats.language_code, lang),
+            eq(userDailyStats.log_date, today)
+          ));
+
+        if (dailyRecord) {
+          await db.update(userDailyStats)
+            .set({ lingqs_created: sql`MAX(0, ${userDailyStats.lingqs_created} - ${createdTodayCount})` })
+            .where(eq(userDailyStats.id, dailyRecord.id));
+        }
+      }
+    }
 
     res.json({ success: true });
   } catch (error: unknown) {

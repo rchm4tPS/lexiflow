@@ -61,8 +61,9 @@ interface ReaderState {
   activeCourseDetails: CourseDetail | null;
   activeLessonId: string | null;
   activeLessonOwnerId: string | null;
-  prevLessonId: string | null;
-  nextLessonId: string | null;
+	prevLessonId: string | null;
+	nextLessonId: string | null;
+	originalText: string;
 
 
   myCourses: Lesson[];       // Lesson feed
@@ -290,6 +291,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   savedHighestTokenIndex: 0,
   prevLessonId: null,
   nextLessonId: null,
+  originalText: '',
 
   myCourses: [],
   myCoursesDropdown: [],
@@ -710,6 +712,11 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         set({
           totalCoins: response.trueCoins,
           totalKnownWords: response.trueKnown,
+          // totalDailyLingqs is intentionally NOT updated here — it's a daily metric
+          // from user_daily_stats.lingqs_created, not the lifetime total_lingqs.
+          // The two are unrelated; the /vocab/list count naturally differs from
+          // user_languages.total_lingqs because the former is a live COUNT(*) and
+          // the latter is an incrementally-maintained aggregate.
         });
         console.log("✅ Stats Recalculated:", response);
       }
@@ -981,6 +988,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           isLoadingLesson: false,
           prevLessonId: data.prevLessonId || null,
           nextLessonId: data.nextLessonId || null,
+          originalText: (data as { originalText?: string }).originalText || '',
           lessonIndex: data.lessonIndex || 0,
           courseLessonsCount: data.courseLessonsCount || 0,
           // IF IT'S THE SAME LESSON, KEEP THE SESSION STATE. 
@@ -1096,7 +1104,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   setShowSummary: (show) => set({ showSummary: show }),
 
   updateStage: async (payload: UpdatePayload) => {
-    const { id, stage: newStage, meaning, tags: wordTags, notes } = payload;
+    const { id, stage: newStage, meaning, meanings: payloadMeanings, tags: wordTags, notes } = payload;
     if (!id) return;
 
     const state = get();
@@ -1113,8 +1121,11 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       const newTagsCache = new Set(state.userTags);
       finalTags.forEach((t: string) => newTagsCache.add(t));
 
+      const finalMeaning = meaning !== undefined ? meaning : instance.meaning;
+      const finalMeanings = payloadMeanings !== undefined ? payloadMeanings : (instance.meanings || (finalMeaning ? [finalMeaning] : []));
+
       const updatedDbPhrases = state.dbPhrases.map(p =>
-        p.id === targetDbId ? { ...p, stage: newStage, meaning: meaning !== undefined ? meaning : p.meaning, phrase_tags: formattedTagsStr, notes: notes !== undefined ? notes : p.notes } as DbPhrase : p
+        p.id === targetDbId ? { ...p, stage: newStage, meaning: finalMeaning, meanings: finalMeanings, phrase_tags: formattedTagsStr, notes: notes !== undefined ? notes : p.notes } as DbPhrase : p
       );
 
       const newPhraseInstances = buildPhraseInstances(state.tokens, updatedDbPhrases);
@@ -1131,7 +1142,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       try {
         await apiClient(`/phrases/${targetDbId}`, {
           method: 'PUT',
-          body: JSON.stringify({ stage: newStage, user_meaning: meaning, meaning: meaning, wordTags: finalTags, notes })
+          body: JSON.stringify({ stage: newStage, user_meaning: finalMeaning, meaning: finalMeaning, meanings: finalMeanings, wordTags: finalTags, notes })
         });
       } catch (err) {
         console.error("Failed to update phrase", err);
@@ -1173,6 +1184,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       const coinDelta = newCoins - oldCoins;
       const newStatus = (newStage === 0 ? 'new' : (newStage === 5 ? 'known' : (newStage === 6 ? 'ignored' : 'learning'))) as Token['status'];
       const finalMeaning = meaning !== undefined ? meaning : targetToken.meaning;
+      const finalMeanings = payloadMeanings !== undefined ? payloadMeanings : (targetToken.meanings || (finalMeaning ? [finalMeaning] : []));
 
       // Update daily stats optimistically
       get().updateDailyStats({ created: lingqDelta, learned: knownDelta });
@@ -1185,6 +1197,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
             stage: newStage,
             status: newStatus,
             meaning: finalMeaning,
+            meanings: finalMeanings,
             isIgnoredInitially,
             word_tags: finalTags,
             notes: notes !== undefined ? notes : t.notes
@@ -1210,13 +1223,36 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       let relatedPhraseOccur: string | undefined = undefined;
 
       if (oldStage === 0 && newStage >= 1 && newStage <= 5) {
-        const startIdx = Math.max(0, targetIndex - 3);
-        const endIdx = Math.min(state.tokens.length - 1, targetIndex + 3);
-        relatedPhraseOccur = state.tokens.slice(startIdx, endIdx + 1)
-          .map(t => t.text)
-          .join(' ')
-          .replace(/\s+/g, ' ')
-          .trim();
+        // Use lesson's original_text for a richer context sentence, falling back to token window
+        const fallback = () => {
+          const startIdx = Math.max(0, targetIndex - 3);
+          const endIdx = Math.min(state.tokens.length - 1, targetIndex + 3);
+          return state.tokens.slice(startIdx, endIdx + 1)
+            .map(t => t.text)
+            .join(' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        };
+
+        const originalText = state.originalText;
+        if (originalText) {
+          const lowerText = targetToken.text.toLowerCase();
+          // Find the first occurrence of the word in originalText (word-boundary aware)
+          const wordRegex = new RegExp(`\\b${lowerText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+          const match = wordRegex.exec(originalText);
+          if (match) {
+            const matchIndex = match.index;
+            const windowChars = 40;
+            const start = Math.max(0, matchIndex - windowChars);
+            const end = Math.min(originalText.length, matchIndex + match[0].length + windowChars);
+            const snippet = originalText.slice(start, end).replace(/\s+/g, ' ').trim();
+            relatedPhraseOccur = snippet;
+          } else {
+            relatedPhraseOccur = fallback();
+          }
+        } else {
+          relatedPhraseOccur = fallback();
+        }
       }
 
       try {
@@ -1226,6 +1262,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
             wordText: targetToken.text,
             stage: newStage,
             meaning: finalMeaning,
+            meanings: finalMeanings,
             languageCode: state.languageCode,
             coinDelta: coinDelta,
             knownDelta: knownDelta,

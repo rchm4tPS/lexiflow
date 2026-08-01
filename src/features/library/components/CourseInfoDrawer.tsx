@@ -124,7 +124,7 @@ export default function CourseInfoDrawer({ course, isOpen, onClose }: CourseInfo
       onClick={handleClose}
     >
       <div
-        className={`w-full max-w-lg shrink-0 sm:my-auto flex flex-col ${
+        className={`w-full max-w-md shrink-0 sm:my-auto flex flex-col ${
           isClosing ? 'animate-slide-down sm:animate-none' : 'animate-slide-up sm:animate-none'
         }`}
         onClick={(e) => e.stopPropagation()}

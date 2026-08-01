@@ -126,6 +126,8 @@ export default function SummaryView() {
                                 dataKey="day"
                                 axisLine={{ stroke: '#e5e7eb' }}
                                 tickLine={false}
+                                interval={0}
+                                tickMargin={4}
                                 tick={{ fontSize: 11, fontWeight: 700, fill: '#6b7280' }}
                             />
                             <YAxis

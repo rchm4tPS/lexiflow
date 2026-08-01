@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { db } from '../db/index.js';
-import { userVocabRelation, masterVocab, users, userLanguages, userPhrases } from '../db/schema.js';
+import { userVocabRelation, masterVocab, users, userLanguages, userPhrases, vocabTransitions } from '../db/schema.js';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
-import { eq, and, sql, inArray } from 'drizzle-orm';
+import { eq, and, sql, inArray, gte, lt } from 'drizzle-orm';
 import axios from 'axios';
-import { externalHintsCache } from '../db/schema.js';
+import { externalHintsCache, userDailyStats } from '../db/schema.js';
 import { updateDailyStatsAndStreak } from '../utils/statsEngine.js';
+import { getUserMidnight } from '../utils/timezone.js';
 import { VocabHistoryService } from '../services/vocabHistory.service.js';
 
 
@@ -72,6 +73,7 @@ router.get('/list', authenticate, async (req: AuthRequest, res) => {
       id: userVocabRelation.id,
       word: masterVocab.original_word,
       meaning: userVocabRelation.user_meaning,
+      meanings: userVocabRelation.meanings,
       stage: userVocabRelation.stage,
       word_tag: userVocabRelation.word_tag,
       related_phrase_occur: userVocabRelation.related_phrase_occur,
@@ -99,10 +101,10 @@ router.get('/list', authenticate, async (req: AuthRequest, res) => {
 
 router.post('/upsert', authenticate, async (req: AuthRequest, res) => {
   try {
-    const { wordText, stage: newStage, meaning, languageCode, 
-      // coinDelta, 
+    const { wordText, stage: newStage, meaning, meanings, languageCode,
+      // coinDelta,
       isIgnoredInitially, wordTags, related_phrase_occur, notes
-      // knownDelta, lingqDelta 
+      // knownDelta, lingqDelta
     } = req.body;
     const userId = req.user!.id;
 
@@ -156,7 +158,9 @@ router.post('/upsert', authenticate, async (req: AuthRequest, res) => {
         );
     
     const wasAlreadyLingq = existing ? existing.user_vocab_relation.created_as_lingq : false;
-    const isNowLingq = newStage >= 1 && newStage <= 4;
+    // Treat stages 1-5 as LingQ-worthy (inclusive of stage 5 known/graduated)
+    // so words completed via lesson completion are also counted as LingQs
+    const isNowLingq = newStage >= 1 && newStage <= 5;
     const becomesLingqForFirstTime = !wasAlreadyLingq && isNowLingq;
 
     // lingqDelta: +1 only when first created as LingQ, never -1
@@ -165,13 +169,14 @@ router.post('/upsert', authenticate, async (req: AuthRequest, res) => {
 
     if (existing) {
       await db.update(userVocabRelation)
-        .set({ stage: newStage, user_meaning: meaning, 
-          is_ignored_initially: isIgnoredInitially, 
+        .set({ stage: newStage, user_meaning: meaning,
+          meanings: meanings !== undefined ? meanings : existing.user_vocab_relation.meanings,
+          is_ignored_initially: isIgnoredInitially,
           created_as_lingq: finalCreatedAsLingq,
           word_tag: formattedTags,
           notes: notes !== undefined ? notes : existing.user_vocab_relation.notes,
           related_phrase_occur: finalContext,
-          last_reviewed: new Date() 
+          last_reviewed: new Date()
         })
         .where(and(
           eq(userVocabRelation.master_word_id, masterWord!.id),
@@ -182,7 +187,9 @@ router.post('/upsert', authenticate, async (req: AuthRequest, res) => {
         user_id: userId,
         master_word_id: masterWord!.id,
         stage: newStage,
-        user_meaning: meaning, is_ignored_initially: isIgnoredInitially,
+        user_meaning: meaning,
+        meanings: meanings !== undefined ? meanings : null,
+        is_ignored_initially: isIgnoredInitially,
         created_as_lingq: finalCreatedAsLingq,
         word_tag: formattedTags,
         notes: notes || null,
@@ -235,6 +242,8 @@ router.post('/batch-upsert', authenticate, async (req: AuthRequest, res) => {
     const { words, stage, languageCode, coinDeltaTotal, knownDeltaTotal } = req.body;
     const userId = req.user!.id;
 
+    let lingqDelta = 0;
+
     for (const payload of words) {
       const wordText = typeof payload === 'string' ? payload : payload.word;
       const finalContext = payload.context || null;
@@ -255,8 +264,10 @@ router.post('/batch-upsert', authenticate, async (req: AuthRequest, res) => {
 
       const oldStage = existing ? (existing.stage || 0) : 0;
       const wasAlreadyLingq = existing ? (existing.created_as_lingq || false) : false;
-      const isNowLingq = stage >= 1 && stage <= 4;
+      // Treat stages 1-5 as LingQ-worthy (inclusive of stage 5 known/graduated)
+      const isNowLingq = stage >= 1 && stage <= 5;
       const becomesLingqForFirstTime = !wasAlreadyLingq && isNowLingq;
+      if (becomesLingqForFirstTime) lingqDelta++;
       const finalCreatedAsLingq = wasAlreadyLingq || becomesLingqForFirstTime;
 
       if (existing) {
@@ -275,23 +286,25 @@ router.post('/batch-upsert', authenticate, async (req: AuthRequest, res) => {
 
 
     await db.insert(userLanguages)
-      .values({ 
-          user_id: userId, language_code: languageCode, 
-          total_known_words: knownDeltaTotal, 
+      .values({
+          user_id: userId, language_code: languageCode,
+          total_known_words: knownDeltaTotal,
+          total_lingqs: lingqDelta,
           total_coins: coinDeltaTotal,
-          daily_goal_tier: 'calm' 
+          daily_goal_tier: 'calm'
       })
       .onConflictDoUpdate({
         target: [userLanguages.user_id, userLanguages.language_code],
-        set: { 
+        set: {
           total_known_words: sql`MAX(0, ${userLanguages.total_known_words} + ${knownDeltaTotal})`,
+          total_lingqs: sql`MAX(0, ${userLanguages.total_lingqs} + ${lingqDelta})`,
           total_coins: sql`MAX(0, ${userLanguages.total_coins} + ${coinDeltaTotal})`
         }
       });
 
     const tzOffset = req.headers['x-timezone-offset'] as string | undefined;
     await updateDailyStatsAndStreak(userId, languageCode, {
-      lingqsCreated: 0,
+      lingqsCreated: lingqDelta,
       lingqsLearned: knownDeltaTotal
     }, tzOffset);
 
@@ -477,11 +490,26 @@ router.get('/tags', authenticate, async (req: AuthRequest, res) => {
 router.delete('/', authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
-    const { ids } = req.body;
-    
+    const { ids, languageCode } = req.body;
+
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: "Missing or invalid ids array" });
     }
+
+    // Fetch the vocab relations to determine LingQ/daily-stats impact
+    const deletedItems = await db.select({
+      stage: userVocabRelation.stage,
+      createdAsLingq: userVocabRelation.created_as_lingq,
+      languageCode: masterVocab.language_code,
+      createdAt: userVocabRelation.created_at,
+      masterWordId: userVocabRelation.master_word_id
+    })
+      .from(userVocabRelation)
+      .innerJoin(masterVocab, eq(userVocabRelation.master_word_id, masterVocab.id))
+      .where(and(
+        eq(userVocabRelation.user_id, userId),
+        inArray(userVocabRelation.id, ids)
+      ));
 
     await db.delete(userVocabRelation)
        .where(and(
@@ -489,7 +517,74 @@ router.delete('/', authenticate, async (req: AuthRequest, res) => {
          inArray(userVocabRelation.id, ids)
        ));
 
-    // Stats recalculate handled on frontend action logic or simple inline query
+    // Determine the language for stats updates
+    const lang = languageCode || deletedItems[0]?.languageCode;
+
+    // 1. Decrement total_lingqs for LingQ-counted words being deleted
+    const lingqRemoved = deletedItems.filter(
+      i => i.stage && i.stage >= 1 && i.stage <= 5 && i.createdAsLingq
+    ).length;
+
+    if (lingqRemoved > 0 && lang) {
+      await db.update(userLanguages)
+        .set({ total_lingqs: sql`MAX(0, ${userLanguages.total_lingqs} - ${lingqRemoved})` })
+        .where(and(eq(userLanguages.user_id, userId), eq(userLanguages.language_code, lang)));
+    }
+
+    // 2. Decrement daily stats for words created/learned today
+    if (lang) {
+      const tzOffset = req.headers['x-timezone-offset'] as string | undefined;
+      const today = getUserMidnight(tzOffset);
+
+      // Words created today that were LingQs → decrement lingqs_created
+      const lingqsCreatedTodayRemoved = deletedItems.filter(i => {
+        if (!i.createdAt) return false;
+        const createdAt = new Date(i.createdAt);
+        return createdAt >= today && createdAt < new Date(today.getTime() + 86400000)
+          && i.stage && i.stage >= 1 && i.stage <= 5 && i.createdAsLingq;
+      }).length;
+
+      // Words that transitioned to stage 5 today → decrement lingqs_learned
+      // We verify via vocabTransitions to avoid decrementing for words learned on previous days
+      const stage5MasterWordIds = deletedItems
+        .filter(i => i.stage === 5 && i.masterWordId)
+        .map(i => i.masterWordId!)
+        .filter(Boolean);
+
+      let lingqsLearnedTodayRemoved = 0;
+      if (stage5MasterWordIds.length > 0) {
+        const todayTransitions = await db.select({ master_word_id: vocabTransitions.master_word_id })
+          .from(vocabTransitions)
+          .where(and(
+            eq(vocabTransitions.user_id, userId),
+            eq(vocabTransitions.new_stage, 5),
+            inArray(vocabTransitions.master_word_id, stage5MasterWordIds),
+            gte(vocabTransitions.created_at, today),
+            lt(vocabTransitions.created_at, new Date(today.getTime() + 86400000))
+          ));
+        lingqsLearnedTodayRemoved = todayTransitions.length;
+      }
+
+      if (lingqsCreatedTodayRemoved > 0 || lingqsLearnedTodayRemoved > 0) {
+        const [dailyRecord] = await db.select({ id: userDailyStats.id })
+          .from(userDailyStats)
+          .where(and(
+            eq(userDailyStats.user_id, userId),
+            eq(userDailyStats.language_code, lang),
+            eq(userDailyStats.log_date, today)
+          ));
+
+        if (dailyRecord) {
+          await db.update(userDailyStats)
+            .set({
+              lingqs_created: sql`MAX(0, ${userDailyStats.lingqs_created} - ${lingqsCreatedTodayRemoved})`,
+              lingqs_learned: sql`MAX(0, ${userDailyStats.lingqs_learned} - ${lingqsLearnedTodayRemoved})`,
+            })
+            .where(eq(userDailyStats.id, dailyRecord.id));
+        }
+      }
+    }
+
     res.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal Error";

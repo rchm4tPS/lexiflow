@@ -1,6 +1,7 @@
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { SlidersHorizontal, Search, X, Trash2 } from 'lucide-react';
+import { useSlidingIndicator } from '../../../hooks/useSlidingIndicator';
 
 interface VocabToolbarProps {
     limit: number;
@@ -32,6 +33,35 @@ export default function VocabToolbar({
     onClearSelection
 }: VocabToolbarProps) {
     const [showFilters, setShowFilters] = useState(false);
+    const filterRef = useRef<HTMLDivElement>(null);
+
+    // Close filter panel when tapping outside on mobile
+    useEffect(() => {
+        if (!showFilters) return;
+        const handleClick = (e: MouseEvent) => {
+            if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+                setShowFilters(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, [showFilters]);
+
+    const vocabActiveIndex = activeTab === 'Words' ? 0 : 1;
+
+    // Desktop tabs sliding indicator
+    const {
+        containerRef: desktopTabRef,
+        tabRef: desktopTabRefs,
+        indicatorStyle: desktopIndicatorStyle,
+    } = useSlidingIndicator({ activeIndex: vocabActiveIndex, orientation: 'horizontal' });
+
+    // Mobile tabs sliding indicator
+    const {
+        containerRef: mobileTabRef,
+        tabRef: mobileTabRefs,
+        indicatorStyle: mobileIndicatorStyle,
+    } = useSlidingIndicator({ activeIndex: vocabActiveIndex, orientation: 'horizontal' });
 
     return (
         <div className="flex flex-col w-full">
@@ -65,14 +95,24 @@ export default function VocabToolbar({
                         </select>
 
                         <div className="relative min-w-[160px] flex-1 max-w-[240px]">
-                            <input 
-                                type="text" 
-                                placeholder="Search" 
+                            <input
+                                type="text"
+                                placeholder="Search"
                                 value={searchInput}
                                 onChange={(e) => setSearchInput(e.target.value)}
-                                className="w-full border border-gray-300 rounded-lg pl-3 pr-8 py-1.5 focus:outline-none focus:border-[#3890fc] font-medium text-sm shadow-2xs" 
+                                className="w-full border border-gray-300 rounded-lg pl-3 pr-8 py-1.5 focus:outline-none focus:border-[#3890fc] font-medium text-sm shadow-2xs"
                             />
-                            <span className="absolute right-2.5 top-2 text-xs text-gray-400 pointer-events-none">🔍</span>
+                            {searchInput ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearchInput('')}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                                >
+                                    <X size={14} />
+                                </button>
+                            ) : (
+                                <span className="absolute right-2.5 top-2 text-xs text-gray-400 pointer-events-none">🔍</span>
+                            )}
                         </div>
                     </div>
 
@@ -99,45 +139,55 @@ export default function VocabToolbar({
                         </div>
 
                         {selectedCount > 0 && (
-                            <>
-                                <button 
-                                    onClick={onDelete} 
-                                    className="bg-red-500 text-white px-4 py-1.5 rounded-full font-bold shadow-sm hover:bg-red-600 text-xs cursor-pointer transition-colors"
+                            <div className="flex items-center gap-1.5">
+                                <button
+                                    onClick={onDelete}
+                                    className="bg-red-500 text-white px-3 py-1.5 rounded-full font-bold shadow-xs hover:bg-red-600 text-xs cursor-pointer transition-colors flex items-center gap-1"
+                                    title={`Delete ${selectedCount} selected items`}
                                 >
-                                    Delete ({selectedCount})
+                                    <Trash2 size={13} /> ({selectedCount})
                                 </button>
                                 {onClearSelection && (
-                                    <button 
-                                        onClick={onClearSelection} 
-                                        className="bg-gray-200 text-gray-700 px-4 py-1.5 rounded-full font-bold shadow-2xs hover:bg-gray-300 text-xs cursor-pointer transition-colors"
+                                    <button
+                                        onClick={onClearSelection}
+                                        className="bg-gray-200 text-gray-700 px-3 py-1.5 rounded-full font-bold shadow-2xs hover:bg-gray-300 text-xs cursor-pointer transition-colors flex items-center gap-1"
                                     >
-                                        Batalkan Pilihan ({selectedCount})
+                                        <X size={13} /> Batalkan
                                     </button>
                                 )}
-                            </>
+                            </div>
                         )}
                     </div>
                 </div>
 
                 {/* Sub-tabs Row (Desktop Classic) */}
-                <div className="flex items-center gap-6 text-sm font-bold border-b border-gray-200 pt-2">
-                    <button 
+                <div ref={desktopTabRef} className="relative flex items-center gap-6 text-sm font-bold border-b border-gray-200 pt-2">
+                    <button
+                        ref={desktopTabRefs(0)}
                         onClick={() => onTabChange('Words')}
-                        className={`pb-2.5 border-b-2 transition-all cursor-pointer ${activeTab === 'Words' ? 'border-[#3890fc] text-[#3890fc] font-extrabold' : 'border-transparent text-gray-500 hover:text-gray-900'}`}
+                        className={`pb-2.5 transition-all cursor-pointer ${activeTab === 'Words' ? 'text-[#3890fc] font-extrabold' : 'text-gray-500 hover:text-gray-900'}`}
                     >
                         Words ({wordsTotal})
                     </button>
-                    <button 
+                    <button
+                        ref={desktopTabRefs(1)}
                         onClick={() => onTabChange('Phrases')}
-                        className={`pb-2.5 border-b-2 transition-all cursor-pointer ${activeTab === 'Phrases' ? 'border-[#3890fc] text-[#3890fc] font-extrabold' : 'border-transparent text-gray-500 hover:text-gray-900'}`}
+                        className={`pb-2.5 transition-all cursor-pointer ${activeTab === 'Phrases' ? 'text-[#3890fc] font-extrabold' : 'text-gray-500 hover:text-gray-900'}`}
                     >
                         Phrases ({phrasesTotal})
                     </button>
-                    <button 
-                        className="pb-2.5 border-b-2 border-transparent text-gray-400 opacity-60 cursor-default"
+                    <button
+                        ref={desktopTabRefs(2)}
+                        className="pb-2.5 text-gray-400 opacity-60 cursor-default"
                     >
                         SRS Due (0)
                     </button>
+                    {/* Sliding indicator */}
+                    <div
+                        style={desktopIndicatorStyle}
+                        className="bottom-0 h-0.5 bg-[#3890fc] rounded-t-full pointer-events-none"
+                        aria-hidden="true"
+                    />
                 </div>
             </div>
 
@@ -150,13 +200,22 @@ export default function VocabToolbar({
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                             <Search size={16} />
                         </span>
-                        <input 
-                            type="text" 
-                            placeholder="Search" 
+                        <input
+                            type="text"
+                            placeholder="Search"
                             value={searchInput}
                             onChange={(e) => setSearchInput(e.target.value)}
-                            className="w-full bg-white text-gray-800 rounded-md pl-9 pr-10 py-1.5 text-xs font-medium outline-none shadow-inner" 
+                            className="w-full bg-white text-gray-800 rounded-md pl-9 pr-20 py-1.5 text-xs font-medium outline-none shadow-inner"
                         />
+                        {searchInput && (
+                            <button
+                                type="button"
+                                onClick={() => setSearchInput('')}
+                                className="absolute right-10 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 cursor-pointer"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
                         <button
                             type="button"
                             onClick={() => setShowFilters(prev => !prev)}
@@ -169,13 +228,13 @@ export default function VocabToolbar({
 
                     {/* Expandable Filter Panel */}
                     {showFilters && (
-                        <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-lg p-2 flex items-center justify-between gap-2 text-xs font-bold animate-in fade-in duration-150 max-w-full overflow-hidden">
+                        <div ref={filterRef} className="bg-white/10 backdrop-blur-md border border-white/20 rounded-lg p-2 flex items-center justify-between gap-2 text-xs font-bold animate-in fade-in duration-150 max-w-full overflow-hidden">
                             <div className="flex items-center gap-1 shrink-0">
                                 <span className="text-blue-100 text-[11px]">Show:</span>
-                                <select 
+                                <select
                                     className="bg-white text-gray-800 px-1.5 py-1 rounded outline-none text-xs w-16 cursor-pointer"
                                     value={limit}
-                                    onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }}
+                                    onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); setShowFilters(false); }}
                                 >
                                     <option value={10}>10</option>
                                     <option value={25}>25</option>
@@ -185,10 +244,10 @@ export default function VocabToolbar({
                             </div>
                             <div className="flex items-center gap-1 flex-1 min-w-0">
                                 <span className="text-blue-100 text-[11px] shrink-0">Sort:</span>
-                                <select 
+                                <select
                                     className="bg-white text-gray-800 px-1.5 py-1 rounded outline-none text-xs w-full min-w-0 truncate cursor-pointer"
                                     value={sortBy}
-                                    onChange={(e) => setSortBy(e.target.value)}
+                                    onChange={(e) => { setSortBy(e.target.value); setShowFilters(false); }}
                                 >
                                     <option value="alphabetical_asc">Term (A-Z)</option>
                                     <option value="alphabetical_desc">Term (Z-A)</option>
@@ -202,24 +261,33 @@ export default function VocabToolbar({
                     )}
 
                     {/* Sub-tabs Row (Equal width grid-cols-3 spread evenly across 100% mobile width) */}
-                    <div className="grid grid-cols-3 w-full text-center text-xs font-bold pt-1">
-                        <button 
+                    <div ref={mobileTabRef} className="relative grid grid-cols-3 w-full text-center text-xs font-bold pt-1">
+                        <button
+                            ref={mobileTabRefs(0)}
                             onClick={() => onTabChange('Words')}
-                            className={`pb-1.5 border-b-2 transition-all cursor-pointer text-center justify-center flex items-center ${activeTab === 'Words' ? 'border-amber-400 text-white font-extrabold' : 'border-transparent text-blue-100 hover:text-white'}`}
+                            className={`pb-1.5 transition-all cursor-pointer text-center justify-center flex items-center ${activeTab === 'Words' ? 'text-white font-extrabold' : 'text-blue-100 hover:text-white'}`}
                         >
                             Words ({wordsTotal})
                         </button>
-                        <button 
+                        <button
+                            ref={mobileTabRefs(1)}
                             onClick={() => onTabChange('Phrases')}
-                            className={`pb-1.5 border-b-2 transition-all cursor-pointer text-center justify-center flex items-center ${activeTab === 'Phrases' ? 'border-amber-400 text-white font-extrabold' : 'border-transparent text-blue-100 hover:text-white'}`}
+                            className={`pb-1.5 transition-all cursor-pointer text-center justify-center flex items-center ${activeTab === 'Phrases' ? 'text-white font-extrabold' : 'text-blue-100 hover:text-white'}`}
                         >
                             Phrases ({phrasesTotal})
                         </button>
-                        <button 
-                            className="pb-1.5 border-b-2 border-transparent text-blue-100/70 opacity-80 cursor-default text-center justify-center flex items-center"
+                        <button
+                            ref={mobileTabRefs(2)}
+                            className="pb-1.5 text-blue-100/70 opacity-80 cursor-default text-center justify-center flex items-center"
                         >
                             SRS Due (0)
                         </button>
+                        {/* Sliding indicator */}
+                        <div
+                            style={mobileIndicatorStyle}
+                            className="bottom-0 h-0.5 bg-amber-400 rounded-t-full pointer-events-none"
+                            aria-hidden="true"
+                        />
                     </div>
                 </div>
 

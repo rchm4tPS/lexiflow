@@ -3,11 +3,11 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 
 import { useReaderStore } from '../store/useReaderStore';
 import VocabularyView from './VocabularyView';
-import { 
-    LessonCardSkeleton, 
-    CourseCardSkeleton, 
-    SidebarWidgetSkeleton, 
-    DailyGoalSkeleton 
+import {
+    LessonCardSkeleton,
+    CourseCardSkeleton,
+    SidebarWidgetSkeleton,
+    DailyGoalSkeleton
 } from '../components/ui/Skeletons';
 
 import LessonCard from '../features/library/components/LessonCard';
@@ -18,6 +18,8 @@ import DailyGoalWidget from '../features/library/components/DailyGoalWidget';
 import LevelRangeDropdown from '../features/library/components/LevelRangeDropdown';
 import CourseInfoDrawer from '../features/library/components/CourseInfoDrawer';
 import { Icons } from '../constants/icons';
+import { useSlidingIndicator } from '../hooks/useSlidingIndicator';
+import SlidingContent from '../components/ui/SlidingContent';
 
 // ─── Main LibraryView ────────────────────────────────────────────────────────
 export default function LibraryView() {
@@ -47,6 +49,32 @@ export default function LibraryView() {
     const currentCourseId = view === 'course' ? subPath : null;
 
     const [searchTerm, setSearchTerm] = useState(librarySearch);
+
+    // Tab index mapping for desktop top tabs: library=0, my-lessons=1, vocabulary=2
+    const tabIndexMap: Record<string, number> = { library: 0, 'my-lessons': 1, vocabulary: 2 };
+    const topTabIndex = tabIndexMap[activeTab] ?? 0;
+
+    const {
+        containerRef: topTabContainerRef,
+        tabRef: topTabRef,
+        indicatorStyle: topTabIndicatorStyle,
+    } = useSlidingIndicator({ activeIndex: topTabIndex, orientation: 'horizontal' });
+
+    // Sidebar sub-tab indicators (Lesson Feed / Guided Course)
+    const librarySidebarIndex = librarySidebarTab === 'lesson-feed' ? 0 : 1;
+    const {
+        containerRef: libSidebarContainerRef,
+        tabRef: libSidebarTabRef,
+        indicatorStyle: libSidebarIndicatorStyle,
+    } = useSlidingIndicator({ activeIndex: librarySidebarIndex, orientation: 'vertical' });
+
+    // My-lessons sub-tab indicators (Continue / Completed)
+    const myLessonsSidebarIndex = myLessonsSubTab === 'continue' ? 0 : 1;
+    const {
+        containerRef: myLessonsSidebarContainerRef,
+        tabRef: myLessonsSidebarTabRef,
+        indicatorStyle: myLessonsSidebarIndicatorStyle,
+    } = useSlidingIndicator({ activeIndex: myLessonsSidebarIndex, orientation: 'vertical' });
 
     // Debounce search update to store
     useEffect(() => {
@@ -80,6 +108,8 @@ export default function LibraryView() {
         const loadView = async () => {
             // Only show full skeleton loader on tab/feed/language switch
             setIsLoading(prev => (guidedCourses.length === 0 && myCourses.length === 0) ? true : prev);
+            // Don't fetch library data when viewing a course detail page -- course data is independent
+            if (view === 'course') return;
             try {
                 await Promise.all([
                     checkAndUpdateCompletions(),
@@ -95,7 +125,7 @@ export default function LibraryView() {
             }
         };
         loadView();
-    }, [activeTab, currentFeed, languageCode, librarySearch, minLevelIndex, maxLevelIndex, fetchGuidedCourses, fetchLibrary, fetchMyLessons, checkAndUpdateCompletions, fetchContinueStudying]);
+    }, [activeTab, currentFeed, languageCode, librarySearch, minLevelIndex, maxLevelIndex, fetchGuidedCourses, fetchLibrary, fetchMyLessons, checkAndUpdateCompletions, fetchContinueStudying, view]);
 
     useEffect(() => {
         recalculateStats();
@@ -111,14 +141,14 @@ export default function LibraryView() {
                 <div className="flex flex-col w-full xl:w-[72%]">
 
                     {/* DESKTOP TOP TABS — hidden on mobile (< 1280px) and when inside course detail view */}
-                    {!activeCourseDetails && (
-                        <div className="hidden xl:flex bg-white rounded-t-lg border-b border-gray-200 overflow-hidden shadow-sm font-bold text-gray-500 text-lg">
-                            {['library', 'my-lessons', 'vocabulary'].map(tab => (
-                                <div key={tab}
+                    {!activeCourseDetails && view !== 'course' && (
+                        <div ref={topTabContainerRef} className="hidden xl:flex bg-white rounded-t-lg border-b border-gray-200 overflow-hidden shadow-sm font-bold text-gray-500 text-lg relative">
+                            {['library', 'my-lessons', 'vocabulary'].map((tab, i) => (
+                                <div key={tab} ref={topTabRef(i)}
                                     onClick={() => {
                                         navigate(`/me/${languageCode}/${tab}`);
                                     }}
-                                    className={`px-8 py-4 cursor-pointer capitalize transition-colors ${activeTab === tab ? 'border-b-4 border-[#3890fc] text-[#3890fc]' : 'hover:text-[#3890fc]'}`}
+                                    className={`px-8 py-4 cursor-pointer capitalize transition-colors ${activeTab === tab ? 'text-[#3890fc]' : 'hover:text-[#3890fc]'}`}
                                 >
                                     {tab.replace('-', ' ')}
                                 </div>
@@ -140,11 +170,17 @@ export default function LibraryView() {
                                     </div>
                                 )}
                             </div>
+                            {/* Sliding indicator */}
+                            <div
+                                style={topTabIndicatorStyle}
+                                className="bottom-0 h-1 bg-[#3890fc] rounded-t-full pointer-events-none"
+                                aria-hidden="true"
+                            />
                         </div>
                     )} 
 
-                    {/* STICKY MOBILE CONTROLS (< 1280px) */}
-                    {!activeCourseDetails && activeTab === 'library' && (
+                    {/* STICKY MOBILE CONTROLS (< 1280px) — hidden when entering course detail, only shown after course loads */}
+                    {!activeCourseDetails && activeTab === 'library' && view !== 'course' && (
                         <div className="sticky top-0 px-3 sm:px-4 pt-3 pb-3 z-30 bg-[#f3f4f6] border-b border-gray-200/80 shadow-sm mb-4 xl:hidden">
                             <div className="bg-white rounded-xl p-1 border border-gray-200 shadow-sm flex font-bold text-xs sm:text-sm text-gray-500 mb-2.5">
                                 <button
@@ -225,8 +261,8 @@ export default function LibraryView() {
                         </div>
                     )}
 
-                    {/* STICKY MOBILE SUBTABS FOR MY LESSONS (< 1280px) */}
-                    {!activeCourseDetails && activeTab === 'my-lessons' && (
+                    {/* STICKY MOBILE SUBTABS FOR MY LESSONS (< 1280px) — hidden when entering course detail */}
+                    {!activeCourseDetails && activeTab === 'my-lessons' && view !== 'course' && (
                         <div className="sticky top-0 px-3 sm:px-4 pt-3 pb-3 z-30 bg-[#f3f4f6] border-b border-gray-200/80 shadow-sm mb-4 xl:hidden">
                             <div className="bg-white rounded-xl p-1 border border-gray-200 shadow-sm flex font-bold text-xs sm:text-sm text-gray-500">
                                 <button
@@ -292,11 +328,13 @@ export default function LibraryView() {
                         </div>
                     )}
 
+                    {/* ── TAB CONTENT (Sliding) ── */}
+                    <SlidingContent activeIndex={topTabIndex} rtl={false} className="w-full">
+
                     {/* ── LIBRARY TAB ── */}
-                    {activeTab === 'library' && (
-                        <div className="flex bg-white rounded-xl xl:rounded-b-lg shadow-sm xl:min-h-120">
-                            {!activeCourseDetails && (
-                                <div className="hidden xl:flex w-[22%] border-r border-gray-200 flex-col font-bold text-gray-600 shrink-0">
+                    <div className="flex bg-white rounded-xl xl:rounded-b-lg xl:rounded-t-none shadow-sm xl:min-h-120">
+                            {!activeCourseDetails && view !== 'course' && (
+                                <div ref={libSidebarContainerRef} className="hidden xl:flex w-[22%] border-r border-gray-200 flex-col font-bold text-gray-600 shrink-0 relative">
                                     <Link
                                         to={`/me/${languageCode}/import`}
                                         className="flex items-center justify-center gap-1 font-bold px-5 py-3 m-2 rounded border-2 text-center transition border-blue-400 text-md text-blue-600 hover:border-[#3890fc] hover:text-[#3890fc] whitespace-nowrap"
@@ -304,30 +342,71 @@ export default function LibraryView() {
                                         <Icons.Plus size={18} /> Import
                                     </Link>
                                     <div
+                                        ref={libSidebarTabRef(0)}
                                         onClick={() => navigate(`/me/${languageCode}/library`)}
-                                        className={`px-5 py-4 border-t border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${librarySidebarTab === 'lesson-feed' ? 'bg-gray-100 border-l-4 border-[#3890fc] text-[#3890fc]' : ''}`}
+                                        className={`px-5 py-4 border-t border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${librarySidebarTab === 'lesson-feed' ? 'bg-gray-100 text-[#3890fc]' : ''}`}
                                     >
                                         Lesson Feed
                                     </div>
                                     <div
+                                        ref={libSidebarTabRef(1)}
                                         onClick={() => navigate(`/me/${languageCode}/library/guided`)}
-                                        className={`px-5 py-4 border-t border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${librarySidebarTab === 'guided-course' ? 'bg-gray-100 border-l-4 border-[#3890fc] text-[#3890fc]' : ''}`}
+                                        className={`px-5 py-4 border-t border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${librarySidebarTab === 'guided-course' ? 'bg-gray-100 text-[#3890fc]' : ''}`}
                                     >
                                         Guided Course
                                     </div>
+                                    {/* Vertical sliding indicator */}
+                                    <div
+                                        style={libSidebarIndicatorStyle}
+                                        className="left-0 w-1 bg-[#3890fc] rounded-r-full pointer-events-none"
+                                        aria-hidden="true"
+                                    />
                                 </div>
                             )}
 
                             <div className="flex flex-grow overflow-hidden">
-                                {view === 'course' && !activeCourseDetails ? (
-                                    <div className="flex-grow p-4 flex flex-col gap-4 bg-gray-50/30">
-                                        <div className="bg-white rounded-xl p-4 shadow-sm animate-pulse space-y-2">
-                                            <div className="h-6 bg-gray-200 rounded w-1/3"></div>
-                                            <div className="h-4 bg-gray-100 rounded w-1/2"></div>
+                                {view === 'course' ? (
+                                    !activeCourseDetails ? (
+                                        <div className="flex-grow p-4 flex flex-col gap-4 bg-gray-50/30">
+                                            <div className="bg-white rounded-xl p-4 shadow-sm animate-pulse space-y-2">
+                                                <div className="h-6 bg-gray-200 rounded w-1/3"></div>
+                                                <div className="h-4 bg-gray-100 rounded w-1/2"></div>
+                                            </div>
+                                            {[1, 2, 3].map(i => <LessonCardSkeleton key={i} />)}
                                         </div>
-                                        {[1, 2, 3].map(i => <LessonCardSkeleton key={i} />)}
-                                    </div>
-                                ) : librarySidebarTab === 'lesson-feed' && !activeCourseDetails && (
+                                    ) : (
+                                        <div className="flex-grow p-3 sm:p-4 flex flex-col gap-4 bg-gray-40/40">
+                                            {(activeCourseDetails.lessons || []).length > 0 ? (
+                                                <div className="flex flex-col gap-4 w-full max-w-full lg:max-w-screen-lg xl:max-w-full mx-auto xl:mx-0">
+                                                    {(activeCourseDetails.lessons || []).map((lesson) => (
+                                                        <LessonCard
+                                                            key={lesson.id}
+                                                            lesson={lesson}
+                                                            isInsideCourse
+                                                            onBookmark={toggleLessonBookmark}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
+                                                    <div className="text-blue-500">
+                                                        <Icons.Lesson size={48} strokeWidth={1.5} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-black text-gray-700 text-lg">This course currently has no lessons.</p>
+                                                        <p className="text-gray-400 text-sm mt-1">Import or add a lesson to this course to get started!</p>
+                                                    </div>
+                                                    <Link
+                                                        to={`/me/${languageCode}/import`}
+                                                        className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition mt-2 shadow-sm"
+                                                    >
+                                                        <Icons.Plus size={16} /> Import a Lesson
+                                                    </Link>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )
+                                ) : librarySidebarTab === 'lesson-feed' ? (
                                     <div className="flex-grow p-3 sm:p-4 pb-6 flex flex-col gap-4 bg-gray-50/30">
                                         <div className="hidden xl:block">
                                             <LevelRangeDropdown />
@@ -364,9 +443,7 @@ export default function LibraryView() {
                                             </div>
                                         )}
                                     </div>
-                                )}
-
-                                {librarySidebarTab === 'guided-course' && !activeCourseDetails && (
+                                ) : (
                                     <div className="flex-grow p-3 sm:p-4 bg-gray-50/30">
                                         {isLoading ? (
                                             <div className="grid grid-cols-1 min-[425px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 min-[1440px]:grid-cols-4 gap-4">
@@ -389,60 +466,23 @@ export default function LibraryView() {
                                         )}
                                     </div>
                                 )}
-
-                                {activeCourseDetails && (
-                                    <div className="flex-grow p-3 sm:p-4 flex flex-col gap-4 bg-gray-40/40">
-                                        {isLoading ? (
-                                            <div className="flex flex-col gap-4 w-full max-w-full lg:max-w-screen-lg xl:max-w-full mx-auto xl:mx-0">
-                                                {[1, 2, 3, 4].map(i => <LessonCardSkeleton key={i} />)}
-                                            </div>
-                                        ) : (activeCourseDetails.lessons || []).length > 0 ? (
-                                            <div className="flex flex-col gap-4 w-full max-w-full lg:max-w-screen-lg xl:max-w-full mx-auto xl:mx-0">
-                                                {(activeCourseDetails.lessons || []).map((lesson) => (
-                                                    <LessonCard
-                                                        key={lesson.id}
-                                                        lesson={lesson}
-                                                        isInsideCourse
-                                                        onBookmark={toggleLessonBookmark}
-                                                    />
-                                                ))}
-                                            </div>
-                                        ) : (
-                                            <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
-                                                <div className="text-blue-500">
-                                                    <Icons.Lesson size={48} strokeWidth={1.5} />
-                                                </div>
-                                                <div>
-                                                    <p className="font-black text-gray-700 text-lg">This course currently has no lessons.</p>
-                                                    <p className="text-gray-400 text-sm mt-1">Import or add a lesson to this course to get started!</p>
-                                                </div>
-                                                <Link
-                                                    to={`/me/${languageCode}/import`}
-                                                    className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition mt-2 shadow-sm"
-                                                >
-                                                    <Icons.Plus size={16} /> Import a Lesson
-                                                </Link>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
                             </div>
                         </div>
-                    )}
 
                     {/* ── MY LESSONS TAB ── */}
-                    {activeTab === 'my-lessons' && (
-                        <div className="flex bg-white rounded-xl xl:rounded-b-lg shadow-sm xl:min-h-120">
-                            <div className="hidden xl:flex w-[22%] border-r border-gray-200 flex-col font-bold text-gray-600 shrink-0">
+                        <div className="flex bg-white rounded-xl xl:rounded-b-lg xl:rounded-t-none shadow-sm xl:min-h-120">
+                            <div ref={myLessonsSidebarContainerRef} className="hidden xl:flex w-[22%] border-r border-gray-200 flex-col font-bold text-gray-600 shrink-0 relative">
                                 <div
+                                    ref={myLessonsSidebarTabRef(0)}
                                     onClick={() => navigate(`/me/${languageCode}/my-lessons`)}
-                                    className={`px-5 py-4 border-t border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${myLessonsSubTab === 'continue' ? 'bg-gray-100 border-l-4 border-[#3890fc] text-[#3890fc]' : ''}`}
+                                    className={`px-5 py-4 border-t border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${myLessonsSubTab === 'continue' ? 'bg-gray-100 text-[#3890fc]' : ''}`}
                                 >
                                     Continue Studying
                                 </div>
                                 <div
+                                    ref={myLessonsSidebarTabRef(1)}
                                     onClick={() => navigate(`/me/${languageCode}/my-lessons/completed`)}
-                                    className={`px-5 py-4 border-t border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${myLessonsSubTab === 'completed' ? 'bg-gray-100 border-l-4 border-[#3890fc] text-[#3890fc]' : ''}`}
+                                    className={`px-5 py-4 border-t border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${myLessonsSubTab === 'completed' ? 'bg-gray-100 text-[#3890fc]' : ''}`}
                                 >
                                     Completed
                                     {completedLessons.length > 0 && (
@@ -451,6 +491,12 @@ export default function LibraryView() {
                                         </span>
                                     )}
                                 </div>
+                                {/* Vertical sliding indicator */}
+                                <div
+                                    style={myLessonsSidebarIndicatorStyle}
+                                    className="left-0 w-1 bg-[#3890fc] rounded-r-full pointer-events-none"
+                                    aria-hidden="true"
+                                />
                             </div>
 
                             <div className="flex-grow p-3 sm:p-6 bg-gray-50/30">
@@ -478,15 +524,16 @@ export default function LibraryView() {
                                 )}
                             </div>
                         </div>
-                    )}
 
                     {/* ── VOCABULARY TAB ── */}
-                    {activeTab === 'vocabulary' && <VocabularyView />}
+                        <VocabularyView />
+
+                    </SlidingContent>
                 </div>
 
                 {/* RIGHT SIDEBAR — DESKTOP ONLY (>= 1280px) */}
-                <div className="hidden xl:flex flex-col w-[28%] gap-6">
-                    {isLoading ? (
+                <div className="hidden xl:flex flex-col w-[28%] gap-6 self-start sticky top-6">
+                    {isLoading || (view === 'course' && !activeCourseDetails) ? (
                         <>
                             <SidebarWidgetSkeleton title="Continue Studying" count={1} />
                             <DailyGoalSkeleton />

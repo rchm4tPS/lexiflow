@@ -8,7 +8,8 @@ export default function MainLayout() {
     const { lang } = useParams();
     const location = useLocation();
     const { languageCode, syncLanguageWithUrl } = useReaderStore();
-    const isReaderPage = location.pathname.includes('/reader/');
+    const hideBottomNavRoutes = ['/reader/', '/import'];
+    const isBottomNavHidden = hideBottomNavRoutes.some(p => location.pathname.includes(p));
     const mainRef = useRef<HTMLElement>(null);
 
     // Single source of truth: Sync store language with URL parameter
@@ -29,7 +30,7 @@ export default function MainLayout() {
     return (
         <div className="h-[100dvh] flex flex-col font-nunito bg-[#f3f4f6] overflow-hidden">
             <Header />
-            <main ref={mainRef} className={`flex-1 overflow-y-auto ${isReaderPage ? 'pb-0' : 'pb-16 xl:pb-0'}`}>
+            <main ref={mainRef} className={`flex-1 overflow-y-auto ${isBottomNavHidden ? 'pb-0' : 'pb-16 xl:pb-0'}`}>
                 <Outlet />
             </main>
             <BottomNav />

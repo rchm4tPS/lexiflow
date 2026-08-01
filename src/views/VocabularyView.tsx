@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 
 import { apiClient } from '../api/client';
 import { useReaderStore } from '../store/useReaderStore';
+import { useAuthStore } from '../store/useAuthStore';
 import VocabToolbar from '../features/vocabulary/components/VocabToolbar';
 import VocabTable from '../features/vocabulary/components/VocabTable';
 
@@ -10,13 +11,15 @@ type VocabItem = {
     id: string;
     word: string;
     meaning: string | null;
+    /** JSON array of multiple meanings — first is primary */
+    meanings?: string[] | null;
     stage: 1 | 2 | 3 | 4 | 5 | 6;
     word_tags?: string[];
     related_phrase_occur?: string | null;
 };
 
 export default function VocabularyView() {
-    const { languageCode, recalculateStats, syncTokenStage, syncPhraseStage } = useReaderStore();
+    const { languageCode, recalculateStats, syncTokenStage, syncPhraseStage, initializeUserState } = useReaderStore();
     
     const location = useLocation();
 
@@ -57,26 +60,39 @@ export default function VocabularyView() {
             const result = await apiClient(url);
             
             // Map incoming data to ensure 'meaning' property exists and include context phrases
-            const mappedData = (result.data || []).map((it: { 
-                id: string; 
-                word?: string; 
-                phrase_text?: string; 
-                stage: number; 
-                meaning?: string; 
-                user_meaning?: string; 
-                word_tags?: string[]; 
-                phrase_tags?: string; 
+            const mappedData = (result.data || []).map((it: {
+                id: string;
+                word?: string;
+                phrase_text?: string;
+                stage: number;
+                meaning?: string;
+                user_meaning?: string;
+                word_tags?: string[];
+                phrase_tags?: string;
                 notes?: string;
                 related_phrase_occur?: string | null;
-            }) => ({
-                id: it.id,
-                word: it.word || it.phrase_text || '',
-                meaning: it.user_meaning || it.meaning || null,
-                stage: it.stage as 1 | 2 | 3 | 4 | 5 | 6,
-                word_tags: it.word_tags || (it.phrase_tags ? it.phrase_tags.split(',') : []),
-                related_phrase_occur: it.related_phrase_occur || null,
-                notes: it.notes || ''
-            }));
+                meanings?: string[] | string | null;
+            }) => {
+                // Parse meanings JSON if it comes as a string from the backend
+                let parsedMeanings: string[] | null | undefined;
+                if (Array.isArray(it.meanings)) {
+                    parsedMeanings = it.meanings;
+                } else if (typeof it.meanings === 'string') {
+                    try { parsedMeanings = JSON.parse(it.meanings); } catch { parsedMeanings = undefined; }
+                } else {
+                    parsedMeanings = undefined;
+                }
+                return {
+                    id: it.id,
+                    word: it.word || it.phrase_text || '',
+                    meaning: it.user_meaning || it.meaning || null,
+                    meanings: parsedMeanings,
+                    stage: it.stage as 1 | 2 | 3 | 4 | 5 | 6,
+                    word_tags: it.word_tags || (it.phrase_tags ? it.phrase_tags.split(',') : []),
+                    related_phrase_occur: it.related_phrase_occur || null,
+                    notes: it.notes || ''
+                };
+            });
 
             setItems(mappedData);
             setTotal(result.total || 0);
@@ -122,15 +138,22 @@ export default function VocabularyView() {
     const handleDelete = async () => {
         if (!selectedIds.length) return;
         const endpoint = activeTab === 'Words' ? '/vocab' : '/phrases';
+        const languageCode = useReaderStore.getState().languageCode;
         try {
             await apiClient(endpoint, {
                 method: 'DELETE',
-                body: JSON.stringify({ ids: selectedIds })
+                body: JSON.stringify({ ids: selectedIds, languageCode })
             });
             setSelectedIds([]);
             fetchData();
             if (activeTab === 'Words') {
-                recalculateStats();
+                await recalculateStats();
+            }
+            // Refresh daily stats (totalDailyLingqs, totalDailyLingqsLearned, etc.)
+            // so Daily Goal Widget shows up-to-date values without requiring a hard refresh
+            const userId = useAuthStore.getState().user?.id;
+            if (userId && languageCode) {
+                await initializeUserState(userId, languageCode);
             }
         } catch (err) {
             console.error("Failed to delete", err);
@@ -157,6 +180,7 @@ export default function VocabularyView() {
                         wordText: item.word,
                         stage: newStage,
                         meaning: item.meaning,
+                        meanings: item.meanings,
                         languageCode,
                         isIgnoredInitially: false,
                         wordTags: item.word_tags
@@ -169,6 +193,7 @@ export default function VocabularyView() {
                         stage: newStage,
                         user_meaning: item.meaning,
                         meaning: item.meaning,
+                        meanings: item.meanings,
                         wordTags: item.word_tags
                     })
                 });
@@ -189,7 +214,10 @@ export default function VocabularyView() {
         setEditingId(null);
         if (editMeaning === item.meaning) return;
 
-        setItems(prev => prev.map(i => i.id === item.id ? { ...i, meaning: editMeaning } : i));
+        // Rebuild meanings array with updated primary
+        const updatedMeanings = [editMeaning, ...(item.meanings || []).slice(1)].filter(m => m.trim() !== "");
+
+        setItems(prev => prev.map(i => i.id === item.id ? { ...i, meaning: editMeaning, meanings: updatedMeanings } : i));
 
         try {
             if (activeTab === 'Words') {
@@ -199,6 +227,7 @@ export default function VocabularyView() {
                         wordText: item.word,
                         stage: item.stage,
                         meaning: editMeaning,
+                        meanings: updatedMeanings,
                         languageCode,
                         isIgnoredInitially: false,
                         wordTags: item.word_tags
@@ -211,6 +240,7 @@ export default function VocabularyView() {
                         stage: item.stage,
                         user_meaning: editMeaning,
                         meaning: editMeaning,
+                        meanings: updatedMeanings,
                         wordTags: item.word_tags
                     })
                 });
@@ -229,7 +259,7 @@ export default function VocabularyView() {
     const totalPages = Math.ceil(total / limit);
 
     return (
-        <div className="flex flex-col w-full bg-white rounded-none sm:rounded-xl shadow-sm min-h-120 p-0 sm:p-6 pb-24 sm:pb-8 border-x-0 sm:border-x border-gray-200">
+        <div className="flex flex-col w-full bg-white rounded-none sm:rounded-xl xl:rounded-t-none shadow-sm min-h-120 p-0 sm:p-6 pb-24 sm:pb-8 lg:border-t-1 lg:border-gray-200">
             <div className="sticky top-0 z-40 sm:relative w-full bg-white">
                 <VocabToolbar 
                     limit={limit} setLimit={setLimit}

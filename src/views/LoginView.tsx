@@ -24,7 +24,7 @@ export default function LoginView() {
     };
 
     return (
-        <div className="min-h-screen flex font-nunito bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-900">
+        <div className="min-h-dvh flex font-nunito bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-900">
             {/* ── Left branding ── */}
             <div className="hidden lg:flex flex-col justify-center items-start px-16 w-[42%] text-white gap-8">
                 <div>

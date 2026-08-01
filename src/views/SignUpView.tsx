@@ -65,7 +65,7 @@ export default function SignUpView() {
   };
 
   if (success) return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-900 font-nunito px-4">
+    <div className="min-h-dvh flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-900 font-nunito px-4">
       <div className="bg-white rounded-2xl shadow-2xl p-10 flex flex-col items-center gap-6 max-w-sm w-full text-center animate-in fade-in zoom-in duration-300">
         <div className="text-6xl">🎉</div>
         <h2 className="text-2xl font-black text-gray-800">You're all set!</h2>
@@ -81,7 +81,7 @@ export default function SignUpView() {
   );
 
   return (
-    <div className="min-h-screen flex font-nunito bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-900 overflow-x-hidden">
+    <div className="min-h-dvh flex font-nunito bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-900 overflow-x-hidden">
       <div className="hidden lg:flex flex-col justify-center items-start px-20 w-[42%] text-white gap-8 bg-black/10 backdrop-blur-3xl border-r border-white/5">
         <div className="animate-in fade-in slide-in-from-left duration-700">
           <div className="text-6xl font-black tracking-tighter mb-2">Lexiflow</div>

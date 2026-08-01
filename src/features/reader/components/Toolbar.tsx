@@ -162,7 +162,19 @@ export default function Toolbar() {
             }
 
             if (audioTimestamps) {
-                const idx = audioTimestamps.findIndex(t => time >= t.start && time < t.end);
+                // Use nearest-preceding-start matching instead of exact window matching.
+                // This is robust at any playback speed: onTimeUpdate fires every ~250ms
+                // wall-clock, but at 2x speed audio advances ~500ms per event, so short
+                // sentences can be entirely skipped by exact window matching (time >= start
+                // && time < end). Finding the last sentence whose start <= currentTime
+                // guarantees we always land on the correct sentence regardless of speed.
+                let idx = -1;
+                for (let i = audioTimestamps.length - 1; i >= 0; i--) {
+                    if (audioTimestamps[i].start <= time) {
+                        idx = i;
+                        break;
+                    }
+                }
                 if (idx !== activeSentenceIndex) {
                     setActiveSentenceIndex(idx === -1 ? null : idx);
                 } else if (idx !== -1) {

@@ -65,7 +65,7 @@ export default function CourseSidebar({ course }: CourseSidebarProps) {
     };
 
     return (
-        <div className='flex flex-col gap-4 sticky top-22 z-10 transition-all'>
+        <div className='flex flex-col gap-4 transition-all'>
             <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-5 flex flex-col gap-4">
                 {/* Course thumbnail */}
                 <div className="h-fit rounded-lg overflow-hidden bg-blue-50">

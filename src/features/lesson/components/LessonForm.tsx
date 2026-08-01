@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { LEVELS } from '../../../constants/levels';
 import AudioTimestampEditor, { type TimestampEntry } from './AudioTimestampEditor';
 import { useReaderStore } from '../../../store/useReaderStore';
+import { useSlidingIndicator } from '../../../hooks/useSlidingIndicator';
+import SlidingContent from '../../../components/ui/SlidingContent';
 import type { Course } from '../../../types/reader';
 
 interface LessonFormProps {
@@ -44,30 +46,45 @@ export default function LessonForm({
         ...(editorFontFamily !== 'default' ? { fontFamily: editorFontFamily } : {})
     };
 
+    const tabOrder = ['title-text', 'timestamps', 'resources', 'clips'] as const;
+    const lessonActiveIndex = tabOrder.indexOf(activeTab);
+
+    const { containerRef, tabRef, indicatorStyle } = useSlidingIndicator({
+        activeIndex: lessonActiveIndex,
+        orientation: 'horizontal',
+    });
+
     return (
         <div className="flex flex-col flex-grow min-h-[520px]">
             {/* Tabs */}
-            <div className="flex gap-5 border-b border-gray-200 px-6 pt-3">
-                {(['title-text', 'timestamps', 'resources', 'clips'] as const).map((tab) => {
+            <div ref={containerRef} className="relative flex gap-5 border-b border-gray-200 px-6 pt-3">
+                {tabOrder.map((tab, i) => {
                     const isDisabled = tab === 'timestamps' && !hasAudio;
                     return (
                         <button
                             key={tab}
+                            ref={tabRef(i)}
                             onClick={() => !isDisabled && setActiveTab(tab)}
                             disabled={isDisabled}
                             title={isDisabled ? "No audio attached to this lesson" : ""}
-                            className={`pb-3 text-sm font-bold capitalize transition-colors border-b-2 -mb-px ${
-                                activeTab === tab 
-                                    ? 'border-gray-800 text-gray-800' 
-                                    : isDisabled 
-                                        ? 'border-transparent text-gray-300 cursor-not-allowed' 
-                                        : 'border-transparent text-gray-400 hover:text-gray-600'
+                            className={`pb-3 text-sm font-bold capitalize transition-colors ${
+                                activeTab === tab
+                                    ? 'text-gray-800'
+                                    : isDisabled
+                                        ? 'text-gray-300 cursor-not-allowed'
+                                        : 'text-gray-400 hover:text-gray-600'
                             }`}
                         >
                             {tab === 'title-text' ? 'Title & Text' : tab === 'timestamps' ? 'Audio Timestamps' : tab.charAt(0).toUpperCase() + tab.slice(1)}
                         </button>
                     );
                 })}
+                {/* Sliding indicator */}
+                <div
+                    style={indicatorStyle}
+                    className="bottom-0 h-0.5 bg-gray-800 rounded-t-full pointer-events-none"
+                    aria-hidden="true"
+                />
             </div>
 
             {/* Metadata Bar */}
@@ -155,57 +172,75 @@ export default function LessonForm({
             </div>
 
             {/* Content Area */}
-            <div className={activeTab === 'title-text' ? 'flex flex-col flex-grow' : 'hidden'}>
-                <div className="px-6 pt-4">
-                    <input
-                        type="text"
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        dir={isRTL ? 'rtl' : 'ltr'}
-                        placeholder="Type the Title of your Lesson..."
-                        className={`w-full text-xl font-bold text-gray-700 outline-none pb-2 border-b border-gray-100 focus:border-[#3890fc] transition-colors bg-transparent ${
-                            isRTL && editorFontFamily === 'default' ? 'font-farsi-trad text-right' : (isRTL ? 'text-right' : 'text-left')
-                        }`}
-                        autoFocus={!isEditMode}
-                    />
-                </div>
-
-                <div className="flex-grow px-6 pt-3 pb-4">
-                    <textarea
-                        value={text}
-                        onChange={(e) => setText(e.target.value)}
-                        dir={isRTL ? 'rtl' : 'ltr'}
-                        style={activeFontStyle}
-                        placeholder="Type the lesson text here..."
-                        className={`w-full h-full min-h-[200px] resize-none outline-none text-gray-600 leading-relaxed bg-transparent ${
-                            isRTL && editorFontFamily === 'default' ? 'font-farsi-trad text-right' : (isRTL ? 'text-right' : 'text-left')
-                        }`}
-                    />
-                </div>
-            </div>
-
-            <div className={activeTab === 'timestamps' ? 'flex-grow p-6 flex flex-col' : 'hidden'}>
-                {hasAudio ? (
-                    <AudioTimestampEditor
-                        audioSrc={audioSrc || null}
-                        text={text}
-                        onTextChange={setText}
-                        timestamps={audioTimestamps}
-                        onTimestampsChange={setAudioTimestamps}
-                        editorFontSize={editorFontSize}
-                        editorFontFamily={editorFontFamily}
-                        isRTL={isRTL}
-                    />
-                ) : (
-                    <div className="flex-grow flex flex-col items-center justify-center text-gray-400 p-8 border-2 border-dashed border-gray-200 rounded-xl">
-                        <span className="text-3xl mb-2">🎵</span>
-                        <p className="font-bold text-sm text-gray-600 mb-1">No Audio Attached</p>
-                        <p className="text-xs text-gray-400 text-center max-w-sm">
-                            Attach an audio file or audio URL in the sidebar to enable audio timestamp alignment for this lesson.
-                        </p>
+            <SlidingContent activeIndex={lessonActiveIndex} rtl={isRTL} className="flex-grow flex">
+                {/* Title & Text Panel */}
+                <div className="flex flex-col flex-grow">
+                    <div className="px-6 pt-4">
+                        <input
+                            type="text"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            dir={isRTL ? 'rtl' : 'ltr'}
+                            placeholder="Type the Title of your Lesson..."
+                            className={`w-full text-xl font-bold text-gray-700 outline-none pb-2 border-b border-gray-100 focus:border-[#3890fc] transition-colors bg-transparent ${
+                                isRTL && editorFontFamily === 'default' ? 'font-farsi-trad text-right' : (isRTL ? 'text-right' : 'text-left')
+                            }`}
+                            autoFocus={!isEditMode}
+                        />
                     </div>
-                )}
-            </div>
+
+                    <div className="flex-grow px-6 pt-3 pb-4">
+                        <textarea
+                            value={text}
+                            onChange={(e) => setText(e.target.value)}
+                            dir={isRTL ? 'rtl' : 'ltr'}
+                            style={activeFontStyle}
+                            placeholder="Type the lesson text here..."
+                            className={`w-full h-full min-h-[200px] resize-none outline-none text-gray-600 leading-relaxed bg-transparent ${
+                                isRTL && editorFontFamily === 'default' ? 'font-farsi-trad text-right' : (isRTL ? 'text-right' : 'text-left')
+                            }`}
+                        />
+                    </div>
+                </div>
+
+                {/* Timestamps Panel */}
+                <div className="flex-grow p-6 flex flex-col">
+                    {hasAudio ? (
+                        <AudioTimestampEditor
+                            audioSrc={audioSrc || null}
+                            text={text}
+                            onTextChange={setText}
+                            timestamps={audioTimestamps}
+                            onTimestampsChange={setAudioTimestamps}
+                            editorFontSize={editorFontSize}
+                            editorFontFamily={editorFontFamily}
+                            isRTL={isRTL}
+                        />
+                    ) : (
+                        <div className="flex-grow flex flex-col items-center justify-center text-gray-400 p-8 border-2 border-dashed border-gray-200 rounded-xl">
+                            <span className="text-3xl mb-2">🎵</span>
+                            <p className="font-bold text-sm text-gray-600 mb-1">No Audio Attached</p>
+                            <p className="text-xs text-gray-400 text-center max-w-sm">
+                                Attach an audio file or audio URL in the sidebar to enable audio timestamp alignment for this lesson.
+                            </p>
+                        </div>
+                    )}
+                </div>
+
+                {/* Resources Panel (placeholder) */}
+                <div className="flex-grow flex flex-col items-center justify-center text-gray-400 p-8">
+                    <span className="text-3xl mb-2">📚</span>
+                    <p className="font-bold text-sm text-gray-600">Resources</p>
+                    <p className="text-xs text-gray-400">Coming soon</p>
+                </div>
+
+                {/* Clips Panel (placeholder) */}
+                <div className="flex-grow flex flex-col items-center justify-center text-gray-400 p-8">
+                    <span className="text-3xl mb-2">🎬</span>
+                    <p className="font-bold text-sm text-gray-600">Clips</p>
+                    <p className="text-xs text-gray-400">Coming soon</p>
+                </div>
+            </SlidingContent>
         </div>
     );
 }
