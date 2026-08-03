@@ -1,5 +1,3 @@
-import React from 'react';
-
 interface SwipeIndicatorProps {
   progress: number;
   direction: 'prev' | 'next' | null;

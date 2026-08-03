@@ -1,4 +1,4 @@
-import React, { type ReactNode, useRef, useState, useEffect } from 'react';
+import React, { type ReactNode, useRef, useState, useEffect, useLayoutEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settings, ChevronLeft, ChevronRight, X, SquarePen, Play, Pause } from 'lucide-react';
@@ -170,15 +170,33 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   const paneRef = useRef<HTMLDivElement>(null);
   const sidebarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // --- SWIPE TO CHANGE PAGE ---
+  // --- SWIPE TO CHANGE PAGE (time-based: <200ms = swipe, >200ms = drag) ---
   const swipeRef = useRef<{
-    active: boolean;
+    state: 'idle' | 'pending' | 'swipe' | 'drag';
     startX: number;
     startY: number;
+    startTime: number;
     lastX: number;
     lastY: number;
-  }>({ active: false, startX: 0, startY: 0, lastX: 0, lastY: 0 });
+    resolveTimeout: ReturnType<typeof setTimeout> | null;
+  }>({
+    state: 'idle',
+    startX: 0, startY: 0, startTime: 0,
+    lastX: 0, lastY: 0,
+    resolveTimeout: null,
+  });
   const [swipeProgress, setSwipeProgress] = useState(0);
+  const swipeTransformRef = useRef<string | null>(null);
+
+  // Protect swipe transform from React overwriting it during re-renders
+  // Runs after every commit (render) but before browser paint
+  useLayoutEffect(() => {
+    if (swipeRef.current.state === 'swipe' && swipeTransformRef.current && scrollContainerRef.current) {
+      const el = scrollContainerRef.current;
+      el.style.transition = 'none';
+      el.style.transform = swipeTransformRef.current;
+    }
+  });
 
   // Save progress on unmount or hard refresh / browser window close
   useEffect(() => {
@@ -796,31 +814,68 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     startY: 0,
   });
 
-  const handlePointerDown = (e: React.PointerEvent) => {
-    // If this is a touch pointer, check for edge zone swipe before starting drag tracking
-    if (e.pointerType === 'touch' && paneRef.current) {
-      const paneRect = paneRef.current.getBoundingClientRect();
-      const touchX = e.clientX - paneRect.left;
-      const edgeZone = paneRect.width * 0.1;
-      const isEdgeZone = touchX <= edgeZone || touchX >= paneRect.width - edgeZone;
-      if (isEdgeZone) {
-        swipeRef.current = { active: true, startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY };
-        useReaderStore.setState({ selectedId: null, draftPhraseRange: null, isDragging: true });
-        // Don't initialize touchDragRef — swipe mode takes over
-        return;
+  const initDragFromPoint = (clientX: number, clientY: number, hasMovedFromStart = false) => {
+    const tokenNode = findTokenAtPoint(clientX, clientY);
+    if (tokenNode) {
+      const tokenId = tokenNode.getAttribute('data-token-id');
+      if (tokenId) {
+        touchDragRef.current = {
+          active: true,
+          startTokenId: tokenId,
+          currentEndTokenId: tokenId,
+          hasMoved: hasMovedFromStart,
+          startX: clientX,
+          startY: clientY,
+        };
       }
     }
+  };
 
-    // Clear any pending sidebar display from a previous drag
+  const handlePointerDown = (e: React.PointerEvent) => {
+    // Touch input: enter pending state — resolve to swipe or drag on first move
+    if (e.pointerType === 'touch') {
+      // Clear any pending sidebar
+      if (sidebarTimeoutRef.current) {
+        clearTimeout(sidebarTimeoutRef.current);
+        sidebarTimeoutRef.current = null;
+      }
+      // Clear selection so sidebar closes immediately
+      useReaderStore.setState({ selectedId: null, draftPhraseRange: null, isDragging: true });
+      window.getSelection()?.removeAllRanges();
+      // Reset touchDragRef from previous interaction
+      touchDragRef.current = {
+        active: false, startTokenId: null, currentEndTokenId: null,
+        hasMoved: false, startX: 0, startY: 0,
+      };
+
+      const startX = e.clientX, startY = e.clientY;
+      swipeRef.current = {
+        state: 'pending',
+        startX, startY,
+        startTime: Date.now(),
+        lastX: startX, lastY: startY,
+        resolveTimeout: setTimeout(() => {
+          // 300ms expired without quick flick → resolve to drag
+          if (swipeRef.current.state === 'pending') {
+            swipeRef.current.state = 'drag';
+            swipeRef.current.resolveTimeout = null;
+            // touchDragRef was already populated during pending moves.
+            // If user never moved, init with current position.
+            if (!touchDragRef.current.active) {
+              initDragFromPoint(swipeRef.current.lastX, swipeRef.current.lastY, false);
+            }
+          }
+        }, 300),
+      };
+      return;
+    }
+
+    // Mouse input: existing drag logic (unchanged)
     if (sidebarTimeoutRef.current) {
       clearTimeout(sidebarTimeoutRef.current);
       sidebarTimeoutRef.current = null;
     }
-
-    // Clear any lingering selection from store so sidebar disappears during drag
     useReaderStore.setState({ selectedId: null, draftPhraseRange: null, isDragging: true });
-
-    // Clear any native browser selection ranges immediately so native OS handles never pop up
     window.getSelection()?.removeAllRanges();
 
     const targetNode = (e.target as Element)?.closest('[data-token-id]');
@@ -900,23 +955,84 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    // Swipe mode: track progress, show indicator, no drag
-    if (swipeRef.current.active) {
-      swipeRef.current.lastX = e.clientX;
-      swipeRef.current.lastY = e.clientY;
-      const dx = Math.abs(e.clientX - swipeRef.current.startX);
-      const paneWidth = paneRef.current?.getBoundingClientRect().width || 1;
-      const progress = Math.min(1, dx / (paneWidth * 0.3));
-      setSwipeProgress(progress);
-      // Also track token under finger for possible fallback to drag
-      const tokenNode = findTokenAtPoint(e.clientX, e.clientY);
-      if (tokenNode) {
-        const tid = tokenNode.getAttribute('data-token-id');
-        if (tid) touchDragRef.current.currentEndTokenId = tid;
+    // Touch input: resolve pending → swipe or drag based on time + movement
+    if (e.pointerType === 'touch') {
+      // 1. PENDING — track tokens for potential drag, or resolve to swipe
+      if (swipeRef.current.state === 'pending') {
+        const dx = Math.abs(e.clientX - swipeRef.current.startX);
+        const dy = Math.abs(e.clientY - swipeRef.current.startY);
+        const elapsed = Date.now() - swipeRef.current.startTime;
+
+        // Always track token under finger during pending (for eventual drag)
+        const tokenNode = findTokenAtPoint(e.clientX, e.clientY);
+        if (tokenNode) {
+          const tid = tokenNode.getAttribute('data-token-id');
+          if (tid && !touchDragRef.current.startTokenId) {
+            // First move: init touchDragRef with where the finger is NOW
+            touchDragRef.current = {
+              active: true,
+              startTokenId: tid,
+              currentEndTokenId: tid,
+              hasMoved: dx > 5 || dy > 5,
+              startX: e.clientX,
+              startY: e.clientY,
+            };
+          } else if (tid && tid !== touchDragRef.current.currentEndTokenId) {
+            // Moved to a new token — update range and show blue highlight
+            touchDragRef.current.currentEndTokenId = tid;
+            touchDragRef.current.hasMoved = true;
+            updateSelectionFromCoordinates(e.clientX, e.clientY);
+          }
+        }
+
+        // Check for quick flick → SWIPE (velocity: >60px in first 100ms = fast flick)
+        if (dx > 60 && elapsed < 100 && dx > dy) {
+          clearTimeout(swipeRef.current.resolveTimeout!);
+          swipeRef.current.state = 'swipe';
+          swipeRef.current.resolveTimeout = null;
+        }
       }
-      return;
+
+      // 2. SWIPE mode — slide content following finger
+      if (swipeRef.current.state === 'swipe') {
+        swipeRef.current.lastX = e.clientX;
+        swipeRef.current.lastY = e.clientY;
+        const offsetX = e.clientX - swipeRef.current.startX;
+        const newTransform = !isRTL
+          ? `translateX(calc(-${currentPage} * (100% + 3rem) + ${offsetX}px))`
+          : `translateX(calc(${currentPage} * (100% + 3rem) + ${offsetX}px))`;
+
+        // Direct DOM manipulation for smooth 60fps — bypass React
+        const el = scrollContainerRef.current;
+        if (el) {
+          el.style.transition = 'none';
+          el.style.transform = newTransform;
+          swipeTransformRef.current = newTransform; // so useLayoutEffect can re-apply it after React render
+        }
+
+        // Update progress for indicator
+        const paneWidth = paneRef.current?.getBoundingClientRect().width || 1;
+        const progress = Math.min(1, Math.abs(offsetX) / (paneWidth * 0.3));
+        setSwipeProgress(progress);
+        return;
+      }
+
+      // 3. DRAG mode — existing selection logic
+      if (swipeRef.current.state === 'drag') {
+        if (!touchDragRef.current.active) return;
+        const dx = Math.abs(e.clientX - touchDragRef.current.startX);
+        const dy = Math.abs(e.clientY - touchDragRef.current.startY);
+        if (dx > 5 || dy > 5) {
+          touchDragRef.current.hasMoved = true;
+          updateSelectionFromCoordinates(e.clientX, e.clientY);
+        }
+        return;
+      }
+
+      return; // 'idle' state (shouldn't happen)
     }
 
+    // Mouse input: existing drag logic (unchanged)
     if (!touchDragRef.current.active) return;
     const dx = Math.abs(e.clientX - touchDragRef.current.startX);
     const dy = Math.abs(e.clientY - touchDragRef.current.startY);
@@ -926,47 +1042,96 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     }
   };
 
+  const resetSwipeTransform = () => {
+    const el = scrollContainerRef.current;
+    if (el) {
+      el.style.transition = '';
+      el.style.transform = ''; // React's style takes over with CSS transition
+    }
+  };
+
   const handlePointerUp = (e: React.PointerEvent) => {
-    // Always clear dragging flag so Sidebar can re-evaluate (must be before
-    // early return since pointer may go up on an element without [data-token-id] —
-    // e.g. clicking the PhraseGroup padding)
+    // Always clear dragging flag so Sidebar can re-evaluate
     useReaderStore.setState({ isDragging: false });
 
-    // Handle swipe mode (touch start in edge zone)
-    if (swipeRef.current.active) {
-      const dx = Math.abs(swipeRef.current.lastX - swipeRef.current.startX);
-      const paneRect = paneRef.current?.getBoundingClientRect();
-      const threshold = (paneRect?.width || 999) * 0.3;
-      const pageChanged = dx >= threshold;
-      if (pageChanged && paneRect) {
-        // Determine direction: finger right → prev page, finger left → next page (LTR)
-        const direction = swipeRef.current.lastX > swipeRef.current.startX ? -1 : 1;
-        const newPage = currentPage + direction;
-        if (newPage >= 0 && newPage < totalPages) {
-          handlePageAdvance(newPage);
+    // Touch input handling
+    if (e.pointerType === 'touch') {
+      // Clear any pending resolve timeout
+      if (swipeRef.current.resolveTimeout) {
+        clearTimeout(swipeRef.current.resolveTimeout);
+        swipeRef.current.resolveTimeout = null;
+      }
+
+      // 1. SWIPE end — change page or snap back
+      if (swipeRef.current.state === 'swipe') {
+        const offsetX = swipeRef.current.lastX - swipeRef.current.startX;
+        const absOffset = Math.abs(offsetX);
+        const paneWidth = paneRef.current?.getBoundingClientRect().width || 999;
+        const threshold = paneWidth * 0.3;
+
+        swipeTransformRef.current = null;
+        const el = scrollContainerRef.current;
+
+        if (absOffset >= threshold && paneWidth > 0) {
+          const direction = offsetX > 0 ? -1 : 1; // LTR: finger right = prev page
+          const newPage = currentPage + direction;
+          if (newPage >= 0 && newPage < totalPages) {
+            // Animate directly to target page — no intermediate snap
+            if (el) {
+              const targetTransform = !isRTL
+                ? `translateX(calc(-${newPage} * (100% + 3rem)))`
+                : `translateX(calc(${newPage} * (100% + 3rem)))`;
+              el.style.transition = 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)';
+              el.style.transform = targetTransform;
+            }
+            handlePageAdvance(newPage);
+          }
+        } else {
+          // Snap back: animate from offset to current page
+          if (el) {
+            const baseTransform = !isRTL
+              ? `translateX(calc(-${currentPage} * (100% + 3rem)))`
+              : `translateX(calc(${currentPage} * (100% + 3rem)))`;
+            el.style.transition = 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)';
+            el.style.transform = baseTransform;
+          }
         }
-      } else if (dx > 5 && touchDragRef.current.currentEndTokenId && touchDragRef.current.startTokenId) {
-        // Fallback to drag: compute range from tracked token positions
-        updateSelectionFromCoordinates(swipeRef.current.lastX, swipeRef.current.lastY);
-        // Execute drag-end logic with the current touchDragRef data
-        const { startTokenId, currentEndTokenId } = touchDragRef.current;
-        const idx1 = tokens.findIndex(t => t.id === startTokenId);
-        const idx2 = tokens.findIndex(t => t.id === currentEndTokenId);
-        if (idx1 !== -1 && idx2 !== -1) {
-          const start = Math.min(idx1, idx2);
-          const end = Math.max(idx1, idx2);
-          const selectedTokens = tokens.slice(start, end + 1);
-          const selectedWordTokenIds = selectedTokens
-            .filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0)
-            .map(t => t.id);
-          if (selectedWordTokenIds.length >= 2 && selectedWordTokenIds.length <= 9) {
-            const isSingleSentence = new Set(selectedTokens.map(t => t.sentencePageIndex)).size === 1;
-            if (isSingleSentence) {
+
+        swipeRef.current.state = 'idle';
+        setSwipeProgress(0);
+        return;
+      }
+
+      // 2. DRAG end — existing selection logic
+      if (swipeRef.current.state === 'drag') {
+        if (!touchDragRef.current.active) {
+          swipeRef.current.state = 'idle';
+          return;
+        }
+        const { startTokenId, currentEndTokenId, hasMoved } = touchDragRef.current;
+        touchDragRef.current.active = false;
+
+        window.getSelection()?.removeAllRanges();
+
+        if (hasMoved && startTokenId && currentEndTokenId && startTokenId !== currentEndTokenId) {
+          const idx1 = tokens.findIndex(t => t.id === startTokenId);
+          const idx2 = tokens.findIndex(t => t.id === currentEndTokenId);
+          if (idx1 !== -1 && idx2 !== -1) {
+            const start = Math.min(idx1, idx2);
+            const end = Math.max(idx1, idx2);
+            const selectedTokens = tokens.slice(start, end + 1);
+            const selectedWordTokenIds = selectedTokens
+              .filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0)
+              .map(t => t.id);
+
+            if (selectedWordTokenIds.length >= 2 && selectedWordTokenIds.length <= 9) {
+              const isSingleSentence = new Set(selectedTokens.map(t => t.sentencePageIndex)).size === 1;
+              if (!isSingleSentence) { swipeRef.current.state = 'idle'; return; }
+
+              const clientX = e.clientX;
+              const clientY = e.clientY;
               const tokenIds = selectedTokens.map(t => t.id);
               const wordTokenIds = selectedWordTokenIds;
-              const clientX = swipeRef.current.lastX;
-              const clientY = swipeRef.current.lastY;
-              // Show blue highlight immediately before the 1s sidebar delay
               useReaderStore.setState({ draftPhraseRange: tokenIds, selectedId: null, isDragging: true });
               if (sidebarTimeoutRef.current) clearTimeout(sidebarTimeoutRef.current);
               sidebarTimeoutRef.current = setTimeout(() => {
@@ -985,16 +1150,25 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                 }
                 sidebarTimeoutRef.current = null;
               }, 1000);
+            } else if (selectedWordTokenIds.length === 1) {
+              useReaderStore.getState().selectItem(selectedWordTokenIds[0]);
             }
           }
         }
+        swipeRef.current.state = 'idle';
+        return;
       }
-      swipeRef.current.active = false;
-      touchDragRef.current.active = false;
-      setSwipeProgress(0);
-      return;
+
+      // 3. PENDING → never resolved (tap without movement) — let click handlers work
+      if (swipeRef.current.state === 'pending') {
+        swipeRef.current.state = 'idle';
+        return;
+      }
+
+      return; // 'idle'
     }
 
+    // Mouse input: existing drag logic (unchanged)
     if (!touchDragRef.current.active) return;
     const { startTokenId, currentEndTokenId, hasMoved } = touchDragRef.current;
     touchDragRef.current.active = false;
@@ -1013,23 +1187,19 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
           .map(t => t.id);
 
         if (selectedWordTokenIds.length >= 2 && selectedWordTokenIds.length <= 9) {
-          // Guard: all selected tokens must be in the same sentence
           const isSingleSentence = new Set(selectedTokens.map(t => t.sentencePageIndex)).size === 1;
           if (!isSingleSentence) return;
 
-          // On drag end: schedule sidebar display after 1s delay
           const clientX = e.clientX;
           const clientY = e.clientY;
           const tokenIds = selectedTokens.map(t => t.id);
-          const wordTokenIds = selectedWordTokenIds; // already filtered to learnable words
+          const wordTokenIds = selectedWordTokenIds;
           if (sidebarTimeoutRef.current) clearTimeout(sidebarTimeoutRef.current);
           sidebarTimeoutRef.current = setTimeout(() => {
             const screenWidth = window.innerWidth;
             const store = useReaderStore.getState();
             store.setSidebarPosition(clientX > screenWidth / 2 ? 'left' : 'right');
             store.setClickPos({ x: clientX, y: clientY });
-            // If the dragged tokens exactly match an existing saved phrase, select it
-            // (gives the orange PhraseGroup the blue ring). Otherwise create a draft.
             const matchedPhrase = Object.values(store.phraseMap).find(p =>
               p.range.length === wordTokenIds.length &&
               p.range.every((id: string) => wordTokenIds.includes(id))
@@ -1054,97 +1224,180 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     if (!paneEl) return;
 
     const onTouchStart = (e: TouchEvent) => {
-      // Clear any pending sidebar display from a previous drag
+      // Clear any pending sidebar
       if (sidebarTimeoutRef.current) {
         clearTimeout(sidebarTimeoutRef.current);
         sidebarTimeoutRef.current = null;
       }
 
-      // Check for edge zone swipe
-      if (paneEl) {
-        const paneRect = paneEl.getBoundingClientRect();
-        const touchX = e.touches[0].clientX - paneRect.left;
-        const edgeZone = paneRect.width * 0.1;
-        const isEdgeZone = touchX <= edgeZone || touchX >= paneRect.width - edgeZone;
-        if (isEdgeZone) {
-          swipeRef.current = { active: true, startX: e.touches[0].clientX, startY: e.touches[0].clientY, lastX: e.touches[0].clientX, lastY: e.touches[0].clientY };
-        }
-      }
-
-      // Clear any lingering selection from store so sidebar disappears during drag
+      // Clear selection so sidebar closes immediately
       useReaderStore.setState({ selectedId: null, draftPhraseRange: null, isDragging: true });
-
-
       window.getSelection()?.removeAllRanges();
-      const targetNode = (e.target as Element)?.closest('[data-token-id]');
-      if (targetNode) {
-        const tokenId = targetNode.getAttribute('data-token-id');
-        if (tokenId) {
-          touchDragRef.current = {
-            active: true,
-            startTokenId: tokenId,
-            currentEndTokenId: tokenId,
-            hasMoved: false,
-            startX: e.touches[0].clientX,
-            startY: e.touches[0].clientY,
-          };
-        }
-      }
+
+      // Enter pending state — resolve to swipe or drag on first move
+      // If pointer events already set pending state, don't overwrite
+      if (swipeRef.current.state === 'pending') return;
+
+      // Reset touchDragRef from previous interaction
+      touchDragRef.current = {
+        active: false, startTokenId: null, currentEndTokenId: null,
+        hasMoved: false, startX: 0, startY: 0,
+      };
+
+      const touch = e.touches[0];
+      const startX = touch.clientX, startY = touch.clientY;
+      swipeRef.current = {
+        state: 'pending',
+        startX, startY,
+        startTime: Date.now(),
+        lastX: startX, lastY: startY,
+        resolveTimeout: setTimeout(() => {
+          if (swipeRef.current.state === 'pending') {
+            swipeRef.current.state = 'drag';
+            swipeRef.current.resolveTimeout = null;
+            // touchDragRef was already populated during pending moves
+            if (!touchDragRef.current.active) {
+              initDragFromPoint(swipeRef.current.lastX, swipeRef.current.lastY, false);
+            }
+          }
+        }, 300),
+      };
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      // Swipe mode: track progress, show indicator, no drag
-      if (swipeRef.current.active) {
-        e.preventDefault();
-        swipeRef.current.lastX = e.touches[0].clientX;
-        swipeRef.current.lastY = e.touches[0].clientY;
-        const dx = Math.abs(e.touches[0].clientX - swipeRef.current.startX);
-        const paneWidth = paneEl?.getBoundingClientRect().width || 1;
-        const progress = Math.min(1, dx / (paneWidth * 0.3));
-        setSwipeProgress(progress);
-        // Also track token for possible fallback to drag
-        const tokenNode = findTokenAtPoint(e.touches[0].clientX, e.touches[0].clientY);
+      const touch = e.touches[0];
+
+      // 1. PENDING - track tokens for potential drag, or resolve to swipe based on velocity
+      if (swipeRef.current.state === 'pending') {
+        const dx = Math.abs(touch.clientX - swipeRef.current.startX);
+        const dy = Math.abs(touch.clientY - swipeRef.current.startY);
+        const elapsed = Date.now() - swipeRef.current.startTime;
+
+        // Always track token under finger during pending (for eventual drag)
+        const tokenNode = findTokenAtPoint(touch.clientX, touch.clientY);
         if (tokenNode) {
           const tid = tokenNode.getAttribute('data-token-id');
-          if (tid) touchDragRef.current.currentEndTokenId = tid;
+          if (tid && !touchDragRef.current.startTokenId) {
+            touchDragRef.current = {
+              active: true,
+              startTokenId: tid,
+              currentEndTokenId: tid,
+              hasMoved: dx > 5 || dy > 5,
+              startX: touch.clientX,
+              startY: touch.clientY,
+            };
+          } else if (tid && tid !== touchDragRef.current.currentEndTokenId) {
+            touchDragRef.current.currentEndTokenId = tid;
+            touchDragRef.current.hasMoved = true;
+            updateSelectionFromCoordinates(touch.clientX, touch.clientY);
+          }
         }
-        touchDragRef.current.hasMoved = true;
+
+        // Check for quick flick -> SWIPE (velocity: >60px in first 100ms)
+        if (dx > 60 && elapsed < 100 && dx > dy) {
+          clearTimeout(swipeRef.current.resolveTimeout!);
+          swipeRef.current.state = 'swipe';
+          swipeRef.current.resolveTimeout = null;
+        }
+      }
+
+      // 2. SWIPE mode — slide content following finger
+      if (swipeRef.current.state === 'swipe') {
+        e.preventDefault();
+        swipeRef.current.lastX = touch.clientX;
+        swipeRef.current.lastY = touch.clientY;
+        const offsetX = touch.clientX - swipeRef.current.startX;
+        const newTransform = !isRTL
+          ? `translateX(calc(-${currentPage} * (100% + 3rem) + ${offsetX}px))`
+          : `translateX(calc(${currentPage} * (100% + 3rem) + ${offsetX}px))`;
+
+        const el = scrollContainerRef.current;
+        if (el) {
+          el.style.transition = 'none';
+          el.style.transform = newTransform;
+          swipeTransformRef.current = newTransform;
+        }
+
+        const paneWidth = paneEl?.getBoundingClientRect().width || 1;
+        const progress = Math.min(1, Math.abs(offsetX) / (paneWidth * 0.3));
+        setSwipeProgress(progress);
         return;
       }
 
-      if (!touchDragRef.current.active) return;
-      e.preventDefault();
-      const dx = Math.abs(e.touches[0].clientX - touchDragRef.current.startX);
-      const dy = Math.abs(e.touches[0].clientY - touchDragRef.current.startY);
-      if (dx > 5 || dy > 5) {
-        touchDragRef.current.hasMoved = true;
-        updateSelectionFromCoordinates(e.touches[0].clientX, e.touches[0].clientY);
+      // 3. DRAG mode — existing selection logic
+      if (swipeRef.current.state === 'drag') {
+        if (!touchDragRef.current.active) return;
+        e.preventDefault();
+        const dx = Math.abs(touch.clientX - touchDragRef.current.startX);
+        const dy = Math.abs(touch.clientY - touchDragRef.current.startY);
+        if (dx > 5 || dy > 5) {
+          touchDragRef.current.hasMoved = true;
+          updateSelectionFromCoordinates(touch.clientX, touch.clientY);
+        }
+        return;
       }
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      // Always clear dragging flag so Sidebar can re-evaluate (must be before
-      // early return since touch may end on an element without [data-token-id])
+      // Always clear dragging flag so Sidebar can re-evaluate
       useReaderStore.setState({ isDragging: false });
 
-      // Handle swipe mode (touch start in edge zone)
-      if (swipeRef.current.active) {
-        const dx = Math.abs(swipeRef.current.lastX - swipeRef.current.startX);
-        const paneRect = paneEl?.getBoundingClientRect();
-        const threshold = (paneRect?.width || 999) * 0.3;
-        const pageChanged = dx >= threshold;
-        if (pageChanged && paneRect) {
-          // Determine direction: finger right → prev page, finger left → next page (LTR)
-          const direction = swipeRef.current.lastX > swipeRef.current.startX ? -1 : 1;
+      // Clear any pending resolve timeout
+      if (swipeRef.current.resolveTimeout) {
+        clearTimeout(swipeRef.current.resolveTimeout);
+        swipeRef.current.resolveTimeout = null;
+      }
+
+      // 1. SWIPE end — change page or snap back
+      if (swipeRef.current.state === 'swipe') {
+        const offsetX = swipeRef.current.lastX - swipeRef.current.startX;
+        const absOffset = Math.abs(offsetX);
+        const paneWidth = paneEl?.getBoundingClientRect().width || 999;
+        const threshold = paneWidth * 0.3;
+
+        swipeTransformRef.current = null;
+        const el = scrollContainerRef.current;
+
+        if (absOffset >= threshold && paneWidth > 0) {
+          const direction = offsetX > 0 ? -1 : 1;
           const newPage = currentPage + direction;
           if (newPage >= 0 && newPage < totalPages) {
+            if (el) {
+              const targetTransform = !isRTL
+                ? `translateX(calc(-${newPage} * (100% + 3rem)))`
+                : `translateX(calc(${newPage} * (100% + 3rem)))`;
+              el.style.transition = 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)';
+              el.style.transform = targetTransform;
+            }
             handlePageAdvance(newPage);
           }
-        } else if (dx > 5 && touchDragRef.current.currentEndTokenId && touchDragRef.current.startTokenId) {
-          // Fallback to drag: compute range from tracked token positions
-          updateSelectionFromCoordinates(swipeRef.current.lastX, swipeRef.current.lastY);
-          // Execute drag-end logic
-          const { startTokenId, currentEndTokenId } = touchDragRef.current;
+        } else {
+          if (el) {
+            const baseTransform = !isRTL
+              ? `translateX(calc(-${currentPage} * (100% + 3rem)))`
+              : `translateX(calc(${currentPage} * (100% + 3rem)))`;
+            el.style.transition = 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)';
+            el.style.transform = baseTransform;
+          }
+        }
+
+        swipeRef.current.state = 'idle';
+        setSwipeProgress(0);
+        return;
+      }
+
+      // 2. DRAG end — existing selection logic
+      if (swipeRef.current.state === 'drag') {
+        if (!touchDragRef.current.active) {
+          swipeRef.current.state = 'idle';
+          return;
+        }
+        const { startTokenId, currentEndTokenId, hasMoved } = touchDragRef.current;
+        touchDragRef.current.active = false;
+
+        window.getSelection()?.removeAllRanges();
+
+        if (hasMoved && startTokenId && currentEndTokenId && startTokenId !== currentEndTokenId) {
           const idx1 = tokens.findIndex(t => t.id === startTokenId);
           const idx2 = tokens.findIndex(t => t.id === currentEndTokenId);
           if (idx1 !== -1 && idx2 !== -1) {
@@ -1154,95 +1407,47 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             const selectedWordTokenIds = selectedTokens
               .filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0)
               .map(t => t.id);
+
             if (selectedWordTokenIds.length >= 2 && selectedWordTokenIds.length <= 9) {
               const isSingleSentence = new Set(selectedTokens.map(t => t.sentencePageIndex)).size === 1;
-              if (isSingleSentence) {
-                const tokenIds = selectedTokens.map(t => t.id);
-                const wordTokenIds = selectedWordTokenIds;
-                const clientX = swipeRef.current.lastX;
-                const clientY = swipeRef.current.lastY;
-                // Show blue highlight immediately before the 1s sidebar delay
-                useReaderStore.setState({ draftPhraseRange: tokenIds, selectedId: null, isDragging: true });
-                if (sidebarTimeoutRef.current) clearTimeout(sidebarTimeoutRef.current);
-                sidebarTimeoutRef.current = setTimeout(() => {
-                  const screenWidth = window.innerWidth;
-                  const store = useReaderStore.getState();
-                  store.setSidebarPosition(clientX > screenWidth / 2 ? 'left' : 'right');
-                  store.setClickPos({ x: clientX, y: clientY });
-                  const matchedPhrase = Object.values(store.phraseMap).find((p: { range: string[] }) =>
-                    p.range.length === wordTokenIds.length &&
-                    p.range.every((id: string) => wordTokenIds.includes(id))
-                  );
-                  if (matchedPhrase) {
-                    store.selectItem(matchedPhrase.id);
-                  } else {
-                    store.setDraftPhrase(tokenIds);
-                  }
-                  sidebarTimeoutRef.current = null;
-                }, 1000);
-              }
+              if (!isSingleSentence) { swipeRef.current.state = 'idle'; return; }
+
+              const touch = e.changedTouches[0];
+              const clientX = touch.clientX;
+              const clientY = touch.clientY;
+              const tokenIds = selectedTokens.map(t => t.id);
+              const wordTokenIds = selectedWordTokenIds;
+              useReaderStore.setState({ draftPhraseRange: tokenIds, selectedId: null, isDragging: true });
+              if (sidebarTimeoutRef.current) clearTimeout(sidebarTimeoutRef.current);
+              sidebarTimeoutRef.current = setTimeout(() => {
+                const screenWidth = window.innerWidth;
+                const store = useReaderStore.getState();
+                store.setSidebarPosition(clientX > screenWidth / 2 ? 'left' : 'right');
+                store.setClickPos({ x: clientX, y: clientY });
+                const matchedPhrase = Object.values(store.phraseMap).find((p: { range: string[] }) =>
+                  p.range.length === wordTokenIds.length &&
+                  p.range.every((id: string) => wordTokenIds.includes(id))
+                );
+                if (matchedPhrase) {
+                  store.selectItem(matchedPhrase.id);
+                } else {
+                  store.setDraftPhrase(tokenIds);
+                }
+                sidebarTimeoutRef.current = null;
+              }, 1000);
             } else if (selectedWordTokenIds.length === 1) {
               useReaderStore.getState().selectItem(selectedWordTokenIds[0]);
             }
           }
         }
-        swipeRef.current.active = false;
-        touchDragRef.current.active = false;
-        setSwipeProgress(0);
+        swipeRef.current.state = 'idle';
         return;
       }
 
-      if (!touchDragRef.current.active) return;
-      const { startTokenId, currentEndTokenId, hasMoved } = touchDragRef.current;
-      touchDragRef.current.active = false;
-
-      window.getSelection()?.removeAllRanges();
-
-      if (hasMoved && startTokenId && currentEndTokenId && startTokenId !== currentEndTokenId) {
-        const idx1 = tokens.findIndex(t => t.id === startTokenId);
-        const idx2 = tokens.findIndex(t => t.id === currentEndTokenId);
-        if (idx1 !== -1 && idx2 !== -1) {
-          const start = Math.min(idx1, idx2);
-          const end = Math.max(idx1, idx2);
-          const selectedTokens = tokens.slice(start, end + 1);
-          const selectedWordTokenIds = selectedTokens
-            .filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0)
-            .map(t => t.id);
-
-          if (selectedWordTokenIds.length >= 2 && selectedWordTokenIds.length <= 9) {
-            // Guard: all selected tokens must be in the same sentence
-            const isSingleSentence = new Set(selectedTokens.map(t => t.sentencePageIndex)).size === 1;
-            if (!isSingleSentence) return;
-
-            // On drag end: schedule sidebar display after 1s delay
-            const touch = e.changedTouches[0];
-            const clientX = touch.clientX;
-            const clientY = touch.clientY;
-            const tokenIds = selectedTokens.map(t => t.id);
-            const wordTokenIds = selectedWordTokenIds;
-            if (sidebarTimeoutRef.current) clearTimeout(sidebarTimeoutRef.current);
-            sidebarTimeoutRef.current = setTimeout(() => {
-              const screenWidth = window.innerWidth;
-              const store = useReaderStore.getState();
-              store.setSidebarPosition(clientX > screenWidth / 2 ? 'left' : 'right');
-              store.setClickPos({ x: clientX, y: clientY });
-              // If the dragged tokens exactly match an existing saved phrase, select it
-              // (gives the orange PhraseGroup the blue ring). Otherwise create a draft.
-              const matchedPhrase = Object.values(store.phraseMap).find(p =>
-                p.range.length === wordTokenIds.length &&
-                p.range.every((id: string) => wordTokenIds.includes(id))
-              );
-              if (matchedPhrase) {
-                store.selectItem(matchedPhrase.id);
-              } else {
-                store.setDraftPhrase(tokenIds);
-              }
-              sidebarTimeoutRef.current = null;
-            }, 1000);
-          } else if (selectedWordTokenIds.length === 1) {
-            useReaderStore.getState().selectItem(selectedWordTokenIds[0]);
-          }
-        }
+      // 3. PENDING → never resolved (tap without movement) — let click handlers work
+      if (swipeRef.current.state === 'pending') {
+        swipeRef.current.state = 'idle';
+        return;
       }
     };
 
@@ -1799,7 +2004,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             <SwipeIndicator
               progress={swipeProgress}
               direction={
-                swipeRef.current.active
+                swipeRef.current.state === 'swipe'
                   ? swipeRef.current.lastX > swipeRef.current.startX ? 'prev' : 'next'
                   : null
               }
