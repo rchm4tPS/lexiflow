@@ -14,7 +14,6 @@ import DraftPhraseGroup from './DraftPhraseGroup';
 import QuickStartGuide from './QuickStartGuide';
 import { RightArrow, LeftArrow } from '../../../components/common/Icons';
 import MorphingPageDots from '../../../components/ui/morphing-page-dots';
-import SwipeIndicator from '../../../components/ui/SwipeIndicator';
 
 // --- SKELETON UI ---
 const ReaderSkeleton = () => {
@@ -170,7 +169,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   const paneRef = useRef<HTMLDivElement>(null);
   const sidebarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // --- SWIPE TO CHANGE PAGE (time-based: <200ms = swipe, >200ms = drag) ---
+  // --- SWIPE TO CHANGE PAGE (simple gesture detection, no content sliding) ---
   const swipeRef = useRef<{
     state: 'idle' | 'pending' | 'swipe' | 'drag';
     startX: number;
@@ -184,18 +183,6 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     startX: 0, startY: 0, startTime: 0,
     lastX: 0, lastY: 0,
     resolveTimeout: null,
-  });
-  const [swipeProgress, setSwipeProgress] = useState(0);
-  const swipeTransformRef = useRef<string | null>(null);
-
-  // Protect swipe transform from React overwriting it during re-renders
-  // Runs after every commit (render) but before browser paint
-  useLayoutEffect(() => {
-    if (swipeRef.current.state === 'swipe' && swipeTransformRef.current && scrollContainerRef.current) {
-      const el = scrollContainerRef.current;
-      el.style.transition = 'none';
-      el.style.transform = swipeTransformRef.current;
-    }
   });
 
   // Save progress on unmount or hard refresh / browser window close
@@ -993,27 +980,10 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         }
       }
 
-      // 2. SWIPE mode — slide content following finger
+      // 2. SWIPE mode — just track position, no content sliding
       if (swipeRef.current.state === 'swipe') {
         swipeRef.current.lastX = e.clientX;
         swipeRef.current.lastY = e.clientY;
-        const offsetX = e.clientX - swipeRef.current.startX;
-        const newTransform = !isRTL
-          ? `translateX(calc(-${currentPage} * (100% + 3rem) + ${offsetX}px))`
-          : `translateX(calc(${currentPage} * (100% + 3rem) + ${offsetX}px))`;
-
-        // Direct DOM manipulation for smooth 60fps — bypass React
-        const el = scrollContainerRef.current;
-        if (el) {
-          el.style.transition = 'none';
-          el.style.transform = newTransform;
-          swipeTransformRef.current = newTransform; // so useLayoutEffect can re-apply it after React render
-        }
-
-        // Update progress for indicator
-        const paneWidth = paneRef.current?.getBoundingClientRect().width || 1;
-        const progress = Math.min(1, Math.abs(offsetX) / (paneWidth * 0.3));
-        setSwipeProgress(progress);
         return;
       }
 
@@ -1042,14 +1012,6 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     }
   };
 
-  const resetSwipeTransform = () => {
-    const el = scrollContainerRef.current;
-    if (el) {
-      el.style.transition = '';
-      el.style.transform = ''; // React's style takes over with CSS transition
-    }
-  };
-
   const handlePointerUp = (e: React.PointerEvent) => {
     // Always clear dragging flag so Sidebar can re-evaluate
     useReaderStore.setState({ isDragging: false });
@@ -1062,43 +1024,23 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         swipeRef.current.resolveTimeout = null;
       }
 
-      // 1. SWIPE end — change page or snap back
+      // 1. SWIPE end — check threshold and change page
       if (swipeRef.current.state === 'swipe') {
         const offsetX = swipeRef.current.lastX - swipeRef.current.startX;
         const absOffset = Math.abs(offsetX);
         const paneWidth = paneRef.current?.getBoundingClientRect().width || 999;
         const threshold = paneWidth * 0.3;
 
-        swipeTransformRef.current = null;
-        const el = scrollContainerRef.current;
-
         if (absOffset >= threshold && paneWidth > 0) {
           const direction = offsetX > 0 ? -1 : 1; // LTR: finger right = prev page
           const newPage = currentPage + direction;
           if (newPage >= 0 && newPage < totalPages) {
-            // Animate directly to target page — no intermediate snap
-            if (el) {
-              const targetTransform = !isRTL
-                ? `translateX(calc(-${newPage} * (100% + 3rem)))`
-                : `translateX(calc(${newPage} * (100% + 3rem)))`;
-              el.style.transition = 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)';
-              el.style.transform = targetTransform;
-            }
             handlePageAdvance(newPage);
           }
-        } else {
-          // Snap back: animate from offset to current page
-          if (el) {
-            const baseTransform = !isRTL
-              ? `translateX(calc(-${currentPage} * (100% + 3rem)))`
-              : `translateX(calc(${currentPage} * (100% + 3rem)))`;
-            el.style.transition = 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)';
-            el.style.transform = baseTransform;
-          }
         }
+        // else: not enough distance, just snap back via React's normal CSS transition
 
         swipeRef.current.state = 'idle';
-        setSwipeProgress(0);
         return;
       }
 
@@ -1132,7 +1074,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
               const clientY = e.clientY;
               const tokenIds = selectedTokens.map(t => t.id);
               const wordTokenIds = selectedWordTokenIds;
-              useReaderStore.setState({ draftPhraseRange: tokenIds, selectedId: null, isDragging: true });
+              useReaderStore.setState({ draftPhraseRange: tokenIds, selectedId: null });
               if (sidebarTimeoutRef.current) clearTimeout(sidebarTimeoutRef.current);
               sidebarTimeoutRef.current = setTimeout(() => {
                 const screenWidth = window.innerWidth;
@@ -1301,26 +1243,11 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         }
       }
 
-      // 2. SWIPE mode — slide content following finger
+      // 2. SWIPE mode — just track position, no content sliding
       if (swipeRef.current.state === 'swipe') {
         e.preventDefault();
         swipeRef.current.lastX = touch.clientX;
         swipeRef.current.lastY = touch.clientY;
-        const offsetX = touch.clientX - swipeRef.current.startX;
-        const newTransform = !isRTL
-          ? `translateX(calc(-${currentPage} * (100% + 3rem) + ${offsetX}px))`
-          : `translateX(calc(${currentPage} * (100% + 3rem) + ${offsetX}px))`;
-
-        const el = scrollContainerRef.current;
-        if (el) {
-          el.style.transition = 'none';
-          el.style.transform = newTransform;
-          swipeTransformRef.current = newTransform;
-        }
-
-        const paneWidth = paneEl?.getBoundingClientRect().width || 1;
-        const progress = Math.min(1, Math.abs(offsetX) / (paneWidth * 0.3));
-        setSwipeProgress(progress);
         return;
       }
 
@@ -1355,34 +1282,15 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         const paneWidth = paneEl?.getBoundingClientRect().width || 999;
         const threshold = paneWidth * 0.3;
 
-        swipeTransformRef.current = null;
-        const el = scrollContainerRef.current;
-
         if (absOffset >= threshold && paneWidth > 0) {
           const direction = offsetX > 0 ? -1 : 1;
           const newPage = currentPage + direction;
           if (newPage >= 0 && newPage < totalPages) {
-            if (el) {
-              const targetTransform = !isRTL
-                ? `translateX(calc(-${newPage} * (100% + 3rem)))`
-                : `translateX(calc(${newPage} * (100% + 3rem)))`;
-              el.style.transition = 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)';
-              el.style.transform = targetTransform;
-            }
             handlePageAdvance(newPage);
-          }
-        } else {
-          if (el) {
-            const baseTransform = !isRTL
-              ? `translateX(calc(-${currentPage} * (100% + 3rem)))`
-              : `translateX(calc(${currentPage} * (100% + 3rem)))`;
-            el.style.transition = 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)';
-            el.style.transform = baseTransform;
           }
         }
 
         swipeRef.current.state = 'idle';
-        setSwipeProgress(0);
         return;
       }
 
@@ -1417,7 +1325,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
               const clientY = touch.clientY;
               const tokenIds = selectedTokens.map(t => t.id);
               const wordTokenIds = selectedWordTokenIds;
-              useReaderStore.setState({ draftPhraseRange: tokenIds, selectedId: null, isDragging: true });
+              useReaderStore.setState({ draftPhraseRange: tokenIds, selectedId: null });
               if (sidebarTimeoutRef.current) clearTimeout(sidebarTimeoutRef.current);
               sidebarTimeoutRef.current = setTimeout(() => {
                 const screenWidth = window.innerWidth;
@@ -2001,16 +1909,6 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         </div>
 
         <div className={`flex flex-col mt-2 lg:mt-4 grow min-w-0 min-h-0 ${isRTL ? 'font-farsi-trad' : 'font-nunito'} relative bg-white rounded-md`}>
-            <SwipeIndicator
-              progress={swipeProgress}
-              direction={
-                swipeRef.current.state === 'swipe'
-                  ? swipeRef.current.lastX > swipeRef.current.startX ? 'prev' : 'next'
-                  : null
-              }
-              currentPage={currentPage}
-              totalPages={totalPages}
-            />
           <div className={`w-full min-h-0 overflow-hidden relative ${readerMode === 'sentence' ? 'shrink-0' : 'flex-1'} ${isRTL ? 'pt-3 lg:pt-5 pb-3 lg:pb-6 pl-5 lg:pl-9 pr-3 lg:pr-5' : 'pt-3 lg:pt-5 pb-3 lg:pb-6 px-3 lg:px-5'}`}>
             {(!isLayoutReady || isLoadingLesson) && (
               <div className="absolute inset-0 z-20 bg-white">

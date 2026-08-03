@@ -230,9 +230,8 @@ export default function Header() {
                         </div>
                     </div>
 
-                    {/* MOBILE/TABLET HAMBURGER MENU (< 1280px) */}
-                    {!isReaderPage && (
-                        <div className="relative xl:hidden flex items-center" ref={mobileMenuRef}>
+                    {/* MOBILE/TABLET HAMBURGER MENU (< 1280px) — hidden on reader at <md because left hamburger covers that */}
+                    <div className={`relative xl:hidden flex items-center ${isReaderPage ? 'hidden md:flex' : ''}`} ref={mobileMenuRef}>
                             <button
                                 onClick={() => setIsImportOpen(!isImportOpen)}
                                 className="p-1.5 rounded hover:bg-white/10 transition-colors"
@@ -243,12 +242,13 @@ export default function Header() {
                                 </svg>
                             </button>
                         </div>
-                    )}
                 </div>
 
                 {/* HAMBURGER DROPDOWN MENU FOR < 1280px */}
                 {isImportOpen && (
-                    <div ref={mobileDropdownRef} className={`absolute top-full ${isReaderPage ? 'left-2' : 'right-2'} mt-2 w-64 bg-white rounded-xl shadow-2xl py-1.5 z-[60] text-gray-700 text-xs sm:text-sm font-bold border border-gray-200 xl:hidden`}>
+                    <div ref={mobileDropdownRef} className={`absolute top-full mt-2 w-64 bg-white rounded-xl shadow-2xl py-1.5 z-[60] text-gray-700 text-xs sm:text-sm font-bold border border-gray-200 xl:hidden ${
+                        isReaderPage ? 'left-2 md:right-2 md:left-auto' : 'right-2'
+                    }`}>
                         {/* COMPACT HORIZONTAL STATS PILL ROW FOR < 768px */}
                         <div className="md:hidden px-3 pt-1 pb-2.5 border-b border-gray-100 flex flex-col gap-1">
                             <div className="text-[10px] font-black text-gray-400 uppercase tracking-wider px-1">Stats & Language</div>
