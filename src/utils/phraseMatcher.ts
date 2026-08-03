@@ -10,7 +10,7 @@ export const buildPhraseInstances = (
 ): Phrase[] => {
   const instances: PhraseInstance[] = [];
   
-  const wordTokens = tokens.filter(t => !t.isNewline && t.text.match(/\p{L}/u));
+  const wordTokens = tokens.filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0);
 
   dbPhrases.forEach(dbP => {
     const targetWords = dbP.phrase_text.toLowerCase().split(' ').filter(Boolean);

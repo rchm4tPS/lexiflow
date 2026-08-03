@@ -5,6 +5,7 @@ import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settin
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
 import { useAuthStore } from '../../../store/useAuthStore';
+import { isNoSpaceLanguage } from '../../../utils/languageUtils';
 import { apiClient } from '../../../api/client';
 import SummaryView from './LessonEnd/SummaryView';
 import CompletionModal from './LessonEnd/CompletionModal';
@@ -131,9 +132,9 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   const {
     showSummary, setShowSummary, showModal, setModal,
     lessonStructureHash, currentPage, draftPhraseRange,
-    setDraftPhrase, isRTL, languageCode,
+    isRTL, languageCode,
     handlePageAdvance, activeLessonId, syncLessonProgress,
-    isLoadingLesson, readerMode, toggleReaderMode, totalPages, columnMapping, setSidebarPosition, setClickPos,
+    isLoadingLesson, readerMode, toggleReaderMode, totalPages, columnMapping,
     lessonIndex, courseLessonsCount, prevLessonId, nextLessonId, setShowLessonInfoModal, showSettingsDrawer, setShowSettingsDrawer, initialTokenIndex,
     isStatsLoading, lessonAudio, toggleSidebar, isSidebarVisible,
     translationData, revealedSentenceIndices, isLoadingTranslation,
@@ -144,9 +145,9 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
     lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
-    setDraftPhrase: state.setDraftPhrase, isRTL: state.isRTL, languageCode: state.languageCode,
+    isRTL: state.isRTL, languageCode: state.languageCode,
     handlePageAdvance: state.handlePageAdvance, activeLessonId: state.activeLessonId, syncLessonProgress: state.syncLessonProgress,
-    isLoadingLesson: state.isLoadingLesson, readerMode: state.readerMode, toggleReaderMode: state.toggleReaderMode, totalPages: state.totalPages, columnMapping: state.columnMapping, setSidebarPosition: state.setSidebarPosition, setClickPos: state.setClickPos,
+    isLoadingLesson: state.isLoadingLesson, readerMode: state.readerMode, toggleReaderMode: state.toggleReaderMode, totalPages: state.totalPages, columnMapping: state.columnMapping,
     lessonIndex: state.lessonIndex, courseLessonsCount: state.courseLessonsCount, prevLessonId: state.prevLessonId, nextLessonId: state.nextLessonId, setShowLessonInfoModal: state.setShowLessonInfoModal, showSettingsDrawer: state.showSettingsDrawer, setShowSettingsDrawer: state.setShowSettingsDrawer, initialTokenIndex: state.initialTokenIndex,
     isStatsLoading: state.isStatsLoading, lessonAudio: state.lessonAudio, toggleSidebar: state.toggleSidebar, isSidebarVisible: state.isSidebarVisible,
     translationData: state.translationData, revealedSentenceIndices: state.revealedSentenceIndices, isLoadingTranslation: state.isLoadingTranslation,
@@ -162,8 +163,11 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
   const { user } = useAuthStore();
   const isOwner = Boolean(user?.id && activeLessonOwnerId && activeLessonOwnerId === user.id);
+  const isCJK = isNoSpaceLanguage(languageCode);
   const location = useLocation();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
+  const sidebarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Save progress on unmount or hard refresh / browser window close
   useEffect(() => {
@@ -187,6 +191,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   // --- STABLE CALLBACKS FOR WORD TOKENS ---
   const handleWordClick = React.useCallback((tokenId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    window.getSelection()?.removeAllRanges();
     const state = useReaderStore.getState();
     const screenWidth = window.innerWidth;
     state.setSidebarPosition(e.clientX > screenWidth / 2 ? 'left' : 'right');
@@ -220,7 +225,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   const [dragY, setDragY] = useState(0);
   const dragStartY = useRef<number | null>(null);
 
-  const handlePointerDown = (clientY: number) => {
+  const handleDrawerPointerDown = (clientY: number) => {
     dragStartY.current = clientY;
   };
 
@@ -670,6 +675,20 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     };
   }, [isLoadingLesson, tokens, isRTL, readerMode, columnWidthPx, showSettingsDrawer, showMargins, fontSize, fontFamily, lineHeight, lineGap]);
   
+  const getTokenElementFromNode = (node: Node | null, offset?: number): Element | null => {
+    if (!node) return null;
+    let target: Node | null = node;
+    if (node.nodeType === Node.ELEMENT_NODE && offset !== undefined && node.childNodes.length > 0) {
+      const childIndex = Math.min(Math.max(0, offset < node.childNodes.length ? offset : offset - 1), node.childNodes.length - 1);
+      const child = node.childNodes[childIndex];
+      if (child) target = child;
+    }
+    if (target instanceof Element) {
+      return target.closest('[data-token-id]');
+    }
+    return target.parentElement?.closest('[data-token-id]') ?? null;
+  };
+
   React.useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
 
@@ -679,8 +698,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         const selection = window.getSelection();
         if (!selection || selection.isCollapsed || selection.toString().trim().length === 0) return;
 
-        const node1 = selection.anchorNode?.parentElement?.closest('[data-token-id]');
-        const node2 = selection.focusNode?.parentElement?.closest('[data-token-id]');
+        const node1 = getTokenElementFromNode(selection.anchorNode, selection.anchorOffset);
+        const node2 = getTokenElementFromNode(selection.focusNode, selection.focusOffset);
 
         if (node1 && node2) {
           const id1 = node1.getAttribute('data-token-id');
@@ -694,24 +713,23 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             const end = Math.max(idx1, idx2);
             const rangeCount = end - start + 1;
 
-            const selectedTokenIds = tokens.slice(start, end + 1).map(t => t.id);
+            const selectedTokens = tokens.slice(start, end + 1);
+            const selectedTokenIds = selectedTokens.map(t => t.id);
 
-            // Single token dragged — treat as click: replace browser highlight with app highlight
-            if (rangeCount === 1) {
+            const selectedWordTokenIds = selectedTokens
+              .filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0)
+              .map(t => t.id);
+
+            // Single token or 1 learnable word token in range — treat as single token click
+            if (rangeCount === 1 || selectedWordTokenIds.length <= 1) {
               selection.removeAllRanges();
-              if (id1) useReaderStore.getState().selectItem(id1);
+              const targetId = selectedWordTokenIds[0] || id1;
+              if (targetId) useReaderStore.getState().selectItem(targetId);
               return;
             }
 
             // All tokens of an existing saved phrase are included in the selection — select the whole phrase
-            // (same as clicking the phrase, so the blue ring sits properly on the orange div).
-            // We use a subset check because the user's drag may include whitespace tokens between words.
             const currentPhrases = useReaderStore.getState().phrases;
-            // Extract only learnable word tokens from the selection (ignoring whitespace/newlines)
-            // so that extending an existing phrase with extra tokens is allowed (stacked phrases).
-            const selectedWordTokenIds = tokens.slice(start, end + 1)
-              .filter(t => t.isLearnable && !t.isNewline && t.text.match(/\p{L}/u))
-              .map(t => t.id);
             const matchedPhrase = currentPhrases.find(p =>
               p.range.length > 0 &&
               p.range.every(id => selectedWordTokenIds.includes(id)) &&
@@ -724,8 +742,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
               return;
             }
 
-            // Original: create draft phrase for multi-token selections (2–9 learnable words)
-            const isValid = !tokens.slice(start, end + 1).some(t => t.isNewline);
+            // Create draft phrase for multi-token selections (2–9 learnable words)
+            const isValid = !selectedTokens.some(t => t.isNewline);
             const learnableCount = selectedWordTokenIds.length;
 
             if (isValid && learnableCount >= 2 && learnableCount <= 9) {
@@ -741,7 +759,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             }
           }
         }
-      }, 1600);
+      }, 500);
     };
 
     document.addEventListener('selectionchange', handleSelectionChange);
@@ -751,100 +769,291 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     };
   }, [tokens]);
 
-  const mousePos = useRef({
-    x: 0,
-    y: 0,
-    isDragging: false
-  })
+  const touchDragRef = useRef<{
+    active: boolean;
+    startTokenId: string | null;
+    currentEndTokenId: string | null;
+    hasMoved: boolean;
+    startX: number;
+    startY: number;
+  }>({
+    active: false,
+    startTokenId: null,
+    currentEndTokenId: null,
+    hasMoved: false,
+    startX: 0,
+    startY: 0,
+  });
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    mousePos.current = {
-      x: e.clientX,
-      y: e.clientY,
-      isDragging: false
+  const handlePointerDown = (e: React.PointerEvent) => {
+    // Clear any pending sidebar display from a previous drag
+    if (sidebarTimeoutRef.current) {
+      clearTimeout(sidebarTimeoutRef.current);
+      sidebarTimeoutRef.current = null;
     }
-  }
 
-  // --- DRAG TO SELECT LOGIC ---
-  const handleMouseUp = (e: React.MouseEvent) => {
-    e.stopPropagation()
+    // Clear any lingering selection from store so sidebar disappears during drag
+    useReaderStore.setState({ selectedId: null, draftPhraseRange: null, isDragging: true });
 
-    // If the mouse moved more than 5 pixels, it's a drag
-    if (
-      Math.abs(e.clientX - mousePos.current.x) > 5 ||
-      Math.abs(e.clientY - mousePos.current.y) > 5
-    ) {
-      mousePos.current.isDragging = true;
+    // Clear any native browser selection ranges immediately so native OS handles never pop up
+    window.getSelection()?.removeAllRanges();
 
-      const selection = window.getSelection();
-      if (!selection || selection.isCollapsed || selection.toString().trim().length === 0) return;
+    const targetNode = (e.target as Element)?.closest('[data-token-id]');
+    if (targetNode) {
+      const tokenId = targetNode.getAttribute('data-token-id');
+      if (tokenId) {
+        touchDragRef.current = {
+          active: true,
+          startTokenId: tokenId,
+          currentEndTokenId: tokenId,
+          hasMoved: false,
+          startX: e.clientX,
+          startY: e.clientY,
+        };
+      }
+    }
+  };
 
-      // Find the closest data-token-id from the start and end of the selection
-      const node1 = selection.anchorNode?.parentElement?.closest('[data-token-id]');
-      const node2 = selection.focusNode?.parentElement?.closest('[data-token-id]');
+  const findTokenAtPoint = (clientX: number, clientY: number): Element | null => {
+    // Strategy 1: Use elementsFromPoint to check all stacked layers at this point
+    if (document.elementsFromPoint) {
+      const elements = document.elementsFromPoint(clientX, clientY);
+      for (const el of elements) {
+        const token = (el as Element).closest('[data-token-id]');
+        if (token) return token;
+      }
+    }
+    // Strategy 2: Direct elementFromPoint (fallback for older browsers)
+    const direct = document.elementFromPoint(clientX, clientY);
+    const directToken = direct?.closest('[data-token-id]');
+    if (directToken) return directToken;
+    // Strategy 3: Expanded search – sample points around the touch coordinate
+    // Handles imprecise mobile touch coordinates at token boundaries
+    const offsets = [[0, -8], [0, 8], [-8, 0], [8, 0], [-6, -6], [6, -6], [-6, 6], [6, 6]];
+    for (const [dx, dy] of offsets) {
+      const el = document.elementFromPoint(clientX + dx, clientY + dy);
+      const token = el?.closest('[data-token-id]');
+      if (token) return token;
+    }
+    return null;
+  };
 
-      if (node1 && node2) {
-        const id1 = node1.getAttribute('data-token-id');
-        const id2 = node2.getAttribute('data-token-id');
+  const updateSelectionFromCoordinates = (clientX: number, clientY: number) => {
+    if (!touchDragRef.current.active || !touchDragRef.current.startTokenId) return;
 
-        const idx1 = tokens.findIndex(t => t.id === id1);
-        const idx2 = tokens.findIndex(t => t.id === id2);
+    const tokenNode = findTokenAtPoint(clientX, clientY);
+    if (tokenNode) {
+      const currentTokenId = tokenNode.getAttribute('data-token-id');
+      if (currentTokenId && currentTokenId !== touchDragRef.current.currentEndTokenId) {
+        touchDragRef.current.currentEndTokenId = currentTokenId;
+        touchDragRef.current.hasMoved = true;
+
+        const idx1 = tokens.findIndex(t => t.id === touchDragRef.current.startTokenId);
+        const idx2 = tokens.findIndex(t => t.id === currentTokenId);
 
         if (idx1 !== -1 && idx2 !== -1) {
           const start = Math.min(idx1, idx2);
           const end = Math.max(idx1, idx2);
-
-          const rangeCount = end - start + 1;
           const selectedTokens = tokens.slice(start, end + 1);
-          const selectedTokenIds = selectedTokens.map(t => t.id);
-
-          // Single token dragged — treat as click: replace browser highlight with app highlight
-          if (rangeCount === 1) {
-            selection.removeAllRanges();
-            if (id1) useReaderStore.getState().selectItem(id1);
-            return;
-          }
-
-          // All tokens of an existing saved phrase are included in the selection — select the whole phrase
-          // (same as clicking the phrase, so the blue ring sits properly on the orange div).
-          // We use a subset check because the user's drag may include whitespace tokens between words.
-          const currentPhrases = useReaderStore.getState().phrases;
-          // Extract only learnable word tokens from the selection (ignoring whitespace/newlines)
-          // so that extending an existing phrase with extra tokens is allowed (stacked phrases).
           const selectedWordTokenIds = selectedTokens
-            .filter(t => t.isLearnable && !t.isNewline && t.text.match(/\p{L}/u))
+            .filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0)
             .map(t => t.id);
-          const matchedPhrase = currentPhrases.find(p =>
-            p.range.length > 0 &&
-            p.range.every(id => selectedWordTokenIds.includes(id)) &&
-            selectedWordTokenIds.every(id => p.range.includes(id))
-          ) || null;
 
-          if (matchedPhrase) {
-            selection.removeAllRanges();
-            useReaderStore.getState().selectItem(matchedPhrase.id);
-            return;
-          }
+          if (selectedWordTokenIds.length >= 2 && selectedWordTokenIds.length <= 9) {
+            // Guard: all selected tokens must be in the same sentence
+            const isSingleSentence = new Set(selectedTokens.map(t => t.sentencePageIndex)).size === 1;
+            if (!isSingleSentence) return;
 
-          // Original: create draft phrase for multi-token selections (2–9 learnable words)
-          const learnableCount = selectedWordTokenIds.length;
-          const isValid = !selectedTokens.some(t => t.isNewline);
-
-          if (isValid && learnableCount >= 2 && learnableCount <= 9) {
-            const screenWidth = window.innerWidth;
-            setSidebarPosition(e.clientX > screenWidth / 2 ? 'left' : 'right');
-            setClickPos({ x: e.clientX, y: e.clientY });
-
-            setDraftPhrase(selectedTokenIds);
-            // Delay clearing the browser highlight so onClick can detect the text selection and abort
-            setTimeout(() => selection.removeAllRanges(), 150);
+            // During drag: update draftPhraseRange for blue highlight visual only.
+            // Sidebar (BlueWordView/YellowWordView) stays hidden because isDragging=true
+            // tells Sidebar to suppress. Sidebar appears 1s after drag end.
+            useReaderStore.setState({ draftPhraseRange: selectedTokens.map(t => t.id), selectedId: null, isDragging: true });
           }
         }
       }
-    } else {
-      mousePos.current.isDragging = false;
     }
   };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!touchDragRef.current.active) return;
+    const dx = Math.abs(e.clientX - touchDragRef.current.startX);
+    const dy = Math.abs(e.clientY - touchDragRef.current.startY);
+    if (dx > 5 || dy > 5) {
+      touchDragRef.current.hasMoved = true;
+      updateSelectionFromCoordinates(e.clientX, e.clientY);
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    // Always clear dragging flag so Sidebar can re-evaluate (must be before
+    // early return since pointer may go up on an element without [data-token-id] —
+    // e.g. clicking the PhraseGroup padding)
+    useReaderStore.setState({ isDragging: false });
+    if (!touchDragRef.current.active) return;
+    const { startTokenId, currentEndTokenId, hasMoved } = touchDragRef.current;
+    touchDragRef.current.active = false;
+
+    window.getSelection()?.removeAllRanges();
+
+    if (hasMoved && startTokenId && currentEndTokenId && startTokenId !== currentEndTokenId) {
+      const idx1 = tokens.findIndex(t => t.id === startTokenId);
+      const idx2 = tokens.findIndex(t => t.id === currentEndTokenId);
+      if (idx1 !== -1 && idx2 !== -1) {
+        const start = Math.min(idx1, idx2);
+        const end = Math.max(idx1, idx2);
+        const selectedTokens = tokens.slice(start, end + 1);
+        const selectedWordTokenIds = selectedTokens
+          .filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0)
+          .map(t => t.id);
+
+        if (selectedWordTokenIds.length >= 2 && selectedWordTokenIds.length <= 9) {
+          // Guard: all selected tokens must be in the same sentence
+          const isSingleSentence = new Set(selectedTokens.map(t => t.sentencePageIndex)).size === 1;
+          if (!isSingleSentence) return;
+
+          // On drag end: schedule sidebar display after 1s delay
+          const clientX = e.clientX;
+          const clientY = e.clientY;
+          const tokenIds = selectedTokens.map(t => t.id);
+          const wordTokenIds = selectedWordTokenIds; // already filtered to learnable words
+          if (sidebarTimeoutRef.current) clearTimeout(sidebarTimeoutRef.current);
+          sidebarTimeoutRef.current = setTimeout(() => {
+            const screenWidth = window.innerWidth;
+            const store = useReaderStore.getState();
+            store.setSidebarPosition(clientX > screenWidth / 2 ? 'left' : 'right');
+            store.setClickPos({ x: clientX, y: clientY });
+            // If the dragged tokens exactly match an existing saved phrase, select it
+            // (gives the orange PhraseGroup the blue ring). Otherwise create a draft.
+            const matchedPhrase = Object.values(store.phraseMap).find(p =>
+              p.range.length === wordTokenIds.length &&
+              p.range.every((id: string) => wordTokenIds.includes(id))
+            );
+            if (matchedPhrase) {
+              store.selectItem(matchedPhrase.id);
+            } else {
+              store.setDraftPhrase(tokenIds);
+            }
+            sidebarTimeoutRef.current = null;
+          }, 1000);
+        } else if (selectedWordTokenIds.length === 1) {
+          useReaderStore.getState().selectItem(selectedWordTokenIds[0]);
+        }
+      }
+    }
+  };
+
+  // Native touch event fallback for environments where Pointer Events are unreliable
+  useEffect(() => {
+    const paneEl = paneRef.current;
+    if (!paneEl) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      // Clear any pending sidebar display from a previous drag
+      if (sidebarTimeoutRef.current) {
+        clearTimeout(sidebarTimeoutRef.current);
+        sidebarTimeoutRef.current = null;
+      }
+
+      // Clear any lingering selection from store so sidebar disappears during drag
+      useReaderStore.setState({ selectedId: null, draftPhraseRange: null, isDragging: true });
+
+
+      window.getSelection()?.removeAllRanges();
+      const targetNode = (e.target as Element)?.closest('[data-token-id]');
+      if (targetNode) {
+        const tokenId = targetNode.getAttribute('data-token-id');
+        if (tokenId) {
+          touchDragRef.current = {
+            active: true,
+            startTokenId: tokenId,
+            currentEndTokenId: tokenId,
+            hasMoved: false,
+            startX: e.touches[0].clientX,
+            startY: e.touches[0].clientY,
+          };
+        }
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!touchDragRef.current.active) return;
+      e.preventDefault();
+      const dx = Math.abs(e.touches[0].clientX - touchDragRef.current.startX);
+      const dy = Math.abs(e.touches[0].clientY - touchDragRef.current.startY);
+      if (dx > 5 || dy > 5) {
+        touchDragRef.current.hasMoved = true;
+        updateSelectionFromCoordinates(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      // Always clear dragging flag so Sidebar can re-evaluate (must be before
+      // early return since touch may end on an element without [data-token-id])
+      useReaderStore.setState({ isDragging: false });
+      if (!touchDragRef.current.active) return;
+      const { startTokenId, currentEndTokenId, hasMoved } = touchDragRef.current;
+      touchDragRef.current.active = false;
+
+      window.getSelection()?.removeAllRanges();
+
+      if (hasMoved && startTokenId && currentEndTokenId && startTokenId !== currentEndTokenId) {
+        const idx1 = tokens.findIndex(t => t.id === startTokenId);
+        const idx2 = tokens.findIndex(t => t.id === currentEndTokenId);
+        if (idx1 !== -1 && idx2 !== -1) {
+          const start = Math.min(idx1, idx2);
+          const end = Math.max(idx1, idx2);
+          const selectedTokens = tokens.slice(start, end + 1);
+          const selectedWordTokenIds = selectedTokens
+            .filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0)
+            .map(t => t.id);
+
+          if (selectedWordTokenIds.length >= 2 && selectedWordTokenIds.length <= 9) {
+            // Guard: all selected tokens must be in the same sentence
+            const isSingleSentence = new Set(selectedTokens.map(t => t.sentencePageIndex)).size === 1;
+            if (!isSingleSentence) return;
+
+            // On drag end: schedule sidebar display after 1s delay
+            const touch = e.changedTouches[0];
+            const clientX = touch.clientX;
+            const clientY = touch.clientY;
+            const tokenIds = selectedTokens.map(t => t.id);
+            const wordTokenIds = selectedWordTokenIds;
+            if (sidebarTimeoutRef.current) clearTimeout(sidebarTimeoutRef.current);
+            sidebarTimeoutRef.current = setTimeout(() => {
+              const screenWidth = window.innerWidth;
+              const store = useReaderStore.getState();
+              store.setSidebarPosition(clientX > screenWidth / 2 ? 'left' : 'right');
+              store.setClickPos({ x: clientX, y: clientY });
+              // If the dragged tokens exactly match an existing saved phrase, select it
+              // (gives the orange PhraseGroup the blue ring). Otherwise create a draft.
+              const matchedPhrase = Object.values(store.phraseMap).find(p =>
+                p.range.length === wordTokenIds.length &&
+                p.range.every((id: string) => wordTokenIds.includes(id))
+              );
+              if (matchedPhrase) {
+                store.selectItem(matchedPhrase.id);
+              } else {
+                store.setDraftPhrase(tokenIds);
+              }
+              sidebarTimeoutRef.current = null;
+            }, 1000);
+          } else if (selectedWordTokenIds.length === 1) {
+            useReaderStore.getState().selectItem(selectedWordTokenIds[0]);
+          }
+        }
+      }
+    };
+
+    paneEl.addEventListener('touchstart', onTouchStart, { passive: true });
+    paneEl.addEventListener('touchmove', onTouchMove, { passive: false });
+    paneEl.addEventListener('touchend', onTouchEnd, { passive: true });
+
+    return () => {
+      paneEl.removeEventListener('touchstart', onTouchStart);
+      paneEl.removeEventListener('touchmove', onTouchMove);
+      paneEl.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [tokens, languageCode]);
 
   // --- RECURSIVE DOM ALGORITHM ---
   // This allows infinite levels of stacked phrases (e.g. Phrase inside a Phrase)
@@ -872,10 +1081,16 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         // Don't use DraftPhraseGroup wrapper if the selected tokens exactly form an existing saved phrase
         // (same tokens, same set). When the draft extends beyond a saved phrase (stacked phrases),
         // the DraftPhraseGroup wrapper must still be shown so the blue highlight covers A-C.
+        // Filter draftPhraseRange to only learnable word tokens — matching what Sidebar does —
+        // because p.range only contains learnable token IDs, not whitespace/newlines.
+        const draftWordTokenIds = draftPhraseRange.filter((id: string) => {
+          const t = tokens.find(tok => tok.id === id);
+          return t && t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0;
+        });
         const belongsToSavedPhrase = availablePhrases.some(p =>
           p.range.length > 0 &&
-          p.range.length === draftPhraseRange.length &&
-          p.range.every(id => draftPhraseRange.includes(id))
+          p.range.length === draftWordTokenIds.length &&
+          p.range.every((id: string) => draftWordTokenIds.includes(id))
         );
         if (!belongsToSavedPhrase) {
           hasDraftPhrase = true;
@@ -920,6 +1135,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
               <WordToken
                 tokenId={token.id}
                 isRTL={isRTL}
+                isCJK={isCJK}
                 onClick={handleWordClick}
               />
             )}
@@ -1025,12 +1241,13 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
   return (
     <div
-      className={`flex-1 min-w-0 min-h-0 h-full flex flex-col`} dir={isRTL ? 'rtl' : 'ltr'}
-      onClick={(e) => {
-        if (mousePos.current.isDragging) {
-          e.stopPropagation();
-        }
-      }}
+      ref={paneRef}
+      className={`flex-1 min-w-0 min-h-0 h-full flex flex-col select-none`} dir={isRTL ? 'rtl' : 'ltr'}
+      style={{ userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: 'none', msTouchAction: 'none' }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onContextMenu={(e) => e.preventDefault()}
     >
       {/* // The checklist turns green when there are NO learnable tokens with stage 0 */}
       {
@@ -1403,8 +1620,6 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                 transition: (isLayoutReady && isFirstLayoutCompleteRef.current) ? 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)' : 'none',
                 willChange: 'transform',
               }}
-              onMouseDown={handleMouseDown}
-              onMouseUp={handleMouseUp}
             >
               {renderedTree}
 
@@ -1488,8 +1703,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                 className="flex justify-between items-center p-4 border-b border-gray-100 bg-white shrink-0 relative sm:cursor-default cursor-grab active:cursor-grabbing select-none"
                 dir="ltr"
                 style={{ touchAction: 'none' }}
-                onTouchStart={e => handlePointerDown(e.touches[0].clientY)}
-                onMouseDown={e => handlePointerDown(e.clientY)}
+                onTouchStart={e => handleDrawerPointerDown(e.touches[0].clientY)}
+                onMouseDown={e => handleDrawerPointerDown(e.clientY)}
               >
                 <div className="sm:hidden absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1.5 bg-gray-200 rounded-full" />
                 <h3 className="font-extrabold text-lg text-[#3a92fb] mt-2 sm:mt-0">Quick Start Guide</h3>
@@ -1508,4 +1723,4 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   );
 });
 
-export default ReaderPane;
+export default ReaderPane

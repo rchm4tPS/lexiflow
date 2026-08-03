@@ -1,34 +1,11 @@
 // frontend/src/store/useReaderStore.ts
-/**
- * TODO: PAGINATION BUG INVESTIGATION & HANDOVER NOTES
- * 
- * Issue: Reader pagination resets to Page 1 (Page 0) on hard refresh (F5), re-visiting a lesson,
- * or switching between Paragraph View and Sentence View.
- * 
- * Root Cause Analysis:
- * 1. Database Overwrite: `syncLessonProgress()` evaluates `columnMapping[currentPage]` or `initialTokenIndex`.
- *    When `ReaderPane.tsx` calls `setInitialTokenIndex(null)` after mounting to clear the initial anchor,
- *    subsequent `syncLessonProgress()` calls read `initialTokenIndex = null` and fall back to `0`,
- *    overwriting `highest_page_read` in the SQLite DB (`user_lesson_progress` table) with `0`.
- * 2. Asynchronous Column Measurement vs Pagination Clamping: In `ReaderPane.tsx`, `measure()` calculates CSS multi-column
- *    token positions asynchronously after DOM mount. During the first layout pass, `columnWidthPx` is `0`, causing
- *    `columnMapping` to be empty `{}`. Calling `setPagination()` before `columnMapping` is built clamps `currentPage` to `0`.
- * 3. Sentence View Page Index Mapping: In Sentence View (`readerMode === 'sentence'`), pages map 1-to-1 with `sentencePageIndex`.
- *    If `initialTokenIndex` (the raw token offset from DB) is not mapped to `sentencePageIndex` before `setPagination()` commits,
- *    Sentence View falls back to Page 0.
- * 4. Disappearing Text Gap / Header Box Height Offset: In Paragraph View, hiding the 150px lesson title header box on `currentPage > 0`
- *    causes CSS multi-column height to change between Page 0 and Page 1, causing column break reflow and hiding tokens (e.g. lines G & H).
- * 
- * Required Architecture for Next AI / Developer:
- * - Decouple `savedHighestTokenIndex` (permanent progress state) from `initialTokenIndex` (transient DOM scroll anchor).
- * - Ensure `syncLessonProgress` never writes `0` to DB when `savedHighestTokenIndex > 0`.
- * - Synchronize `sentencePageIndex` conversion atomically before `setPagination()` renders the DOM tree.
- */
+
 import { create } from 'zustand';
 import { useAuthStore } from './useAuthStore';
 import { apiClient, BASE_URL } from '../api/client'; // Your fetch wrapper
 import { buildPhraseInstances } from '../utils/phraseMatcher';
 import { assignSentencePageIndexToTokens } from '../utils/sentenceUtils';
+import { isNoSpaceLanguage } from '../utils/languageUtils';
 import { getTier } from '../constants/tiers';
 import { LEVELS } from '../constants/levels';
 import type { Token, Phrase, DbPhrase, Lesson, Course, CourseDetail, UpdatePayload, WordHint, UserStats } from '../types/reader';
@@ -92,6 +69,7 @@ interface ReaderState {
   currentPage: number;
   selectedId: string | null;
   draftPhraseRange: string[] | null;
+  isDragging: boolean;
   clickPos: { x: number, y: number } | null;
 
   totalCoins: number;
@@ -178,6 +156,7 @@ interface ReaderState {
   clearSelection: () => void;
 
   setDraftPhrase: (range: string[] | null) => void;
+  setIsDragging: (v: boolean) => void;
   createPhrase: (range: string[], meaning: string) => void;
 
   setModal: (show: boolean) => void;
@@ -327,6 +306,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   currentPage: 0,
   selectedId: null,
   draftPhraseRange: null,
+  isDragging: false,
   clickPos: null,
 
   totalCoins: 0,
@@ -1310,6 +1290,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   setDraftPhrase: (range) => set({ draftPhraseRange: range, selectedId: null, isSidebarVisible: true, showSettingsDrawer: false, showTranslation: false }),
+  setIsDragging: (v) => set({ isDragging: v }),
 
   createPhrase: async (range, meaning) => {
     const state = get();
@@ -1337,10 +1318,11 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     }
 
     const phraseTokens = state.tokens.filter(t => range.includes(t.id));
-    const wordTokensOnly = phraseTokens.filter(t => !t.isNewline && t.text.match(/\p{L}/u));
+    const wordTokensOnly = phraseTokens.filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0);
 
     if (wordTokensOnly.length === 0) return;
 
+    const noSpace = isNoSpaceLanguage(state.languageCode);
     const exactText = wordTokensOnly.map(t => t.text).join(' ');
     const firstWordId = wordTokensOnly[0].id;
 
@@ -1353,7 +1335,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       const endIdx = Math.min(state.tokens.length - 1, endTokenIndex + 3);
       relatedPhraseOccur = state.tokens.slice(startIdx, endIdx + 1)
         .map(t => t.text)
-        .join(' ')
+        .join(noSpace ? '' : ' ')
         .replace(/\s+/g, ' ')
         .trim();
     }
