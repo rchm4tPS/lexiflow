@@ -10,7 +10,8 @@ export default function Header() {
         // initializeUserState,setRTL,
         recalculateStats,
         availableLanguages, enrolledLanguages, fetchLanguages, switchLanguage,
-        isLoadingLesson, isStatsLoading
+        isLoadingLesson, isStatsLoading,
+        clearSelection
     } = useReaderStore();
     const navigate = useNavigate();
     const location = useLocation();
@@ -22,6 +23,14 @@ export default function Header() {
     const mobileMenuRef = useRef<HTMLDivElement>(null);
     const mobileDropdownRef = useRef<HTMLDivElement>(null);
     const mobileLangMenuRef = useRef<HTMLDivElement>(null);
+
+    const toggleImport = () => {
+        // When opening the menu on reader page, close reader sidebar first
+        if (!isImportOpen && isReaderPage) {
+            clearSelection();
+        }
+        setIsImportOpen(!isImportOpen);
+    };
 
     const renderLanguageItem = (l: any) => (
         <div 
@@ -84,8 +93,8 @@ export default function Header() {
                 {/* HAMBURGER FOR READER PAGE (Mobile Left) */}
                 {isReaderPage && (
                     <div className="md:hidden flex items-center mr-2 shrink-0" ref={mobileMenuRef}>
-                        <button 
-                            onClick={() => setIsImportOpen(!isImportOpen)}
+                        <button
+                            onClick={toggleImport}
                             className="p-1 rounded hover:bg-white/10 transition-colors"
                         >
                             <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
@@ -202,7 +211,7 @@ export default function Header() {
                         {/* IMPORT BUTTON */}
                         <div className="relative" ref={dropdownRef}>
                             <div
-                                onClick={() => setIsImportOpen(!isImportOpen)}
+                                onClick={toggleImport}
                                 className="w-9 h-9 bg-white text-[#3890fc] rounded flex items-center justify-center cursor-pointer text-3xl font-extrabold pb-1 shadow-sm hover:bg-gray-100"
                             >
                                 +
@@ -224,7 +233,7 @@ export default function Header() {
                     {/* MOBILE/TABLET HAMBURGER MENU (< 1280px) */}
                     {!isReaderPage && (
                         <div className="relative xl:hidden flex items-center" ref={mobileMenuRef}>
-                            <button 
+                            <button
                                 onClick={() => setIsImportOpen(!isImportOpen)}
                                 className="p-1.5 rounded hover:bg-white/10 transition-colors"
                                 aria-label="Open menu"
