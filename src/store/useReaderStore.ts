@@ -56,6 +56,10 @@ interface ReaderState {
 
   tokens: Token[];
   tokenMap: Record<string, Token>;
+  /** Index: lowercase learnable-word-text → array of positions in `tokens[]`.
+   *  Built once in fetchLesson, read in updateStage / syncTokenStage / completeLesson
+   *  to avoid O(n) scans over the full token array for every stage update. */
+  tokensByText: Record<string, number[]>;
   dbPhrases: DbPhrase[]; // Stores raw phrases from DB (could be refined further if needed)
   phrases: Phrase[];   // Calculated instances mapping over tokens
   phraseMap: Record<string, Phrase>;
@@ -293,6 +297,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   tokens: [],
   tokenMap: {},
+  tokensByText: {},
   dbPhrases: [],
   phrases: [],
   phraseMap: {},
@@ -924,6 +929,16 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         const tokenMap: Record<string, Token> = {};
         tokensWithSentencePaging.forEach(t => { tokenMap[t.id] = t; });
 
+        // Build text → index lookup so updateStage / syncTokenStage don't scan all tokens
+        const tokensByText: Record<string, number[]> = {};
+        tokensWithSentencePaging.forEach((t, idx) => {
+          if (t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0) {
+            const key = t.text.toLowerCase();
+            if (!tokensByText[key]) tokensByText[key] = [];
+            tokensByText[key].push(idx);
+          }
+        });
+
         const phraseMap: Record<string, Phrase> = {};
         instances.forEach(p => { phraseMap[p.id] = p; });
 
@@ -945,6 +960,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           totalListenedSec: data.totalListenedSec || 0,
           tokens: tokensWithSentencePaging,
           tokenMap,
+          tokensByText,
           dbPhrases: data.phrases || [],
           phrases: instances,
           phraseMap,
@@ -1169,24 +1185,41 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       // Update daily stats optimistically
       get().updateDailyStats({ created: lingqDelta, learned: knownDelta });
 
+      // Use tokensByText index to update only matching token positions
+      // instead of scanning the entire token array.
+      const matchingIndices = state.tokensByText[targetText] || [];
+      if (matchingIndices.length === 0) return;
+
+      const t0 = performance.now();
       const newTokenMap = { ...state.tokenMap };
-      const updatedTokens = state.tokens.map(t => {
-        if (t.isLearnable && t.text.toLowerCase() === targetText) {
-          const newT = {
-            ...t,
-            stage: newStage,
-            status: newStatus,
-            meaning: finalMeaning,
-            meanings: finalMeanings,
-            isIgnoredInitially,
-            word_tags: finalTags,
-            notes: notes !== undefined ? notes : t.notes
-          };
-          newTokenMap[t.id] = newT;
-          return newT;
-        }
-        return t;
-      });
+      const updatedTokens = [...state.tokens]; // shallow clone
+      for (const idx of matchingIndices) {
+        const t = updatedTokens[idx];
+        const newT: Token = {
+          ...t,
+          stage: newStage,
+          status: newStatus,
+          meaning: finalMeaning,
+          meanings: finalMeanings,
+          isIgnoredInitially,
+          word_tags: finalTags,
+          notes: notes !== undefined ? notes : t.notes,
+        } as Token;
+        updatedTokens[idx] = newT;
+        newTokenMap[t.id] = newT;
+      }
+      const t1 = performance.now();
+
+      // PERFORMANCE LOG (tokensByText proof)
+      const totalTokens = state.tokens.length;
+      const wouldScan = totalTokens; // old .map() scanned every token
+      const actualWork = matchingIndices.length; // new: only touch matching
+      const savingsPct = totalTokens > 0 ? ((1 - actualWork / totalTokens) * 100).toFixed(1) : 'N/A';
+      console.log(
+        `[TokenMap] word="${targetText}" totalTokens=${totalTokens} matchCount=${actualWork} ` +
+        `time=${(t1 - t0).toFixed(3)}ms ` +
+        `| OLD would scan ${wouldScan} tokens | NEW touches ${actualWork} | ${savingsPct}% fewer ops`
+      );
 
       const newTagsCache = new Set(state.userTags);
       finalTags.forEach((t: string) => newTagsCache.add(t));
@@ -1199,7 +1232,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         totalKnownWords: state.totalKnownWords + knownDelta,
       });
 
-      const targetIndex = state.tokens.findIndex(t => t.id === targetToken.id);
+      // targetIndex is identical to tokenIndex (found above via t.id === id)
+      const targetIndex = tokenIndex;
       let relatedPhraseOccur: string | undefined = undefined;
 
       if (oldStage === 0 && newStage >= 1 && newStage <= 5) {
@@ -1701,14 +1735,34 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   syncTokenStage: (text: string, newStage: number, meaning?: string, notes?: string) => {
     const newStatus = newStage === 0 ? 'new' : (newStage === 5 ? 'known' : (newStage === 6 ? 'ignored' : 'learning'));
-    set(state => ({
-      tokens: state.tokens.map(t => {
-        if (t.text.toLowerCase() === text.toLowerCase()) {
-          return { ...t, stage: newStage, status: newStatus, meaning: meaning !== undefined ? meaning : t.meaning, notes: notes !== undefined ? notes : t.notes };
-        }
-        return t;
-      })
-    }));
+    const key = text.toLowerCase();
+    const before = performance.now();
+    set(state => {
+      const indices = state.tokensByText[key];
+      if (!indices || indices.length === 0) return state;
+      const updated = [...state.tokens];
+      for (const idx of indices) {
+        const t = updated[idx];
+        updated[idx] = {
+          ...t,
+          stage: newStage,
+          status: newStatus,
+          meaning: meaning !== undefined ? meaning : t.meaning,
+          notes: notes !== undefined ? notes : t.notes,
+        } as Token;
+      }
+      return { tokens: updated };
+    });
+    const after = performance.now();
+    // PERFORMANCE LOG (syncTokenStage proof)
+    const total = useReaderStore.getState().tokens.length;
+    const matchCount = useReaderStore.getState().tokensByText[key]?.length ?? 0;
+    console.log(
+      `[syncTokenStage] text="${text}" totalTokens=${total} matches=${matchCount} ` +
+      `time=${(after - before).toFixed(3)}ms ` +
+      `| OLD would .map() all ${total} | NEW mutates ${matchCount} ` +
+      `| ${total > 0 ? ((1 - matchCount / total) * 100).toFixed(1) : 'N/A'}% fewer ops`
+    );
   },
 
   syncPhraseStage: (phraseId: string, newStage: number, meaning?: string, notes?: string) => {

@@ -1,4 +1,4 @@
-import React, { type ReactNode, useRef, useState, useEffect, useLayoutEffect } from 'react';
+import React, { type ReactNode, useRef, useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settings, ChevronLeft, ChevronRight, X, SquarePen, Play, Pause } from 'lucide-react';
@@ -381,6 +381,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   const anchorTokenRef = useRef<string | null>(null);
   const [columnWidthPx, setColumnWidthPx] = React.useState(0);
   const isFirstLayoutCompleteRef = useRef(false);
+  const dragThrottleRef = useRef(0);
 
   // Reset initial transition flag when lesson changes or starts loading
   useEffect(() => {
@@ -934,7 +935,12 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             // During drag: update draftPhraseRange for blue highlight visual only.
             // Sidebar (BlueWordView/YellowWordView) stays hidden because isDragging=true
             // tells Sidebar to suppress. Sidebar appears 1s after drag end.
-            useReaderStore.setState({ draftPhraseRange: selectedTokens.map(t => t.id), selectedId: null, isDragging: true });
+            // THROTTLE: only update store every ~50ms to avoid re-render storm on 2000 tokens
+            const now = Date.now();
+            if (now - dragThrottleRef.current > 50) {
+              dragThrottleRef.current = now;
+              useReaderStore.setState({ draftPhraseRange: selectedTokens.map(t => t.id), selectedId: null, isDragging: true });
+            }
           }
         }
       }
@@ -1499,50 +1505,32 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     return currentPage;
   }, [readerMode, currentPage]);
 
-  const renderedTree = React.useMemo(() => {
-    if (isLoadingLesson || tokens.length === 0) return null;
-
-    const displayTokens = readerMode === 'sentence' && currentSentenceIndex !== null
-      ? tokens.filter(t => t.sentencePageIndex === currentSentenceIndex)
-      : tokens;
-
-    const showHeaderBox = readerMode === 'sentence' ? currentPage === 0 : true;
-
-    return (
-      <>
-        {showHeaderBox && (
-          <div className={`hidden xl:flex mb-2 lg:mb-4 mt-1 lg:mt-2 ${isRTL ? 'border-b' : ''}`} style={{ breakInside: 'avoid' }}>
-            <div className={`rounded-lg ${lessonImg ? '' : ' bg-gradient-to-tr from-green-200 to-blue-300'} w-24 h-24 lg:w-32.5 lg:h-35 content-center text-center shrink-0`}>
-              {
-                !lessonImg
-                  ? <div className="w-full h-full flex items-center justify-center text-blue-400 text-4xl lg:text-6xl">📖</div>
-                  : <img className="object-cover rounded-lg w-full h-full" src={lessonImg} />
-              }
-            </div>
-            <div className={`flex-col p-2 lg:p-3 max-w-[80%] ${isRTL ? 'border-gray-400 xl:h-38' : ''}`}>
-              {courseId ? (
-                <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</Link>
-              ) : (
-                <p className="text-[#4F8EF8] text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</p>
-              )}
-              <p className={`text-[#454646] text-[20px] lg:text-[30px] font-extrabold line-clamp-2 ${isRTL ? 'leading-normal' : 'leading-tight'} lg:leading-13`}>{lessonTitle}</p>
-            </div>
-          </div>
-        )}
+  // ─── TokenTree: extracted memoized component ───
+  // Only re-renders when token-level data changes, NOT on page nav or settings changes.
+  const TokenTreeContent = React.useMemo(() => {
+    if (readerMode === 'sentence' && currentSentenceIndex !== null) {
+      // Sentence mode: only tokens for the current sentence
+      const sentenceTokens = tokens.filter(t => t.sentencePageIndex === currentSentenceIndex);
+      return (
         <div className="inline">
-          {renderTree(displayTokens, phrases, true)}
-          {readerMode === 'sentence' && lessonAudio && currentSentenceIndex !== null && (
+          {renderTree(sentenceTokens, phrases, true)}
+          {lessonAudio && (
             <SentenceAudioButton currentSentenceIndex={currentSentenceIndex} compact={true} />
           )}
         </div>
-      </>
-    );
+      );
+    }
+    // Paragraph mode: ALL tokens in CSS multi-column layout
+    return <div className="inline">{renderTree(tokens, phrases, true)}</div>;
   }, [
-    lessonStructureHash, courseId, languageCode, courseTitle, lessonImg, lessonTitle, 
-    isRTL, handleWordClick, handlePhraseClick, readerMode, currentPage, currentSentenceIndex, draftPhraseRange, isLoadingLesson,
-    showMargins, fontSize, fontFamily, lineHeight, // <--- PASTIKAN showMargins ADA DI SINI agar token tree re-render seketika!
-    lineGap
+    // Only token-level data — NOT currentPage, fontSize, showMargins, etc.
+    tokens, phrases, draftPhraseRange, lessonStructureHash,
+    readerMode, currentSentenceIndex, lessonAudio,
+    isRTL, languageCode, handleWordClick, handlePhraseClick,
   ]);
+
+  // Header box — rendered outside the token tree so page nav doesn't rebuild the tree
+  const showHeaderBox = readerMode === 'sentence' ? currentPage === 0 : true;
 
   // If complete, show the full-width Summary View
   if (showSummary) {
@@ -1936,7 +1924,25 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                 willChange: 'transform',
               }}
             >
-              {renderedTree}
+              {showHeaderBox && (
+                <div className={`hidden xl:flex mb-2 lg:mb-4 mt-1 lg:mt-2 ${isRTL ? 'border-b' : ''}`} style={{ breakInside: 'avoid' }}>
+                  <div className={`rounded-lg ${lessonImg ? '' : ' bg-gradient-to-tr from-green-200 to-blue-300'} w-24 h-24 lg:w-32.5 lg:h-35 content-center text-center shrink-0`}>
+                    {!lessonImg
+                      ? <div className="w-full h-full flex items-center justify-center text-blue-400 text-4xl lg:text-6xl">📖</div>
+                      : <img className="object-cover rounded-lg w-full h-full" src={lessonImg} />
+                    }
+                  </div>
+                  <div className={`flex-col p-2 lg:p-3 max-w-[80%] ${isRTL ? 'border-gray-400 xl:h-38' : ''}`}>
+                    {courseId ? (
+                      <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</Link>
+                    ) : (
+                      <p className="text-[#4F8EF8] text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</p>
+                    )}
+                    <p className={`text-[#454646] text-[20px] lg:text-[30px] font-extrabold line-clamp-2 ${isRTL ? 'leading-normal' : 'leading-tight'} lg:leading-13`}>{lessonTitle}</p>
+                  </div>
+                </div>
+              )}
+              {TokenTreeContent}
 
                   {/* SENTENCE VIEW: inline translation reveal directly below sentence text */}
                   {readerMode === 'sentence' && currentSentenceIndex !== null && (

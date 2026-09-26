@@ -78,15 +78,25 @@ export default function AudioTimestampEditor({
 
   const isInitialSeededRef = useRef(false);
 
-  // Seed Source of Truth map ONCE from initial loaded API timestamps prop
+  // Seed Source of Truth map ONCE from initial loaded API timestamps prop.
+  // When timestamps is empty (no saved data), mark seeded so generate effect
+  // creates defaults instead of being stuck in "waiting for API" limbo.
   useEffect(() => {
-    if (!isInitialSeededRef.current && sentences.length > 0 && timestamps.length === sentences.length && timestamps.length > 0) {
+    if (isInitialSeededRef.current) return;
+    if (sentences.length === 0) return;
+
+    if (timestamps.length === sentences.length && timestamps.length > 0) {
+      // Seed sourceMap from API data
       sentences.forEach((sent, idx) => {
         const key = sent.trim();
         if (timestamps[idx]) {
           sourceOfTruthMapRef.current.set(key, timestamps[idx]);
         }
       });
+      isInitialSeededRef.current = true;
+    } else if (timestamps.length === 0) {
+      // No timestamps exist — mark as seeded with empty sourceMap.
+      // The generate effect will create defaults for all sentences.
       isInitialSeededRef.current = true;
     }
   }, [sentences, timestamps]);
@@ -95,25 +105,27 @@ export default function AudioTimestampEditor({
   // Pure declarative matching without mutating sourceOfTruthMapRef during keystroke alignment
   useEffect(() => {
     if (sentences.length === 0) return;
+    // Wait until seed effect has had its chance to run
+    if (!isInitialSeededRef.current) return;
 
     const sourceMap = sourceOfTruthMapRef.current;
-    let needsUpdate = timestamps.length !== sentences.length;
     const updated: TimestampEntry[] = [];
+    let anyChanged = false;
 
     for (let i = 0; i < sentences.length; i++) {
       const sent = sentences[i].trim();
-      
+
       // 1. Strict Exact Match against Source of Truth baseline
       if (sourceMap.has(sent)) {
         const cached = sourceMap.get(sent)!;
         updated.push(cached);
         if (!timestamps[i] || timestamps[i].start !== cached.start || timestamps[i].end !== cached.end) {
-          needsUpdate = true;
+          anyChanged = true;
         }
         continue;
       }
 
-      // 2. Action: ADD (Brand new sentence inserted)
+      // 2. Action: ADD (sentence not in sourceMap — either brand new or no data at all)
       // Generate temporary boundary for UI without polluting or corrupting sourceMap
       const prevEnd = i > 0 ? (updated[i - 1]?.end || 0) : 0;
       let newEnd = parseFloat((prevEnd + 2.0).toFixed(2));
@@ -126,10 +138,10 @@ export default function AudioTimestampEditor({
         end: newEnd
       };
       updated.push(newTs);
-      needsUpdate = true;
+      anyChanged = true;
     }
 
-    if (needsUpdate) {
+    if (anyChanged) {
       onTimestampsChange(updated);
     }
   }, [sentences, timestamps, duration, onTimestampsChange]);

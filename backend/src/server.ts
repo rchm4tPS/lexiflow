@@ -15,6 +15,7 @@ import vocabRoutes from './routes/vocab.js';
 import libraryRoutes from './routes/library.js';
 import phrasesRoutes from './routes/phrases.js';
 import uploadRoutes from './routes/upload.js';
+import { setupDatabase } from './db/setup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -94,9 +95,16 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
-  if (openApiPath) {
-    console.log(`API docs (Swagger UI): http://0.0.0.0:${PORT}/api-docs`);
-  }
+
+// Initialize FTS5 tables + indexes before accepting requests
+setupDatabase().then(() => {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    if (openApiPath) {
+      console.log(`API docs (Swagger UI): http://0.0.0.0:${PORT}/api-docs`);
+    }
+  });
+}).catch(err => {
+  console.error('[FATAL] Database setup failed:', err);
+  process.exit(1);
 });

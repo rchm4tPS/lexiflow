@@ -10,13 +10,13 @@ interface SlidingContentProps {
 
 export default function SlidingContent({
   activeIndex,
-  rtl = false,
+  // rtl = false,
   duration = 300,
   className = '',
   children,
 }: SlidingContentProps) {
   const count = Array.isArray(children) ? children.length : 1;
-  const translateX = rtl ? activeIndex * (100 / count) : -activeIndex * (100 / count);
+  const translateX = -activeIndex * (100 / count);
 
   return (
     <div className={`overflow-hidden ${className}`} style={{ position: 'relative' }}>
@@ -24,6 +24,7 @@ export default function SlidingContent({
         style={{
           display: 'flex',
           flexShrink: 0,
+          height: '100%',
           transform: `translateX(${translateX}%)`,
           transition: `transform ${duration}ms cubic-bezier(0.16, 1, 0.3, 1)`,
           width: `${count * 100}%`,
@@ -33,7 +34,7 @@ export default function SlidingContent({
           ? children.map((child, i) => (
               <div
                 key={i}
-                className="flex-shrink-0"
+                className="flex-shrink-0 h-full flex"
                 style={{ width: `${100 / count}%` }}
                 aria-hidden={i !== activeIndex}
               >
