@@ -1,4 +1,4 @@
-// TODO: [RESPONSIVE] Halaman SummaryView (Mobile-first <1024px responsif lengkap)
+
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine } from 'recharts';
 import { useReaderStore } from '../../../../store/useReaderStore';
 import { apiClient } from '../../../../api/client';

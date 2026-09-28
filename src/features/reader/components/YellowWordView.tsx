@@ -5,6 +5,7 @@ import { Sound, Coin, Check, Stop, UKFlag } from '../../../components/common/Ico
 import { speak } from '../../../utils/speech';
 import { openSmallWindow } from '../../../utils/window';
 import { LANGUAGES } from '../../../constants/languages';
+import { isNoSpaceLanguage } from '../../../utils/languageUtils';
 
 import type { SidebarItem, UpdatePayload, Token } from '../../../types/reader';
 
@@ -503,7 +504,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                         const isWordToken = !isPhrase && w.id === word?.id;
                         return (
                             <span key={w.id} className={isPhraseToken || isWordToken ? "font-bold text-gray-900 underline" : ""}>
-                                {w.text}{" "}
+                                {w.text}{isNoSpaceLanguage(languageCode) ? "" : " "}
                             </span>
                         );
                     })} ...

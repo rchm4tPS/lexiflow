@@ -72,9 +72,10 @@ interface WordTokenProps {
   tokenId: string;
   onClick: (tokenId: string, e: React.MouseEvent) => void;
   isRTL: boolean;
+  isCJK?: boolean;
 }
 
-const WordToken = React.memo(function WordToken({ tokenId, onClick }: WordTokenProps) {
+const WordToken = React.memo(function WordToken({ tokenId, onClick, isCJK }: WordTokenProps) {
   const token = useReaderStore(React.useCallback(state => state.tokenMap[tokenId], [tokenId]));
   const isSelected = useReaderStore(state => state.selectedId === tokenId || !!state.draftPhraseRange?.includes(tokenId));
   
@@ -130,8 +131,9 @@ const WordToken = React.memo(function WordToken({ tokenId, onClick }: WordTokenP
     <span
       data-token-id={token.id} // Essential for Drag-to-Select
       onClick={(e) => onClick(token.id, e)}
+      onContextMenu={(e) => e.preventDefault()}
       style={wordBgStyle}
-      className={`cursor-pointer px-0.75 rounded mx-0.75 transition-[color,background-color,opacity] duration-150 inline-block ${highlightClass} ${dimClass}`}
+      className={`cursor-pointer px-0.75 rounded ${isCJK ? 'mx-0.25' : 'mx-0.75'} transition-[color,background-color,opacity] duration-150 inline-block select-none ${highlightClass} ${dimClass}`}
     >
       {token.text}
     </span>

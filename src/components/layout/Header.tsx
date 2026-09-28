@@ -10,7 +10,8 @@ export default function Header() {
         // initializeUserState,setRTL,
         recalculateStats,
         availableLanguages, enrolledLanguages, fetchLanguages, switchLanguage,
-        isLoadingLesson, isStatsLoading
+        isLoadingLesson, isStatsLoading,
+        clearSelection
     } = useReaderStore();
     const navigate = useNavigate();
     const location = useLocation();
@@ -22,6 +23,14 @@ export default function Header() {
     const mobileMenuRef = useRef<HTMLDivElement>(null);
     const mobileDropdownRef = useRef<HTMLDivElement>(null);
     const mobileLangMenuRef = useRef<HTMLDivElement>(null);
+
+    const toggleImport = () => {
+        // When opening the menu on reader page, close reader sidebar first
+        if (!isImportOpen && isReaderPage) {
+            clearSelection();
+        }
+        setIsImportOpen(!isImportOpen);
+    };
 
     const renderLanguageItem = (l: any) => (
         <div 
@@ -84,8 +93,8 @@ export default function Header() {
                 {/* HAMBURGER FOR READER PAGE (Mobile Left) */}
                 {isReaderPage && (
                     <div className="md:hidden flex items-center mr-2 shrink-0" ref={mobileMenuRef}>
-                        <button 
-                            onClick={() => setIsImportOpen(!isImportOpen)}
+                        <button
+                            onClick={toggleImport}
                             className="p-1 rounded hover:bg-white/10 transition-colors"
                         >
                             <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
@@ -202,7 +211,7 @@ export default function Header() {
                         {/* IMPORT BUTTON */}
                         <div className="relative" ref={dropdownRef}>
                             <div
-                                onClick={() => setIsImportOpen(!isImportOpen)}
+                                onClick={toggleImport}
                                 className="w-9 h-9 bg-white text-[#3890fc] rounded flex items-center justify-center cursor-pointer text-3xl font-extrabold pb-1 shadow-sm hover:bg-gray-100"
                             >
                                 +
@@ -221,10 +230,9 @@ export default function Header() {
                         </div>
                     </div>
 
-                    {/* MOBILE/TABLET HAMBURGER MENU (< 1280px) */}
-                    {!isReaderPage && (
-                        <div className="relative xl:hidden flex items-center" ref={mobileMenuRef}>
-                            <button 
+                    {/* MOBILE/TABLET HAMBURGER MENU (< 1280px) — hidden on reader at <md because left hamburger covers that */}
+                    <div className={`relative xl:hidden flex items-center ${isReaderPage ? 'hidden md:flex' : ''}`} ref={mobileMenuRef}>
+                            <button
                                 onClick={() => setIsImportOpen(!isImportOpen)}
                                 className="p-1.5 rounded hover:bg-white/10 transition-colors"
                                 aria-label="Open menu"
@@ -234,12 +242,13 @@ export default function Header() {
                                 </svg>
                             </button>
                         </div>
-                    )}
                 </div>
 
                 {/* HAMBURGER DROPDOWN MENU FOR < 1280px */}
                 {isImportOpen && (
-                    <div ref={mobileDropdownRef} className={`absolute top-full ${isReaderPage ? 'left-2' : 'right-2'} mt-2 w-64 bg-white rounded-xl shadow-2xl py-1.5 z-[60] text-gray-700 text-xs sm:text-sm font-bold border border-gray-200 xl:hidden`}>
+                    <div ref={mobileDropdownRef} className={`absolute top-full mt-2 w-64 bg-white rounded-xl shadow-2xl py-1.5 z-[60] text-gray-700 text-xs sm:text-sm font-bold border border-gray-200 xl:hidden ${
+                        isReaderPage ? 'left-2 md:right-2 md:left-auto' : 'right-2'
+                    }`}>
                         {/* COMPACT HORIZONTAL STATS PILL ROW FOR < 768px */}
                         <div className="md:hidden px-3 pt-1 pb-2.5 border-b border-gray-100 flex flex-col gap-1">
                             <div className="text-[10px] font-black text-gray-400 uppercase tracking-wider px-1">Stats & Language</div>

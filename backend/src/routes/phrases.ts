@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db } from '../db/index.js';
+import { db, client } from '../db/index.js';
 import { userPhrases, users, userLanguages, userDailyStats } from '../db/schema.js';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
 import { eq, and, sql, inArray } from 'drizzle-orm';
@@ -25,10 +25,20 @@ router.get('/list', authenticate, async (req: AuthRequest, res) => {
     );
 
     if (search) {
-      whereClause = and(
-        whereClause,
-        sql`LOWER(${userPhrases.phrase_text}) LIKE ${`%${String(search).toLowerCase().trim()}%`}`
-      );
+      // FTS5 prefix match instead of LIKE %...%
+      const safeTerm = String(search).toLowerCase().trim().replace(/['"]/g, '');
+      const ftsTerm = safeTerm.length <= 1 ? safeTerm : `${safeTerm}*`;
+      const ftsRows = await client.execute({
+        sql: 'SELECT id FROM user_phrases_fts WHERE phrase_text MATCH ? LIMIT 500',
+        args: [ftsTerm],
+      });
+      const ftsIds = ftsRows.rows.map(r => String(r.id));
+
+      if (ftsIds.length > 0) {
+        whereClause = and(whereClause, inArray(userPhrases.id, ftsIds));
+      } else {
+        whereClause = and(whereClause, eq(userPhrases.id, ''));
+      }
     }
 
     let orderClause;

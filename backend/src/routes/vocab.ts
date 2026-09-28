@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db } from '../db/index.js';
+import { db, client } from '../db/index.js';
 import { userVocabRelation, masterVocab, users, userLanguages, userPhrases, vocabTransitions } from '../db/schema.js';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
 import { eq, and, sql, inArray, gte, lt } from 'drizzle-orm';
@@ -29,10 +29,21 @@ router.get('/list', authenticate, async (req: AuthRequest, res) => {
     );
 
     if (search) {
-      whereClause = and(
-        whereClause,
-        sql`LOWER(${masterVocab.original_word}) LIKE ${`%${String(search).toLowerCase().trim()}%`}`
-      );
+      // FTS5 prefix match: fast indexed word search instead of LIKE %...%
+      const safeTerm = String(search).toLowerCase().trim().replace(/['"]/g, '');
+      const ftsTerm = safeTerm.length <= 1 ? safeTerm : `${safeTerm}*`;
+      const ftsRows = await client.execute({
+        sql: 'SELECT id FROM master_vocab_fts WHERE original_word MATCH ? LIMIT 500',
+        args: [ftsTerm],
+      });
+      const ftsIds = ftsRows.rows.map(r => String(r.id));
+
+      if (ftsIds.length > 0) {
+        whereClause = and(whereClause, inArray(masterVocab.id, ftsIds));
+      } else {
+        // FTS returned nothing → force empty (avoid expensive full scan)
+        whereClause = and(whereClause, eq(masterVocab.id, ''));
+      }
     }
 
     let orderClause;

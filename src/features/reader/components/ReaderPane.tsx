@@ -5,6 +5,7 @@ import { Info, Download, Languages, Zap, PanelRightClose, PanelRightOpen, Settin
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
 import { useAuthStore } from '../../../store/useAuthStore';
+import { isNoSpaceLanguage } from '../../../utils/languageUtils';
 import { apiClient } from '../../../api/client';
 import SummaryView from './LessonEnd/SummaryView';
 import CompletionModal from './LessonEnd/CompletionModal';
@@ -131,9 +132,9 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   const {
     showSummary, setShowSummary, showModal, setModal,
     lessonStructureHash, currentPage, draftPhraseRange,
-    setDraftPhrase, isRTL, languageCode,
+    isRTL, languageCode,
     handlePageAdvance, activeLessonId, syncLessonProgress,
-    isLoadingLesson, readerMode, toggleReaderMode, totalPages, columnMapping, setSidebarPosition, setClickPos,
+    isLoadingLesson, readerMode, toggleReaderMode, totalPages, columnMapping,
     lessonIndex, courseLessonsCount, prevLessonId, nextLessonId, setShowLessonInfoModal, showSettingsDrawer, setShowSettingsDrawer, initialTokenIndex,
     isStatsLoading, lessonAudio, toggleSidebar, isSidebarVisible,
     translationData, revealedSentenceIndices, isLoadingTranslation,
@@ -144,9 +145,9 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   } = useReaderStore(useShallow(state => ({
     showSummary: state.showSummary, setShowSummary: state.setShowSummary, showModal: state.showModal, setModal: state.setModal,
     lessonStructureHash: state.lessonStructureHash, currentPage: state.currentPage, draftPhraseRange: state.draftPhraseRange,
-    setDraftPhrase: state.setDraftPhrase, isRTL: state.isRTL, languageCode: state.languageCode,
+    isRTL: state.isRTL, languageCode: state.languageCode,
     handlePageAdvance: state.handlePageAdvance, activeLessonId: state.activeLessonId, syncLessonProgress: state.syncLessonProgress,
-    isLoadingLesson: state.isLoadingLesson, readerMode: state.readerMode, toggleReaderMode: state.toggleReaderMode, totalPages: state.totalPages, columnMapping: state.columnMapping, setSidebarPosition: state.setSidebarPosition, setClickPos: state.setClickPos,
+    isLoadingLesson: state.isLoadingLesson, readerMode: state.readerMode, toggleReaderMode: state.toggleReaderMode, totalPages: state.totalPages, columnMapping: state.columnMapping,
     lessonIndex: state.lessonIndex, courseLessonsCount: state.courseLessonsCount, prevLessonId: state.prevLessonId, nextLessonId: state.nextLessonId, setShowLessonInfoModal: state.setShowLessonInfoModal, showSettingsDrawer: state.showSettingsDrawer, setShowSettingsDrawer: state.setShowSettingsDrawer, initialTokenIndex: state.initialTokenIndex,
     isStatsLoading: state.isStatsLoading, lessonAudio: state.lessonAudio, toggleSidebar: state.toggleSidebar, isSidebarVisible: state.isSidebarVisible,
     translationData: state.translationData, revealedSentenceIndices: state.revealedSentenceIndices, isLoadingTranslation: state.isLoadingTranslation,
@@ -162,8 +163,27 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
   const { user } = useAuthStore();
   const isOwner = Boolean(user?.id && activeLessonOwnerId && activeLessonOwnerId === user.id);
+  const isCJK = isNoSpaceLanguage(languageCode);
   const location = useLocation();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
+  const sidebarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // --- SWIPE TO CHANGE PAGE (simple gesture detection, no content sliding) ---
+  const swipeRef = useRef<{
+    state: 'idle' | 'pending' | 'swipe' | 'drag';
+    startX: number;
+    startY: number;
+    startTime: number;
+    lastX: number;
+    lastY: number;
+    resolveTimeout: ReturnType<typeof setTimeout> | null;
+  }>({
+    state: 'idle',
+    startX: 0, startY: 0, startTime: 0,
+    lastX: 0, lastY: 0,
+    resolveTimeout: null,
+  });
 
   // Save progress on unmount or hard refresh / browser window close
   useEffect(() => {
@@ -187,6 +207,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   // --- STABLE CALLBACKS FOR WORD TOKENS ---
   const handleWordClick = React.useCallback((tokenId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    window.getSelection()?.removeAllRanges();
     const state = useReaderStore.getState();
     const screenWidth = window.innerWidth;
     state.setSidebarPosition(e.clientX > screenWidth / 2 ? 'left' : 'right');
@@ -220,7 +241,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   const [dragY, setDragY] = useState(0);
   const dragStartY = useRef<number | null>(null);
 
-  const handlePointerDown = (clientY: number) => {
+  const handleDrawerPointerDown = (clientY: number) => {
     dragStartY.current = clientY;
   };
 
@@ -360,6 +381,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   const anchorTokenRef = useRef<string | null>(null);
   const [columnWidthPx, setColumnWidthPx] = React.useState(0);
   const isFirstLayoutCompleteRef = useRef(false);
+  const dragThrottleRef = useRef(0);
 
   // Reset initial transition flag when lesson changes or starts loading
   useEffect(() => {
@@ -670,6 +692,20 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     };
   }, [isLoadingLesson, tokens, isRTL, readerMode, columnWidthPx, showSettingsDrawer, showMargins, fontSize, fontFamily, lineHeight, lineGap]);
   
+  const getTokenElementFromNode = (node: Node | null, offset?: number): Element | null => {
+    if (!node) return null;
+    let target: Node | null = node;
+    if (node.nodeType === Node.ELEMENT_NODE && offset !== undefined && node.childNodes.length > 0) {
+      const childIndex = Math.min(Math.max(0, offset < node.childNodes.length ? offset : offset - 1), node.childNodes.length - 1);
+      const child = node.childNodes[childIndex];
+      if (child) target = child;
+    }
+    if (target instanceof Element) {
+      return target.closest('[data-token-id]');
+    }
+    return target.parentElement?.closest('[data-token-id]') ?? null;
+  };
+
   React.useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
 
@@ -679,8 +715,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         const selection = window.getSelection();
         if (!selection || selection.isCollapsed || selection.toString().trim().length === 0) return;
 
-        const node1 = selection.anchorNode?.parentElement?.closest('[data-token-id]');
-        const node2 = selection.focusNode?.parentElement?.closest('[data-token-id]');
+        const node1 = getTokenElementFromNode(selection.anchorNode, selection.anchorOffset);
+        const node2 = getTokenElementFromNode(selection.focusNode, selection.focusOffset);
 
         if (node1 && node2) {
           const id1 = node1.getAttribute('data-token-id');
@@ -694,24 +730,23 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             const end = Math.max(idx1, idx2);
             const rangeCount = end - start + 1;
 
-            const selectedTokenIds = tokens.slice(start, end + 1).map(t => t.id);
+            const selectedTokens = tokens.slice(start, end + 1);
+            const selectedTokenIds = selectedTokens.map(t => t.id);
 
-            // Single token dragged — treat as click: replace browser highlight with app highlight
-            if (rangeCount === 1) {
+            const selectedWordTokenIds = selectedTokens
+              .filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0)
+              .map(t => t.id);
+
+            // Single token or 1 learnable word token in range — treat as single token click
+            if (rangeCount === 1 || selectedWordTokenIds.length <= 1) {
               selection.removeAllRanges();
-              if (id1) useReaderStore.getState().selectItem(id1);
+              const targetId = selectedWordTokenIds[0] || id1;
+              if (targetId) useReaderStore.getState().selectItem(targetId);
               return;
             }
 
             // All tokens of an existing saved phrase are included in the selection — select the whole phrase
-            // (same as clicking the phrase, so the blue ring sits properly on the orange div).
-            // We use a subset check because the user's drag may include whitespace tokens between words.
             const currentPhrases = useReaderStore.getState().phrases;
-            // Extract only learnable word tokens from the selection (ignoring whitespace/newlines)
-            // so that extending an existing phrase with extra tokens is allowed (stacked phrases).
-            const selectedWordTokenIds = tokens.slice(start, end + 1)
-              .filter(t => t.isLearnable && !t.isNewline && t.text.match(/\p{L}/u))
-              .map(t => t.id);
             const matchedPhrase = currentPhrases.find(p =>
               p.range.length > 0 &&
               p.range.every(id => selectedWordTokenIds.includes(id)) &&
@@ -724,8 +759,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
               return;
             }
 
-            // Original: create draft phrase for multi-token selections (2–9 learnable words)
-            const isValid = !tokens.slice(start, end + 1).some(t => t.isNewline);
+            // Create draft phrase for multi-token selections (2–9 learnable words)
+            const isValid = !selectedTokens.some(t => t.isNewline);
             const learnableCount = selectedWordTokenIds.length;
 
             if (isValid && learnableCount >= 2 && learnableCount <= 9) {
@@ -741,7 +776,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
             }
           }
         }
-      }, 1600);
+      }, 500);
     };
 
     document.addEventListener('selectionchange', handleSelectionChange);
@@ -751,100 +786,595 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     };
   }, [tokens]);
 
-  const mousePos = useRef({
-    x: 0,
-    y: 0,
-    isDragging: false
-  })
+  const touchDragRef = useRef<{
+    active: boolean;
+    startTokenId: string | null;
+    currentEndTokenId: string | null;
+    hasMoved: boolean;
+    startX: number;
+    startY: number;
+  }>({
+    active: false,
+    startTokenId: null,
+    currentEndTokenId: null,
+    hasMoved: false,
+    startX: 0,
+    startY: 0,
+  });
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    mousePos.current = {
-      x: e.clientX,
-      y: e.clientY,
-      isDragging: false
+  const initDragFromPoint = (clientX: number, clientY: number, hasMovedFromStart = false) => {
+    const tokenNode = findTokenAtPoint(clientX, clientY);
+    if (tokenNode) {
+      const tokenId = tokenNode.getAttribute('data-token-id');
+      if (tokenId) {
+        touchDragRef.current = {
+          active: true,
+          startTokenId: tokenId,
+          currentEndTokenId: tokenId,
+          hasMoved: hasMovedFromStart,
+          startX: clientX,
+          startY: clientY,
+        };
+      }
     }
-  }
+  };
 
-  // --- DRAG TO SELECT LOGIC ---
-  const handleMouseUp = (e: React.MouseEvent) => {
-    e.stopPropagation()
+  const handlePointerDown = (e: React.PointerEvent) => {
+    // Touch input: enter pending state — resolve to swipe or drag on first move
+    if (e.pointerType === 'touch') {
+      // Clear any pending sidebar
+      if (sidebarTimeoutRef.current) {
+        clearTimeout(sidebarTimeoutRef.current);
+        sidebarTimeoutRef.current = null;
+      }
+      // Clear selection so sidebar closes immediately
+      useReaderStore.setState({ selectedId: null, draftPhraseRange: null, isDragging: true });
+      window.getSelection()?.removeAllRanges();
+      // Reset touchDragRef from previous interaction
+      touchDragRef.current = {
+        active: false, startTokenId: null, currentEndTokenId: null,
+        hasMoved: false, startX: 0, startY: 0,
+      };
 
-    // If the mouse moved more than 5 pixels, it's a drag
-    if (
-      Math.abs(e.clientX - mousePos.current.x) > 5 ||
-      Math.abs(e.clientY - mousePos.current.y) > 5
-    ) {
-      mousePos.current.isDragging = true;
+      const startX = e.clientX, startY = e.clientY;
+      swipeRef.current = {
+        state: 'pending',
+        startX, startY,
+        startTime: Date.now(),
+        lastX: startX, lastY: startY,
+        resolveTimeout: setTimeout(() => {
+          // 300ms expired without quick flick → resolve to drag
+          if (swipeRef.current.state === 'pending') {
+            swipeRef.current.state = 'drag';
+            swipeRef.current.resolveTimeout = null;
+            // touchDragRef was already populated during pending moves.
+            // If user never moved, init with current position.
+            if (!touchDragRef.current.active) {
+              initDragFromPoint(swipeRef.current.lastX, swipeRef.current.lastY, false);
+            }
+          }
+        }, 300),
+      };
+      return;
+    }
 
-      const selection = window.getSelection();
-      if (!selection || selection.isCollapsed || selection.toString().trim().length === 0) return;
+    // Mouse input: existing drag logic (unchanged)
+    if (sidebarTimeoutRef.current) {
+      clearTimeout(sidebarTimeoutRef.current);
+      sidebarTimeoutRef.current = null;
+    }
+    useReaderStore.setState({ selectedId: null, draftPhraseRange: null, isDragging: true });
+    window.getSelection()?.removeAllRanges();
 
-      // Find the closest data-token-id from the start and end of the selection
-      const node1 = selection.anchorNode?.parentElement?.closest('[data-token-id]');
-      const node2 = selection.focusNode?.parentElement?.closest('[data-token-id]');
+    const targetNode = (e.target as Element)?.closest('[data-token-id]');
+    if (targetNode) {
+      const tokenId = targetNode.getAttribute('data-token-id');
+      if (tokenId) {
+        touchDragRef.current = {
+          active: true,
+          startTokenId: tokenId,
+          currentEndTokenId: tokenId,
+          hasMoved: false,
+          startX: e.clientX,
+          startY: e.clientY,
+        };
+      }
+    }
+  };
 
-      if (node1 && node2) {
-        const id1 = node1.getAttribute('data-token-id');
-        const id2 = node2.getAttribute('data-token-id');
+  const findTokenAtPoint = (clientX: number, clientY: number): Element | null => {
+    // Strategy 1: Use elementsFromPoint to check all stacked layers at this point
+    if (document.elementsFromPoint) {
+      const elements = document.elementsFromPoint(clientX, clientY);
+      for (const el of elements) {
+        const token = (el as Element).closest('[data-token-id]');
+        if (token) return token;
+      }
+    }
+    // Strategy 2: Direct elementFromPoint (fallback for older browsers)
+    const direct = document.elementFromPoint(clientX, clientY);
+    const directToken = direct?.closest('[data-token-id]');
+    if (directToken) return directToken;
+    // Strategy 3: Expanded search – sample points around the touch coordinate
+    // Handles imprecise mobile touch coordinates at token boundaries
+    const offsets = [[0, -8], [0, 8], [-8, 0], [8, 0], [-6, -6], [6, -6], [-6, 6], [6, 6]];
+    for (const [dx, dy] of offsets) {
+      const el = document.elementFromPoint(clientX + dx, clientY + dy);
+      const token = el?.closest('[data-token-id]');
+      if (token) return token;
+    }
+    return null;
+  };
 
-        const idx1 = tokens.findIndex(t => t.id === id1);
-        const idx2 = tokens.findIndex(t => t.id === id2);
+  const updateSelectionFromCoordinates = (clientX: number, clientY: number) => {
+    if (!touchDragRef.current.active || !touchDragRef.current.startTokenId) return;
+
+    const tokenNode = findTokenAtPoint(clientX, clientY);
+    if (tokenNode) {
+      const currentTokenId = tokenNode.getAttribute('data-token-id');
+      if (currentTokenId && currentTokenId !== touchDragRef.current.currentEndTokenId) {
+        touchDragRef.current.currentEndTokenId = currentTokenId;
+        touchDragRef.current.hasMoved = true;
+
+        const idx1 = tokens.findIndex(t => t.id === touchDragRef.current.startTokenId);
+        const idx2 = tokens.findIndex(t => t.id === currentTokenId);
 
         if (idx1 !== -1 && idx2 !== -1) {
           const start = Math.min(idx1, idx2);
           const end = Math.max(idx1, idx2);
-
-          const rangeCount = end - start + 1;
           const selectedTokens = tokens.slice(start, end + 1);
-          const selectedTokenIds = selectedTokens.map(t => t.id);
-
-          // Single token dragged — treat as click: replace browser highlight with app highlight
-          if (rangeCount === 1) {
-            selection.removeAllRanges();
-            if (id1) useReaderStore.getState().selectItem(id1);
-            return;
-          }
-
-          // All tokens of an existing saved phrase are included in the selection — select the whole phrase
-          // (same as clicking the phrase, so the blue ring sits properly on the orange div).
-          // We use a subset check because the user's drag may include whitespace tokens between words.
-          const currentPhrases = useReaderStore.getState().phrases;
-          // Extract only learnable word tokens from the selection (ignoring whitespace/newlines)
-          // so that extending an existing phrase with extra tokens is allowed (stacked phrases).
           const selectedWordTokenIds = selectedTokens
-            .filter(t => t.isLearnable && !t.isNewline && t.text.match(/\p{L}/u))
+            .filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0)
             .map(t => t.id);
-          const matchedPhrase = currentPhrases.find(p =>
-            p.range.length > 0 &&
-            p.range.every(id => selectedWordTokenIds.includes(id)) &&
-            selectedWordTokenIds.every(id => p.range.includes(id))
-          ) || null;
 
-          if (matchedPhrase) {
-            selection.removeAllRanges();
-            useReaderStore.getState().selectItem(matchedPhrase.id);
-            return;
-          }
+          if (selectedWordTokenIds.length >= 2 && selectedWordTokenIds.length <= 9) {
+            // Guard: all selected tokens must be in the same sentence
+            const isSingleSentence = new Set(selectedTokens.map(t => t.sentencePageIndex)).size === 1;
+            if (!isSingleSentence) return;
 
-          // Original: create draft phrase for multi-token selections (2–9 learnable words)
-          const learnableCount = selectedWordTokenIds.length;
-          const isValid = !selectedTokens.some(t => t.isNewline);
-
-          if (isValid && learnableCount >= 2 && learnableCount <= 9) {
-            const screenWidth = window.innerWidth;
-            setSidebarPosition(e.clientX > screenWidth / 2 ? 'left' : 'right');
-            setClickPos({ x: e.clientX, y: e.clientY });
-
-            setDraftPhrase(selectedTokenIds);
-            // Delay clearing the browser highlight so onClick can detect the text selection and abort
-            setTimeout(() => selection.removeAllRanges(), 150);
+            // During drag: update draftPhraseRange for blue highlight visual only.
+            // Sidebar (BlueWordView/YellowWordView) stays hidden because isDragging=true
+            // tells Sidebar to suppress. Sidebar appears 1s after drag end.
+            // THROTTLE: only update store every ~50ms to avoid re-render storm on 2000 tokens
+            const now = Date.now();
+            if (now - dragThrottleRef.current > 50) {
+              dragThrottleRef.current = now;
+              useReaderStore.setState({ draftPhraseRange: selectedTokens.map(t => t.id), selectedId: null, isDragging: true });
+            }
           }
         }
       }
-    } else {
-      mousePos.current.isDragging = false;
     }
   };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    // Touch input: resolve pending → swipe or drag based on time + movement
+    if (e.pointerType === 'touch') {
+      // 1. PENDING — track tokens for potential drag, or resolve to swipe
+      if (swipeRef.current.state === 'pending') {
+        const dx = Math.abs(e.clientX - swipeRef.current.startX);
+        const dy = Math.abs(e.clientY - swipeRef.current.startY);
+        const elapsed = Date.now() - swipeRef.current.startTime;
+
+        // Always track token under finger during pending (for eventual drag)
+        const tokenNode = findTokenAtPoint(e.clientX, e.clientY);
+        if (tokenNode) {
+          const tid = tokenNode.getAttribute('data-token-id');
+          if (tid && !touchDragRef.current.startTokenId) {
+            // First move: init touchDragRef with where the finger is NOW
+            touchDragRef.current = {
+              active: true,
+              startTokenId: tid,
+              currentEndTokenId: tid,
+              hasMoved: dx > 5 || dy > 5,
+              startX: e.clientX,
+              startY: e.clientY,
+            };
+          } else if (tid && tid !== touchDragRef.current.currentEndTokenId) {
+            // Moved to a new token — update range and show blue highlight
+            touchDragRef.current.currentEndTokenId = tid;
+            touchDragRef.current.hasMoved = true;
+            updateSelectionFromCoordinates(e.clientX, e.clientY);
+          }
+        }
+
+        // Check for quick flick → SWIPE (velocity: >60px in first 100ms = fast flick)
+        if (dx > 60 && elapsed < 100 && dx > dy) {
+          clearTimeout(swipeRef.current.resolveTimeout!);
+          swipeRef.current.state = 'swipe';
+          swipeRef.current.resolveTimeout = null;
+        }
+      }
+
+      // 2. SWIPE mode — just track position, no content sliding
+      if (swipeRef.current.state === 'swipe') {
+        swipeRef.current.lastX = e.clientX;
+        swipeRef.current.lastY = e.clientY;
+        return;
+      }
+
+      // 3. DRAG mode — existing selection logic
+      if (swipeRef.current.state === 'drag') {
+        if (!touchDragRef.current.active) return;
+        const dx = Math.abs(e.clientX - touchDragRef.current.startX);
+        const dy = Math.abs(e.clientY - touchDragRef.current.startY);
+        if (dx > 5 || dy > 5) {
+          touchDragRef.current.hasMoved = true;
+          updateSelectionFromCoordinates(e.clientX, e.clientY);
+        }
+        return;
+      }
+
+      return; // 'idle' state (shouldn't happen)
+    }
+
+    // Mouse input: existing drag logic (unchanged)
+    if (!touchDragRef.current.active) return;
+    const dx = Math.abs(e.clientX - touchDragRef.current.startX);
+    const dy = Math.abs(e.clientY - touchDragRef.current.startY);
+    if (dx > 5 || dy > 5) {
+      touchDragRef.current.hasMoved = true;
+      updateSelectionFromCoordinates(e.clientX, e.clientY);
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    // Always clear dragging flag so Sidebar can re-evaluate
+    useReaderStore.setState({ isDragging: false });
+
+    // Touch input handling
+    if (e.pointerType === 'touch') {
+      // Clear any pending resolve timeout
+      if (swipeRef.current.resolveTimeout) {
+        clearTimeout(swipeRef.current.resolveTimeout);
+        swipeRef.current.resolveTimeout = null;
+      }
+
+      // 1. SWIPE end — check threshold and change page
+      if (swipeRef.current.state === 'swipe') {
+        const offsetX = swipeRef.current.lastX - swipeRef.current.startX;
+        const absOffset = Math.abs(offsetX);
+        const paneWidth = paneRef.current?.getBoundingClientRect().width || 999;
+        const threshold = paneWidth * 0.3;
+
+        if (absOffset >= threshold && paneWidth > 0) {
+          const direction = offsetX > 0 ? -1 : 1; // LTR: finger right = prev page
+          const newPage = currentPage + direction;
+          if (newPage >= 0 && newPage < totalPages) {
+            handlePageAdvance(newPage);
+          }
+        }
+        // else: not enough distance, just snap back via React's normal CSS transition
+
+        swipeRef.current.state = 'idle';
+        return;
+      }
+
+      // 2. DRAG end — existing selection logic
+      if (swipeRef.current.state === 'drag') {
+        if (!touchDragRef.current.active) {
+          swipeRef.current.state = 'idle';
+          return;
+        }
+        const { startTokenId, currentEndTokenId, hasMoved } = touchDragRef.current;
+        touchDragRef.current.active = false;
+
+        window.getSelection()?.removeAllRanges();
+
+        if (hasMoved && startTokenId && currentEndTokenId && startTokenId !== currentEndTokenId) {
+          const idx1 = tokens.findIndex(t => t.id === startTokenId);
+          const idx2 = tokens.findIndex(t => t.id === currentEndTokenId);
+          if (idx1 !== -1 && idx2 !== -1) {
+            const start = Math.min(idx1, idx2);
+            const end = Math.max(idx1, idx2);
+            const selectedTokens = tokens.slice(start, end + 1);
+            const selectedWordTokenIds = selectedTokens
+              .filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0)
+              .map(t => t.id);
+
+            if (selectedWordTokenIds.length >= 2 && selectedWordTokenIds.length <= 9) {
+              const isSingleSentence = new Set(selectedTokens.map(t => t.sentencePageIndex)).size === 1;
+              if (!isSingleSentence) { swipeRef.current.state = 'idle'; return; }
+
+              const clientX = e.clientX;
+              const clientY = e.clientY;
+              const tokenIds = selectedTokens.map(t => t.id);
+              const wordTokenIds = selectedWordTokenIds;
+              useReaderStore.setState({ draftPhraseRange: tokenIds, selectedId: null });
+              if (sidebarTimeoutRef.current) clearTimeout(sidebarTimeoutRef.current);
+              sidebarTimeoutRef.current = setTimeout(() => {
+                const screenWidth = window.innerWidth;
+                const store = useReaderStore.getState();
+                store.setSidebarPosition(clientX > screenWidth / 2 ? 'left' : 'right');
+                store.setClickPos({ x: clientX, y: clientY });
+                const matchedPhrase = Object.values(store.phraseMap).find((p: { range: string[] }) =>
+                  p.range.length === wordTokenIds.length &&
+                  p.range.every((id: string) => wordTokenIds.includes(id))
+                );
+                if (matchedPhrase) {
+                  store.selectItem(matchedPhrase.id);
+                } else {
+                  store.setDraftPhrase(tokenIds);
+                }
+                sidebarTimeoutRef.current = null;
+              }, 1000);
+            } else if (selectedWordTokenIds.length === 1) {
+              useReaderStore.getState().selectItem(selectedWordTokenIds[0]);
+            }
+          }
+        }
+        swipeRef.current.state = 'idle';
+        return;
+      }
+
+      // 3. PENDING → never resolved (tap without movement) — let click handlers work
+      if (swipeRef.current.state === 'pending') {
+        swipeRef.current.state = 'idle';
+        return;
+      }
+
+      return; // 'idle'
+    }
+
+    // Mouse input: existing drag logic (unchanged)
+    if (!touchDragRef.current.active) return;
+    const { startTokenId, currentEndTokenId, hasMoved } = touchDragRef.current;
+    touchDragRef.current.active = false;
+
+    window.getSelection()?.removeAllRanges();
+
+    if (hasMoved && startTokenId && currentEndTokenId && startTokenId !== currentEndTokenId) {
+      const idx1 = tokens.findIndex(t => t.id === startTokenId);
+      const idx2 = tokens.findIndex(t => t.id === currentEndTokenId);
+      if (idx1 !== -1 && idx2 !== -1) {
+        const start = Math.min(idx1, idx2);
+        const end = Math.max(idx1, idx2);
+        const selectedTokens = tokens.slice(start, end + 1);
+        const selectedWordTokenIds = selectedTokens
+          .filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0)
+          .map(t => t.id);
+
+        if (selectedWordTokenIds.length >= 2 && selectedWordTokenIds.length <= 9) {
+          const isSingleSentence = new Set(selectedTokens.map(t => t.sentencePageIndex)).size === 1;
+          if (!isSingleSentence) return;
+
+          const clientX = e.clientX;
+          const clientY = e.clientY;
+          const tokenIds = selectedTokens.map(t => t.id);
+          const wordTokenIds = selectedWordTokenIds;
+          if (sidebarTimeoutRef.current) clearTimeout(sidebarTimeoutRef.current);
+          sidebarTimeoutRef.current = setTimeout(() => {
+            const screenWidth = window.innerWidth;
+            const store = useReaderStore.getState();
+            store.setSidebarPosition(clientX > screenWidth / 2 ? 'left' : 'right');
+            store.setClickPos({ x: clientX, y: clientY });
+            const matchedPhrase = Object.values(store.phraseMap).find(p =>
+              p.range.length === wordTokenIds.length &&
+              p.range.every((id: string) => wordTokenIds.includes(id))
+            );
+            if (matchedPhrase) {
+              store.selectItem(matchedPhrase.id);
+            } else {
+              store.setDraftPhrase(tokenIds);
+            }
+            sidebarTimeoutRef.current = null;
+          }, 1000);
+        } else if (selectedWordTokenIds.length === 1) {
+          useReaderStore.getState().selectItem(selectedWordTokenIds[0]);
+        }
+      }
+    }
+  };
+
+  // Native touch event fallback for environments where Pointer Events are unreliable
+  useEffect(() => {
+    const paneEl = paneRef.current;
+    if (!paneEl) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      // Clear any pending sidebar
+      if (sidebarTimeoutRef.current) {
+        clearTimeout(sidebarTimeoutRef.current);
+        sidebarTimeoutRef.current = null;
+      }
+
+      // Clear selection so sidebar closes immediately
+      useReaderStore.setState({ selectedId: null, draftPhraseRange: null, isDragging: true });
+      window.getSelection()?.removeAllRanges();
+
+      // Enter pending state — resolve to swipe or drag on first move
+      // If pointer events already set pending state, don't overwrite
+      if (swipeRef.current.state === 'pending') return;
+
+      // Reset touchDragRef from previous interaction
+      touchDragRef.current = {
+        active: false, startTokenId: null, currentEndTokenId: null,
+        hasMoved: false, startX: 0, startY: 0,
+      };
+
+      const touch = e.touches[0];
+      const startX = touch.clientX, startY = touch.clientY;
+      swipeRef.current = {
+        state: 'pending',
+        startX, startY,
+        startTime: Date.now(),
+        lastX: startX, lastY: startY,
+        resolveTimeout: setTimeout(() => {
+          if (swipeRef.current.state === 'pending') {
+            swipeRef.current.state = 'drag';
+            swipeRef.current.resolveTimeout = null;
+            // touchDragRef was already populated during pending moves
+            if (!touchDragRef.current.active) {
+              initDragFromPoint(swipeRef.current.lastX, swipeRef.current.lastY, false);
+            }
+          }
+        }, 300),
+      };
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const touch = e.touches[0];
+
+      // 1. PENDING - track tokens for potential drag, or resolve to swipe based on velocity
+      if (swipeRef.current.state === 'pending') {
+        const dx = Math.abs(touch.clientX - swipeRef.current.startX);
+        const dy = Math.abs(touch.clientY - swipeRef.current.startY);
+        const elapsed = Date.now() - swipeRef.current.startTime;
+
+        // Always track token under finger during pending (for eventual drag)
+        const tokenNode = findTokenAtPoint(touch.clientX, touch.clientY);
+        if (tokenNode) {
+          const tid = tokenNode.getAttribute('data-token-id');
+          if (tid && !touchDragRef.current.startTokenId) {
+            touchDragRef.current = {
+              active: true,
+              startTokenId: tid,
+              currentEndTokenId: tid,
+              hasMoved: dx > 5 || dy > 5,
+              startX: touch.clientX,
+              startY: touch.clientY,
+            };
+          } else if (tid && tid !== touchDragRef.current.currentEndTokenId) {
+            touchDragRef.current.currentEndTokenId = tid;
+            touchDragRef.current.hasMoved = true;
+            updateSelectionFromCoordinates(touch.clientX, touch.clientY);
+          }
+        }
+
+        // Check for quick flick -> SWIPE (velocity: >60px in first 100ms)
+        if (dx > 60 && elapsed < 100 && dx > dy) {
+          clearTimeout(swipeRef.current.resolveTimeout!);
+          swipeRef.current.state = 'swipe';
+          swipeRef.current.resolveTimeout = null;
+        }
+      }
+
+      // 2. SWIPE mode — just track position, no content sliding
+      if (swipeRef.current.state === 'swipe') {
+        e.preventDefault();
+        swipeRef.current.lastX = touch.clientX;
+        swipeRef.current.lastY = touch.clientY;
+        return;
+      }
+
+      // 3. DRAG mode — existing selection logic
+      if (swipeRef.current.state === 'drag') {
+        if (!touchDragRef.current.active) return;
+        e.preventDefault();
+        const dx = Math.abs(touch.clientX - touchDragRef.current.startX);
+        const dy = Math.abs(touch.clientY - touchDragRef.current.startY);
+        if (dx > 5 || dy > 5) {
+          touchDragRef.current.hasMoved = true;
+          updateSelectionFromCoordinates(touch.clientX, touch.clientY);
+        }
+        return;
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      // Always clear dragging flag so Sidebar can re-evaluate
+      useReaderStore.setState({ isDragging: false });
+
+      // Clear any pending resolve timeout
+      if (swipeRef.current.resolveTimeout) {
+        clearTimeout(swipeRef.current.resolveTimeout);
+        swipeRef.current.resolveTimeout = null;
+      }
+
+      // 1. SWIPE end — change page or snap back
+      if (swipeRef.current.state === 'swipe') {
+        const offsetX = swipeRef.current.lastX - swipeRef.current.startX;
+        const absOffset = Math.abs(offsetX);
+        const paneWidth = paneEl?.getBoundingClientRect().width || 999;
+        const threshold = paneWidth * 0.3;
+
+        if (absOffset >= threshold && paneWidth > 0) {
+          const direction = offsetX > 0 ? -1 : 1;
+          const newPage = currentPage + direction;
+          if (newPage >= 0 && newPage < totalPages) {
+            handlePageAdvance(newPage);
+          }
+        }
+
+        swipeRef.current.state = 'idle';
+        return;
+      }
+
+      // 2. DRAG end — existing selection logic
+      if (swipeRef.current.state === 'drag') {
+        if (!touchDragRef.current.active) {
+          swipeRef.current.state = 'idle';
+          return;
+        }
+        const { startTokenId, currentEndTokenId, hasMoved } = touchDragRef.current;
+        touchDragRef.current.active = false;
+
+        window.getSelection()?.removeAllRanges();
+
+        if (hasMoved && startTokenId && currentEndTokenId && startTokenId !== currentEndTokenId) {
+          const idx1 = tokens.findIndex(t => t.id === startTokenId);
+          const idx2 = tokens.findIndex(t => t.id === currentEndTokenId);
+          if (idx1 !== -1 && idx2 !== -1) {
+            const start = Math.min(idx1, idx2);
+            const end = Math.max(idx1, idx2);
+            const selectedTokens = tokens.slice(start, end + 1);
+            const selectedWordTokenIds = selectedTokens
+              .filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0)
+              .map(t => t.id);
+
+            if (selectedWordTokenIds.length >= 2 && selectedWordTokenIds.length <= 9) {
+              const isSingleSentence = new Set(selectedTokens.map(t => t.sentencePageIndex)).size === 1;
+              if (!isSingleSentence) { swipeRef.current.state = 'idle'; return; }
+
+              const touch = e.changedTouches[0];
+              const clientX = touch.clientX;
+              const clientY = touch.clientY;
+              const tokenIds = selectedTokens.map(t => t.id);
+              const wordTokenIds = selectedWordTokenIds;
+              useReaderStore.setState({ draftPhraseRange: tokenIds, selectedId: null });
+              if (sidebarTimeoutRef.current) clearTimeout(sidebarTimeoutRef.current);
+              sidebarTimeoutRef.current = setTimeout(() => {
+                const screenWidth = window.innerWidth;
+                const store = useReaderStore.getState();
+                store.setSidebarPosition(clientX > screenWidth / 2 ? 'left' : 'right');
+                store.setClickPos({ x: clientX, y: clientY });
+                const matchedPhrase = Object.values(store.phraseMap).find((p: { range: string[] }) =>
+                  p.range.length === wordTokenIds.length &&
+                  p.range.every((id: string) => wordTokenIds.includes(id))
+                );
+                if (matchedPhrase) {
+                  store.selectItem(matchedPhrase.id);
+                } else {
+                  store.setDraftPhrase(tokenIds);
+                }
+                sidebarTimeoutRef.current = null;
+              }, 1000);
+            } else if (selectedWordTokenIds.length === 1) {
+              useReaderStore.getState().selectItem(selectedWordTokenIds[0]);
+            }
+          }
+        }
+        swipeRef.current.state = 'idle';
+        return;
+      }
+
+      // 3. PENDING → never resolved (tap without movement) — let click handlers work
+      if (swipeRef.current.state === 'pending') {
+        swipeRef.current.state = 'idle';
+        return;
+      }
+    };
+
+    paneEl.addEventListener('touchstart', onTouchStart, { passive: true });
+    paneEl.addEventListener('touchmove', onTouchMove, { passive: false });
+    paneEl.addEventListener('touchend', onTouchEnd, { passive: true });
+
+    return () => {
+      paneEl.removeEventListener('touchstart', onTouchStart);
+      paneEl.removeEventListener('touchmove', onTouchMove);
+      paneEl.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [tokens, languageCode]);
 
   // --- RECURSIVE DOM ALGORITHM ---
   // This allows infinite levels of stacked phrases (e.g. Phrase inside a Phrase)
@@ -872,10 +1402,16 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
         // Don't use DraftPhraseGroup wrapper if the selected tokens exactly form an existing saved phrase
         // (same tokens, same set). When the draft extends beyond a saved phrase (stacked phrases),
         // the DraftPhraseGroup wrapper must still be shown so the blue highlight covers A-C.
+        // Filter draftPhraseRange to only learnable word tokens — matching what Sidebar does —
+        // because p.range only contains learnable token IDs, not whitespace/newlines.
+        const draftWordTokenIds = draftPhraseRange.filter((id: string) => {
+          const t = tokens.find(tok => tok.id === id);
+          return t && t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0;
+        });
         const belongsToSavedPhrase = availablePhrases.some(p =>
           p.range.length > 0 &&
-          p.range.length === draftPhraseRange.length &&
-          p.range.every(id => draftPhraseRange.includes(id))
+          p.range.length === draftWordTokenIds.length &&
+          p.range.every((id: string) => draftWordTokenIds.includes(id))
         );
         if (!belongsToSavedPhrase) {
           hasDraftPhrase = true;
@@ -920,6 +1456,7 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
               <WordToken
                 tokenId={token.id}
                 isRTL={isRTL}
+                isCJK={isCJK}
                 onClick={handleWordClick}
               />
             )}
@@ -968,50 +1505,32 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     return currentPage;
   }, [readerMode, currentPage]);
 
-  const renderedTree = React.useMemo(() => {
-    if (isLoadingLesson || tokens.length === 0) return null;
-
-    const displayTokens = readerMode === 'sentence' && currentSentenceIndex !== null
-      ? tokens.filter(t => t.sentencePageIndex === currentSentenceIndex)
-      : tokens;
-
-    const showHeaderBox = readerMode === 'sentence' ? currentPage === 0 : true;
-
-    return (
-      <>
-        {showHeaderBox && (
-          <div className={`hidden xl:flex mb-2 lg:mb-4 mt-1 lg:mt-2 ${isRTL ? 'border-b' : ''}`} style={{ breakInside: 'avoid' }}>
-            <div className={`rounded-lg ${lessonImg ? '' : ' bg-gradient-to-tr from-green-200 to-blue-300'} w-24 h-24 lg:w-32.5 lg:h-35 content-center text-center shrink-0`}>
-              {
-                !lessonImg
-                  ? <div className="w-full h-full flex items-center justify-center text-blue-400 text-4xl lg:text-6xl">📖</div>
-                  : <img className="object-cover rounded-lg w-full h-full" src={lessonImg} />
-              }
-            </div>
-            <div className={`flex-col p-2 lg:p-3 max-w-[80%] ${isRTL ? 'border-gray-400 xl:h-38' : ''}`}>
-              {courseId ? (
-                <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</Link>
-              ) : (
-                <p className="text-[#4F8EF8] text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</p>
-              )}
-              <p className={`text-[#454646] text-[20px] lg:text-[30px] font-extrabold line-clamp-2 ${isRTL ? 'leading-normal' : 'leading-tight'} lg:leading-13`}>{lessonTitle}</p>
-            </div>
-          </div>
-        )}
+  // ─── TokenTree: extracted memoized component ───
+  // Only re-renders when token-level data changes, NOT on page nav or settings changes.
+  const TokenTreeContent = React.useMemo(() => {
+    if (readerMode === 'sentence' && currentSentenceIndex !== null) {
+      // Sentence mode: only tokens for the current sentence
+      const sentenceTokens = tokens.filter(t => t.sentencePageIndex === currentSentenceIndex);
+      return (
         <div className="inline">
-          {renderTree(displayTokens, phrases, true)}
-          {readerMode === 'sentence' && lessonAudio && currentSentenceIndex !== null && (
+          {renderTree(sentenceTokens, phrases, true)}
+          {lessonAudio && (
             <SentenceAudioButton currentSentenceIndex={currentSentenceIndex} compact={true} />
           )}
         </div>
-      </>
-    );
+      );
+    }
+    // Paragraph mode: ALL tokens in CSS multi-column layout
+    return <div className="inline">{renderTree(tokens, phrases, true)}</div>;
   }, [
-    lessonStructureHash, courseId, languageCode, courseTitle, lessonImg, lessonTitle, 
-    isRTL, handleWordClick, handlePhraseClick, readerMode, currentPage, currentSentenceIndex, draftPhraseRange, isLoadingLesson,
-    showMargins, fontSize, fontFamily, lineHeight, // <--- PASTIKAN showMargins ADA DI SINI agar token tree re-render seketika!
-    lineGap
+    // Only token-level data — NOT currentPage, fontSize, showMargins, etc.
+    tokens, phrases, draftPhraseRange, lessonStructureHash,
+    readerMode, currentSentenceIndex, lessonAudio,
+    isRTL, languageCode, handleWordClick, handlePhraseClick,
   ]);
+
+  // Header box — rendered outside the token tree so page nav doesn't rebuild the tree
+  const showHeaderBox = readerMode === 'sentence' ? currentPage === 0 : true;
 
   // If complete, show the full-width Summary View
   if (showSummary) {
@@ -1025,12 +1544,13 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
 
   return (
     <div
-      className={`flex-1 min-w-0 min-h-0 h-full flex flex-col`} dir={isRTL ? 'rtl' : 'ltr'}
-      onClick={(e) => {
-        if (mousePos.current.isDragging) {
-          e.stopPropagation();
-        }
-      }}
+      ref={paneRef}
+      className={`flex-1 min-w-0 min-h-0 h-full flex flex-col select-none`} dir={isRTL ? 'rtl' : 'ltr'}
+      style={{ userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: 'none', msTouchAction: 'none' }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onContextMenu={(e) => e.preventDefault()}
     >
       {/* // The checklist turns green when there are NO learnable tokens with stage 0 */}
       {
@@ -1403,10 +1923,26 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                 transition: (isLayoutReady && isFirstLayoutCompleteRef.current) ? 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1)' : 'none',
                 willChange: 'transform',
               }}
-              onMouseDown={handleMouseDown}
-              onMouseUp={handleMouseUp}
             >
-              {renderedTree}
+              {showHeaderBox && (
+                <div className={`hidden xl:flex mb-2 lg:mb-4 mt-1 lg:mt-2 ${isRTL ? 'border-b' : ''}`} style={{ breakInside: 'avoid' }}>
+                  <div className={`rounded-lg ${lessonImg ? '' : ' bg-gradient-to-tr from-green-200 to-blue-300'} w-24 h-24 lg:w-32.5 lg:h-35 content-center text-center shrink-0`}>
+                    {!lessonImg
+                      ? <div className="w-full h-full flex items-center justify-center text-blue-400 text-4xl lg:text-6xl">📖</div>
+                      : <img className="object-cover rounded-lg w-full h-full" src={lessonImg} />
+                    }
+                  </div>
+                  <div className={`flex-col p-2 lg:p-3 max-w-[80%] ${isRTL ? 'border-gray-400 xl:h-38' : ''}`}>
+                    {courseId ? (
+                      <Link to={`/me/${languageCode}/course/${courseId}`} className="text-[#4F8EF8] hover:underline text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</Link>
+                    ) : (
+                      <p className="text-[#4F8EF8] text-[14px] lg:text-[18px] font-extrabold">{courseTitle}</p>
+                    )}
+                    <p className={`text-[#454646] text-[20px] lg:text-[30px] font-extrabold line-clamp-2 ${isRTL ? 'leading-normal' : 'leading-tight'} lg:leading-13`}>{lessonTitle}</p>
+                  </div>
+                </div>
+              )}
+              {TokenTreeContent}
 
                   {/* SENTENCE VIEW: inline translation reveal directly below sentence text */}
                   {readerMode === 'sentence' && currentSentenceIndex !== null && (
@@ -1488,8 +2024,8 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
                 className="flex justify-between items-center p-4 border-b border-gray-100 bg-white shrink-0 relative sm:cursor-default cursor-grab active:cursor-grabbing select-none"
                 dir="ltr"
                 style={{ touchAction: 'none' }}
-                onTouchStart={e => handlePointerDown(e.touches[0].clientY)}
-                onMouseDown={e => handlePointerDown(e.clientY)}
+                onTouchStart={e => handleDrawerPointerDown(e.touches[0].clientY)}
+                onMouseDown={e => handleDrawerPointerDown(e.clientY)}
               >
                 <div className="sm:hidden absolute top-2 left-1/2 -translate-x-1/2 w-12 h-1.5 bg-gray-200 rounded-full" />
                 <h3 className="font-extrabold text-lg text-[#3a92fb] mt-2 sm:mt-0">Quick Start Guide</h3>
@@ -1508,4 +2044,4 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
   );
 });
 
-export default ReaderPane;
+export default ReaderPane

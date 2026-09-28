@@ -15,6 +15,7 @@ import vocabRoutes from './routes/vocab.js';
 import libraryRoutes from './routes/library.js';
 import phrasesRoutes from './routes/phrases.js';
 import uploadRoutes from './routes/upload.js';
+import { setupDatabase } from './db/setup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -94,9 +95,29 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
-  if (openApiPath) {
-    console.log(`API docs (Swagger UI): http://0.0.0.0:${PORT}/api-docs`);
-  }
+
+// Initialize FTS5 tables + indexes before accepting requests
+setupDatabase().then(() => {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    if (openApiPath) {
+      console.log(`API docs (Swagger UI): http://0.0.0.0:${PORT}/api-docs`);
+    }
+
+    // Prevent Render Free Tier from sleeping
+    // Render spins down free web services after 15 minutes of inactivity.
+    // We use Render's built-in RENDER_EXTERNAL_URL to ping our own /api/v1/health endpoint every 10 minutes.
+    const selfUrl = process.env.RENDER_EXTERNAL_URL;
+    if (selfUrl) {
+      console.log(`[Keep-Alive] Self-ping mechanism initialized for: ${selfUrl}/api/v1/health`);
+      setInterval(() => {
+        fetch(`${selfUrl}/api/v1/health`)
+          .then(res => console.log(`[Keep-Alive] Ping successful, status: ${res.status}`))
+          .catch(err => console.error(`[Keep-Alive] Ping failed:`, err instanceof Error ? err.message : err));
+      }, 10 * 60 * 1000); // 10 minutes in milliseconds
+    }
+  });
+}).catch(err => {
+  console.error('[FATAL] Database setup failed:', err);
+  process.exit(1);
 });

@@ -7,6 +7,7 @@ import SettingsContent from './SettingsContent';
 import type { SidebarItem, UpdatePayload } from '../../../types/reader';
 import { useShallow } from 'zustand/react/shallow';
 import { useReaderStore } from '../../../store/useReaderStore';
+import { isNoSpaceLanguage } from '../../../utils/languageUtils';
 
 interface SidebarProps {
     onUpdateStage: (payload: UpdatePayload) => void;
@@ -35,21 +36,32 @@ export default function Sidebar({
     })));
 
     const word = useReaderStore(useShallow((state): SidebarItem | null => {
+        // During drag: don't show sidebar even if draftPhraseRange is set
+        if (state.isDragging) return null;
         if (state.draftPhraseRange) {
             const wordTokenIds = state.draftPhraseRange.filter(id => {
                 const t = state.tokenMap[id];
-                return t && !t.isNewline && !!t.text.match(/\p{L}/u);
+                return t && t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0;
             });
             const existingPhrase = Object.values(state.phraseMap).find(p =>
                 p.range.length === wordTokenIds.length &&
                 p.range.every((id: string, idx: number) => id === wordTokenIds[idx])
             );
-            if (existingPhrase) return { ...existingPhrase, isPhrase: true as const };
+            if (existingPhrase) {
+                const noSpace = isNoSpaceLanguage(state.languageCode);
+                return {
+                    ...existingPhrase,
+                    text: noSpace ? existingPhrase.text.replace(/\s+/g, '') : existingPhrase.text,
+                    isPhrase: true as const
+                };
+            }
 
             const phraseTokens = state.draftPhraseRange.map(id => state.tokenMap[id]).filter(Boolean);
+            const wordTokensOnly = phraseTokens.filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0);
+            const noSpace = isNoSpaceLanguage(state.languageCode);
             return {
                 isDraft: true as const,
-                text: phraseTokens.map(t => t.text).join(' '),
+                text: wordTokensOnly.map(t => t.text).join(noSpace ? '' : ' '),
                 stage: 0,
                 range: state.draftPhraseRange,
                 isPhrase: false as const
@@ -59,7 +71,13 @@ export default function Sidebar({
         if (state.selectedId) {
             if (state.selectedId.includes('_')) {
                 const p = state.phraseMap[state.selectedId];
-                return (p ? { ...p, isPhrase: true as const } : null) as SidebarItem | null;
+                if (!p) return null;
+                const noSpace = isNoSpaceLanguage(state.languageCode);
+                return {
+                    ...p,
+                    text: noSpace ? p.text.replace(/\s+/g, '') : p.text,
+                    isPhrase: true as const
+                } as SidebarItem;
             }
             return (state.tokenMap[state.selectedId] || null) as SidebarItem | null;
         }

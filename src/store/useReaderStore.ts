@@ -1,34 +1,11 @@
 // frontend/src/store/useReaderStore.ts
-/**
- * TODO: PAGINATION BUG INVESTIGATION & HANDOVER NOTES
- * 
- * Issue: Reader pagination resets to Page 1 (Page 0) on hard refresh (F5), re-visiting a lesson,
- * or switching between Paragraph View and Sentence View.
- * 
- * Root Cause Analysis:
- * 1. Database Overwrite: `syncLessonProgress()` evaluates `columnMapping[currentPage]` or `initialTokenIndex`.
- *    When `ReaderPane.tsx` calls `setInitialTokenIndex(null)` after mounting to clear the initial anchor,
- *    subsequent `syncLessonProgress()` calls read `initialTokenIndex = null` and fall back to `0`,
- *    overwriting `highest_page_read` in the SQLite DB (`user_lesson_progress` table) with `0`.
- * 2. Asynchronous Column Measurement vs Pagination Clamping: In `ReaderPane.tsx`, `measure()` calculates CSS multi-column
- *    token positions asynchronously after DOM mount. During the first layout pass, `columnWidthPx` is `0`, causing
- *    `columnMapping` to be empty `{}`. Calling `setPagination()` before `columnMapping` is built clamps `currentPage` to `0`.
- * 3. Sentence View Page Index Mapping: In Sentence View (`readerMode === 'sentence'`), pages map 1-to-1 with `sentencePageIndex`.
- *    If `initialTokenIndex` (the raw token offset from DB) is not mapped to `sentencePageIndex` before `setPagination()` commits,
- *    Sentence View falls back to Page 0.
- * 4. Disappearing Text Gap / Header Box Height Offset: In Paragraph View, hiding the 150px lesson title header box on `currentPage > 0`
- *    causes CSS multi-column height to change between Page 0 and Page 1, causing column break reflow and hiding tokens (e.g. lines G & H).
- * 
- * Required Architecture for Next AI / Developer:
- * - Decouple `savedHighestTokenIndex` (permanent progress state) from `initialTokenIndex` (transient DOM scroll anchor).
- * - Ensure `syncLessonProgress` never writes `0` to DB when `savedHighestTokenIndex > 0`.
- * - Synchronize `sentencePageIndex` conversion atomically before `setPagination()` renders the DOM tree.
- */
+
 import { create } from 'zustand';
 import { useAuthStore } from './useAuthStore';
 import { apiClient, BASE_URL } from '../api/client'; // Your fetch wrapper
 import { buildPhraseInstances } from '../utils/phraseMatcher';
 import { assignSentencePageIndexToTokens } from '../utils/sentenceUtils';
+import { isNoSpaceLanguage } from '../utils/languageUtils';
 import { getTier } from '../constants/tiers';
 import { LEVELS } from '../constants/levels';
 import type { Token, Phrase, DbPhrase, Lesson, Course, CourseDetail, UpdatePayload, WordHint, UserStats } from '../types/reader';
@@ -79,6 +56,10 @@ interface ReaderState {
 
   tokens: Token[];
   tokenMap: Record<string, Token>;
+  /** Index: lowercase learnable-word-text → array of positions in `tokens[]`.
+   *  Built once in fetchLesson, read in updateStage / syncTokenStage / completeLesson
+   *  to avoid O(n) scans over the full token array for every stage update. */
+  tokensByText: Record<string, number[]>;
   dbPhrases: DbPhrase[]; // Stores raw phrases from DB (could be refined further if needed)
   phrases: Phrase[];   // Calculated instances mapping over tokens
   phraseMap: Record<string, Phrase>;
@@ -92,6 +73,7 @@ interface ReaderState {
   currentPage: number;
   selectedId: string | null;
   draftPhraseRange: string[] | null;
+  isDragging: boolean;
   clickPos: { x: number, y: number } | null;
 
   totalCoins: number;
@@ -178,6 +160,7 @@ interface ReaderState {
   clearSelection: () => void;
 
   setDraftPhrase: (range: string[] | null) => void;
+  setIsDragging: (v: boolean) => void;
   createPhrase: (range: string[], meaning: string) => void;
 
   setModal: (show: boolean) => void;
@@ -314,6 +297,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   tokens: [],
   tokenMap: {},
+  tokensByText: {},
   dbPhrases: [],
   phrases: [],
   phraseMap: {},
@@ -327,6 +311,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   currentPage: 0,
   selectedId: null,
   draftPhraseRange: null,
+  isDragging: false,
   clickPos: null,
 
   totalCoins: 0,
@@ -944,6 +929,16 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         const tokenMap: Record<string, Token> = {};
         tokensWithSentencePaging.forEach(t => { tokenMap[t.id] = t; });
 
+        // Build text → index lookup so updateStage / syncTokenStage don't scan all tokens
+        const tokensByText: Record<string, number[]> = {};
+        tokensWithSentencePaging.forEach((t, idx) => {
+          if (t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0) {
+            const key = t.text.toLowerCase();
+            if (!tokensByText[key]) tokensByText[key] = [];
+            tokensByText[key].push(idx);
+          }
+        });
+
         const phraseMap: Record<string, Phrase> = {};
         instances.forEach(p => { phraseMap[p.id] = p; });
 
@@ -965,6 +960,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
           totalListenedSec: data.totalListenedSec || 0,
           tokens: tokensWithSentencePaging,
           tokenMap,
+          tokensByText,
           dbPhrases: data.phrases || [],
           phrases: instances,
           phraseMap,
@@ -1189,24 +1185,41 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       // Update daily stats optimistically
       get().updateDailyStats({ created: lingqDelta, learned: knownDelta });
 
+      // Use tokensByText index to update only matching token positions
+      // instead of scanning the entire token array.
+      const matchingIndices = state.tokensByText[targetText] || [];
+      if (matchingIndices.length === 0) return;
+
+      const t0 = performance.now();
       const newTokenMap = { ...state.tokenMap };
-      const updatedTokens = state.tokens.map(t => {
-        if (t.isLearnable && t.text.toLowerCase() === targetText) {
-          const newT = {
-            ...t,
-            stage: newStage,
-            status: newStatus,
-            meaning: finalMeaning,
-            meanings: finalMeanings,
-            isIgnoredInitially,
-            word_tags: finalTags,
-            notes: notes !== undefined ? notes : t.notes
-          };
-          newTokenMap[t.id] = newT;
-          return newT;
-        }
-        return t;
-      });
+      const updatedTokens = [...state.tokens]; // shallow clone
+      for (const idx of matchingIndices) {
+        const t = updatedTokens[idx];
+        const newT: Token = {
+          ...t,
+          stage: newStage,
+          status: newStatus,
+          meaning: finalMeaning,
+          meanings: finalMeanings,
+          isIgnoredInitially,
+          word_tags: finalTags,
+          notes: notes !== undefined ? notes : t.notes,
+        } as Token;
+        updatedTokens[idx] = newT;
+        newTokenMap[t.id] = newT;
+      }
+      const t1 = performance.now();
+
+      // PERFORMANCE LOG (tokensByText proof)
+      const totalTokens = state.tokens.length;
+      const wouldScan = totalTokens; // old .map() scanned every token
+      const actualWork = matchingIndices.length; // new: only touch matching
+      const savingsPct = totalTokens > 0 ? ((1 - actualWork / totalTokens) * 100).toFixed(1) : 'N/A';
+      console.log(
+        `[TokenMap] word="${targetText}" totalTokens=${totalTokens} matchCount=${actualWork} ` +
+        `time=${(t1 - t0).toFixed(3)}ms ` +
+        `| OLD would scan ${wouldScan} tokens | NEW touches ${actualWork} | ${savingsPct}% fewer ops`
+      );
 
       const newTagsCache = new Set(state.userTags);
       finalTags.forEach((t: string) => newTagsCache.add(t));
@@ -1219,7 +1232,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
         totalKnownWords: state.totalKnownWords + knownDelta,
       });
 
-      const targetIndex = state.tokens.findIndex(t => t.id === targetToken.id);
+      // targetIndex is identical to tokenIndex (found above via t.id === id)
+      const targetIndex = tokenIndex;
       let relatedPhraseOccur: string | undefined = undefined;
 
       if (oldStage === 0 && newStage >= 1 && newStage <= 5) {
@@ -1310,6 +1324,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   },
 
   setDraftPhrase: (range) => set({ draftPhraseRange: range, selectedId: null, isSidebarVisible: true, showSettingsDrawer: false, showTranslation: false }),
+  setIsDragging: (v) => set({ isDragging: v }),
 
   createPhrase: async (range, meaning) => {
     const state = get();
@@ -1337,10 +1352,11 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     }
 
     const phraseTokens = state.tokens.filter(t => range.includes(t.id));
-    const wordTokensOnly = phraseTokens.filter(t => !t.isNewline && t.text.match(/\p{L}/u));
+    const wordTokensOnly = phraseTokens.filter(t => t.isLearnable !== false && !t.isNewline && t.text.trim().length > 0);
 
     if (wordTokensOnly.length === 0) return;
 
+    const noSpace = isNoSpaceLanguage(state.languageCode);
     const exactText = wordTokensOnly.map(t => t.text).join(' ');
     const firstWordId = wordTokensOnly[0].id;
 
@@ -1353,7 +1369,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       const endIdx = Math.min(state.tokens.length - 1, endTokenIndex + 3);
       relatedPhraseOccur = state.tokens.slice(startIdx, endIdx + 1)
         .map(t => t.text)
-        .join(' ')
+        .join(noSpace ? '' : ' ')
         .replace(/\s+/g, ' ')
         .trim();
     }
@@ -1719,14 +1735,34 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   syncTokenStage: (text: string, newStage: number, meaning?: string, notes?: string) => {
     const newStatus = newStage === 0 ? 'new' : (newStage === 5 ? 'known' : (newStage === 6 ? 'ignored' : 'learning'));
-    set(state => ({
-      tokens: state.tokens.map(t => {
-        if (t.text.toLowerCase() === text.toLowerCase()) {
-          return { ...t, stage: newStage, status: newStatus, meaning: meaning !== undefined ? meaning : t.meaning, notes: notes !== undefined ? notes : t.notes };
-        }
-        return t;
-      })
-    }));
+    const key = text.toLowerCase();
+    const before = performance.now();
+    set(state => {
+      const indices = state.tokensByText[key];
+      if (!indices || indices.length === 0) return state;
+      const updated = [...state.tokens];
+      for (const idx of indices) {
+        const t = updated[idx];
+        updated[idx] = {
+          ...t,
+          stage: newStage,
+          status: newStatus,
+          meaning: meaning !== undefined ? meaning : t.meaning,
+          notes: notes !== undefined ? notes : t.notes,
+        } as Token;
+      }
+      return { tokens: updated };
+    });
+    const after = performance.now();
+    // PERFORMANCE LOG (syncTokenStage proof)
+    const total = useReaderStore.getState().tokens.length;
+    const matchCount = useReaderStore.getState().tokensByText[key]?.length ?? 0;
+    console.log(
+      `[syncTokenStage] text="${text}" totalTokens=${total} matches=${matchCount} ` +
+      `time=${(after - before).toFixed(3)}ms ` +
+      `| OLD would .map() all ${total} | NEW mutates ${matchCount} ` +
+      `| ${total > 0 ? ((1 - matchCount / total) * 100).toFixed(1) : 'N/A'}% fewer ops`
+    );
   },
 
   syncPhraseStage: (phraseId: string, newStage: number, meaning?: string, notes?: string) => {
