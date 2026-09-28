@@ -103,6 +103,19 @@ setupDatabase().then(() => {
     if (openApiPath) {
       console.log(`API docs (Swagger UI): http://0.0.0.0:${PORT}/api-docs`);
     }
+
+    // Prevent Render Free Tier from sleeping
+    // Render spins down free web services after 15 minutes of inactivity.
+    // We use Render's built-in RENDER_EXTERNAL_URL to ping our own /api/v1/health endpoint every 10 minutes.
+    const selfUrl = process.env.RENDER_EXTERNAL_URL;
+    if (selfUrl) {
+      console.log(`[Keep-Alive] Self-ping mechanism initialized for: ${selfUrl}/api/v1/health`);
+      setInterval(() => {
+        fetch(`${selfUrl}/api/v1/health`)
+          .then(res => console.log(`[Keep-Alive] Ping successful, status: ${res.status}`))
+          .catch(err => console.error(`[Keep-Alive] Ping failed:`, err instanceof Error ? err.message : err));
+      }, 10 * 60 * 1000); // 10 minutes in milliseconds
+    }
   });
 }).catch(err => {
   console.error('[FATAL] Database setup failed:', err);
