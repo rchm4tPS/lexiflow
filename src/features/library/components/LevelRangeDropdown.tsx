@@ -15,14 +15,6 @@ export default function LevelRangeDropdown() {
     const dropdownRef = useRef<HTMLDivElement>(null);
     const trackRef = useRef<HTMLDivElement>(null);
 
-    // Sync draft with store state when opening
-    useEffect(() => {
-        if (isOpen) {
-            setDraftMin(minLevelIndex);
-            setDraftMax(maxLevelIndex);
-        }
-    }, [isOpen, minLevelIndex, maxLevelIndex]);
-
     // Close popover on click outside
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -35,6 +27,17 @@ export default function LevelRangeDropdown() {
         }
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isOpen]);
+
+    // The applied range can only change through handleSearch, which closes this
+    // popover first — so seeding the drafts as it opens is equivalent to syncing
+    // them from an effect, without the extra render pass.
+    const handleToggleOpen = () => {
+        if (!isOpen) {
+            setDraftMin(minLevelIndex);
+            setDraftMax(maxLevelIndex);
+        }
+        setIsOpen(prev => !prev);
+    };
 
     const handleSearch = () => {
         setLevelRange(draftMin, draftMax);
@@ -116,7 +119,7 @@ export default function LevelRangeDropdown() {
             {/* Trigger Button */}
             <button
                 type="button"
-                onClick={() => setIsOpen(prev => !prev)}
+                onClick={handleToggleOpen}
                 className="border border-yellow-400 rounded-lg w-fit h-[38px] px-3 py-2 leading-[18px] text-sm font-bold text-gray-700 bg-white shadow-sm cursor-pointer hover:bg-yellow-50/60 transition-colors flex items-center gap-2 whitespace-nowrap"
             >
                 <span>{LEVELS[minLevelIndex]} - {LEVELS[maxLevelIndex]}</span>
@@ -125,7 +128,14 @@ export default function LevelRangeDropdown() {
 
             {/* Popover Dropdown */}
             {isOpen && (
-                <div className="absolute right-0 top-full mt-2 w-80 sm:w-84 max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-xl shadow-xl p-4 sm:p-5 z-50 animate-in fade-in zoom-in duration-100 font-nunito">
+                /* Anchoring flips at xl, matching where the trigger moves.
+                   Below xl the trigger sits at the right of the mobile control bar,
+                   so `right-0` keeps the panel inside the viewport. At xl+ the
+                   trigger moves to the LEFT of the content column, where `right-0`
+                   would extend the panel leftward into the 22% sidebar and get
+                   clipped by the `overflow-hidden` on the content wrapper — so
+                   anchor to the left edge instead and open rightward. */
+                <div className="absolute right-0 xl:left-0 xl:right-auto top-full mt-2 w-80 sm:w-84 max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-xl shadow-xl p-4 sm:p-5 z-50 animate-in fade-in zoom-in duration-100 font-nunito">
                     <div className="flex justify-between items-center mb-1">
                         <span className="text-xs font-black text-gray-400 uppercase tracking-wider">Level Range Filter</span>
                         <button 

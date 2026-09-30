@@ -29,12 +29,13 @@ interface VocabTableProps {
     onClearSelection?: () => void;
 }
 
+// `total` and `onClearSelection` remain on VocabTableProps for callers, but are
+// not rendered by the table, so they are not destructured.
 export default function VocabTable({
-    items, isLoading, total: _total, selectedIds,
+    items, isLoading, selectedIds,
     onToggleSelectAll, onToggleSelect,
     onUpdateStage, editingId, editMeaning,
-    onStartEditing, onSetEditMeaning, onSaveEdit,
-    onClearSelection: _onClearSelection
+    onStartEditing, onSetEditMeaning, onSaveEdit
 }: VocabTableProps) {
     // Single-source-of-truth: only one row's status popover can be open at a time
     const [openStatusRowId, setOpenStatusRowId] = useState<string | null>(null);

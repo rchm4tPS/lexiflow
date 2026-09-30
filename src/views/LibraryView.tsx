@@ -125,6 +125,10 @@ export default function LibraryView() {
             }
         };
         loadView();
+    // guidedCourses/myCourses lengths are read to decide whether to show the
+    // skeleton, not to trigger a fetch. Depending on them would make each
+    // fetch's own result re-trigger the effect — an endless refetch loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, currentFeed, languageCode, librarySearch, minLevelIndex, maxLevelIndex, fetchGuidedCourses, fetchLibrary, fetchMyLessons, checkAndUpdateCompletions, fetchContinueStudying, view]);
 
     useEffect(() => {
@@ -332,7 +336,12 @@ export default function LibraryView() {
                     <SlidingContent activeIndex={topTabIndex} rtl={false} className="w-full">
 
                     {/* ── LIBRARY TAB ── */}
-                    <div className="flex bg-white rounded-xl xl:rounded-b-lg xl:rounded-t-none shadow-sm xl:min-h-120">
+                    {/* w-full is load-bearing: SlidingContent renders each tab into a
+                        `display:flex` panel, and a flex child without a width resolves
+                        to max-content, so the card would hug its contents instead of
+                        filling the panel. min-w-0 lets narrow content stop shrinking
+                        this element below the panel width. */}
+                    <div className="flex w-full min-w-0 bg-white rounded-xl xl:rounded-b-lg xl:rounded-t-none shadow-sm xl:min-h-120">
                             {!activeCourseDetails && view !== 'course' && (
                                 <div ref={libSidebarContainerRef} className="hidden xl:flex w-[22%] border-r border-gray-200 flex-col font-bold text-gray-600 shrink-0 relative">
                                     <Link
@@ -470,7 +479,8 @@ export default function LibraryView() {
                         </div>
 
                     {/* ── MY LESSONS TAB ── */}
-                        <div className="flex bg-white rounded-xl xl:rounded-b-lg xl:rounded-t-none shadow-sm xl:min-h-120">
+                        {/* Same reasoning as the Library tab above. */}
+                        <div className="flex w-full min-w-0 bg-white rounded-xl xl:rounded-b-lg xl:rounded-t-none shadow-sm xl:min-h-120">
                             <div ref={myLessonsSidebarContainerRef} className="hidden xl:flex w-[22%] border-r border-gray-200 flex-col font-bold text-gray-600 shrink-0 relative">
                                 <div
                                     ref={myLessonsSidebarTabRef(0)}

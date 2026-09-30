@@ -145,3 +145,58 @@ export interface DraftPhrase {
 }
 
 export type SidebarItem = Token | Phrase | DraftPhrase;
+
+/** A course as returned by the LingQ import endpoints. */
+export interface LingqCourse {
+  id: string;
+  title: string;
+  description: string;
+  level: string;
+  image: string;
+}
+
+/** A lesson as returned by the LingQ import endpoints. */
+export interface LingqLesson {
+  id: number;
+  title: string;
+  description: string;
+  image_url: string;
+  audio: string;
+  duration: number;
+  /**
+   * The LingQ payload is inconsistent across endpoints, so the UI probes each
+   * spelling in turn. Modelled as optional aliases rather than collapsed, so
+   * the fallback chains stay type-checked.
+   */
+  audio_url?: string;
+  has_audio?: boolean;
+  new_word_count?: number;
+  newWordsCount?: number;
+  new_words_count?: number;
+  wordsCount?: number;
+  wordCount?: number;
+}
+
+/**
+ * A lesson the user has ticked, flattened and camelCased for the import
+ * payload. Built in the UI; the store forwards it to the backend verbatim.
+ */
+export interface SelectedLingqLesson {
+  courseId: string;
+  courseTitle: string;
+  courseDescription: string;
+  courseLevel: string;
+  courseImageUrl: string;
+  lessonId: number;
+  lessonTitle: string;
+  lessonDescription: string;
+  lessonImageUrl: string;
+  lessonAudioUrl: string;
+  lessonDuration: number;
+}
+
+/**
+ * `fetchLingqCourseLessons` may answer with a bare array or a paginated
+ * `{ results }` envelope, so both are modelled.
+ */
+export type LingqLessonsResponse = LingqLesson[] | { results?: LingqLesson[] };

@@ -1374,6 +1374,11 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
       paneEl.removeEventListener('touchmove', onTouchMove);
       paneEl.removeEventListener('touchend', onTouchEnd);
     };
+    // The pointer handlers close over page/selection helpers that are
+    // recreated every render. Depending on them would re-bind the touch
+    // listeners on every render — and on every page turn, since currentPage
+    // changes as the reader is scrolled.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tokens, languageCode]);
 
   // --- RECURSIVE DOM ALGORITHM ---
@@ -1522,6 +1527,9 @@ const ReaderPane = React.memo(function ReaderPane({ courseId, courseTitle, lesso
     }
     // Paragraph mode: ALL tokens in CSS multi-column layout
     return <div className="inline">{renderTree(tokens, phrases, true)}</div>;
+    // renderTree is rebuilt every render; depending on it would defeat the
+    // memo and re-run the whole recursive phrase tree on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     // Only token-level data — NOT currentPage, fontSize, showMargins, etc.
     tokens, phrases, draftPhraseRange, lessonStructureHash,

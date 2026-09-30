@@ -14,6 +14,13 @@ import {
 } from '../db/schema.js';
 import { eq, and, sql, gte, inArray } from 'drizzle-orm';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
+import { hit } from '../middleware/ipRateLimit.js';
+import {
+  attemptKey, clearFailures, getLockoutMs, getLockoutStatus, isLockedOut, registerFailure,
+} from '../middleware/loginRateLimit.js';
+import {
+  validateRegistration, validateEmail, validatePassword, validateUsername,
+} from '../utils/validation.js';
 import dotenv from 'dotenv';
 import { getUserMidnight } from '../utils/timezone.js';
 
@@ -21,6 +28,49 @@ import { getUserMidnight } from '../utils/timezone.js';
 dotenv.config();
 
 const router = Router();
+
+// libSQL/SQLite surfaces constraint violations as message text rather than a
+// typed error, so the specific column has to be read off the message. Match the
+// column explicitly: the generic UNIQUE test used to lump usernames and emails
+// into one message, which gave the user nothing to act on.
+const USERNAME_TAKEN = /unique constraint failed:\s*users\.username/i;
+const EMAIL_TAKEN = /unique constraint failed:\s*users\.email/i;
+const FOREIGN_KEY_VIOLATION = /FOREIGN KEY/i;
+
+// Bounds for the anonymous availability lookup. Generous enough for a user
+// typing a username (a debounced check per pause), tight enough that the
+// endpoint cannot be walked to harvest registered usernames or emails.
+const AVAILABILITY_LIMIT = 30;
+const AVAILABILITY_WINDOW_MS = 60_000;
+
+/**
+ * Collect every message and code along an error's `cause` chain.
+ *
+ * Drizzle wraps driver failures in `DrizzleQueryError`, whose own `message` is
+ * only "Failed query: insert into ... " — the constraint detail and the column
+ * it names live on `cause`. Matching against `error.message` alone therefore
+ * never sees a UNIQUE violation, which is what let duplicates fall through to
+ * the 500 branch (and previously leaked the raw SQL to the user).
+ */
+function describeError(error: unknown): string {
+  const parts: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+
+  while (current && typeof current === 'object' && !seen.has(current)) {
+    seen.add(current);
+    const candidate = current as { message?: unknown; code?: unknown; cause?: unknown };
+    if (typeof candidate.message === 'string') parts.push(candidate.message);
+    if (typeof candidate.code === 'string') parts.push(candidate.code);
+    current = candidate.cause;
+  }
+
+  // A plain string thrown rather than an Error object.
+  if (typeof error === 'string') parts.push(error);
+
+  return parts.join('\n');
+}
+
 router.get('/verify', authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.user?.id;
@@ -42,8 +92,10 @@ router.get('/verify', authenticate, async (req: AuthRequest, res) => {
         preferences: row.preferences,
       },
     });
-  } catch (error: unknown) {
-    res.status(500).json({ error: (error as { message?: string }).message || 'Internal Error' });
+  } catch {
+    // The token verified but we could not load the user (deleted account,
+    // database trouble). Never surface driver internals to the client.
+    res.status(500).json({ error: 'We could not load your account. Please try again.' });
   }
 });
 
@@ -181,19 +233,150 @@ router.get('/info/:userId', async (req: AuthRequest, res) => {
       enrolledLanguages
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Internal Error";
-    res.status(400).json({ error: message });
+    console.error('[auth/info] unexpected failure:', error);
+    res.status(500).json({ error: 'We could not load your profile. Please try again.' });
   }
 })
 
-router.post('/register', async (req, res) => {
-  try {
-    const { email, username, fullName, password, targetLanguage, dailyGoalTier } = req.body;
+/**
+ * Live availability lookup for the sign-up form, so a taken username or email
+ * is reported next to its input while the user is still on step 1 rather than
+ * after they have filled in preferences and submitted.
+ *
+ * Advisory only: `/register` re-checks and owns the authoritative answer,
+ * because two people can pick the same name between this call and submission.
+ */
+router.post('/check-availability', async (req, res) => {
+  const key = `availability|${req.ip}`;
+  const blockedFor = hit(key, AVAILABILITY_LIMIT, AVAILABILITY_WINDOW_MS);
+  if (blockedFor > 0) {
+    return res.status(429).json({
+      error: 'Too many checks. Please wait a moment and try again.',
+      code: 'RATE_LIMITED',
+      retryAfter: Math.ceil(blockedFor / 1000),
+    });
+  }
 
-    if (!email || !username || !password || !targetLanguage) {
-      return res.status(400).json({ error: 'Missing required fields.' });
+  const { username, email } = req.body ?? {};
+  const result: Record<string, { available: boolean }> = {};
+
+  // Only report on values that are well-formed. A malformed value has no useful
+  // answer, and echoing availability for it would waste the rate-limit budget.
+  const trimmedUsername = typeof username === 'string' ? username.trim() : '';
+  if (trimmedUsername && !validateUsername(trimmedUsername)) {
+    const [taken] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(sql`lower(${users.username}) = ${trimmedUsername.toLowerCase()}`);
+    result.username = { available: !taken };
+  }
+
+  const trimmedEmail = typeof email === 'string' ? email.trim() : '';
+  if (trimmedEmail && !validateEmail(trimmedEmail)) {
+    const [taken] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(sql`lower(${users.email}) = ${trimmedEmail.toLowerCase()}`);
+    result.email = { available: !taken };
+  }
+
+  res.json(result);
+});
+
+/** Guard against a client asking to enrol in an implausible number of languages. */
+const MAX_TARGET_LANGUAGES = 10;
+
+router.post('/register', async (req, res) => {
+  const { targetLanguage, targetLanguages, dailyGoalTier } = req.body ?? {};
+
+  /**
+   * Users may now pick several languages. `targetLanguages` is the new field;
+   * the singular `targetLanguage` is still accepted so an older client — or a
+   * cached bundle mid-deploy — keeps working unchanged.
+   */
+  const requested: unknown[] = Array.isArray(targetLanguages)
+    ? targetLanguages
+    : targetLanguage !== undefined
+      ? [targetLanguage]
+      : [];
+
+  const selectedLanguages = [...new Set(
+    requested.filter((code): code is string => typeof code === 'string' && code.trim() !== '')
+  )];
+
+  // Validate before touching the database or the password hasher, and return
+  // per-field messages so the form can highlight the offending input rather
+  // than showing one generic banner.
+  const { errors, values } = validateRegistration(req.body ?? {});
+
+  if (selectedLanguages.length === 0) {
+    errors.targetLanguage = 'Please select at least one target language.';
+  } else if (selectedLanguages.length > MAX_TARGET_LANGUAGES) {
+    errors.targetLanguage = `Please select at most ${MAX_TARGET_LANGUAGES} target languages.`;
+  } else {
+    // Name the offending code rather than letting the insert fail with a
+    // foreign-key error, which cannot say which of several values was bad.
+    try {
+      const supported = await db
+        .select({ code: languages.code })
+        .from(languages)
+        .where(inArray(languages.code, selectedLanguages));
+      const known = new Set(supported.map((row) => row.code));
+      const unknownCode = selectedLanguages.find((code) => !known.has(code));
+      if (unknownCode) {
+        errors.targetLanguage = `Language "${unknownCode}" is not supported. Please choose a different one.`;
+      }
+    } catch (error: unknown) {
+      // If the lookup itself fails, do not block on it — the foreign-key
+      // constraint below still catches an unsupported code.
+      console.warn('[auth/register] language pre-check failed:', describeError(error));
+    }
+  }
+
+  if (Object.keys(errors).length > 0) {
+    return res.status(400).json({
+      error: Object.values(errors)[0],
+      errors,
+    });
+  }
+
+  const { email, username, fullName, password } = values;
+
+  // The first choice is the user's primary language: it seeds
+  // `preferences.targetLanguage`, which is what the app falls back to for
+  // stats and the default URL, and keeps single-language sign-ups behaving
+  // exactly as they did before. Non-null because the empty case returned above.
+  const primaryLanguage = selectedLanguages[0]!;
+
+  // Check uniqueness up front so a collision answers 409 immediately — before
+  // paying for bcrypt and before opening a transaction. The catch below still
+  // handles the race where two requests pass this check concurrently; the
+  // unique constraint remains the real arbiter.
+  try {
+    const [usernameOwner] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(sql`lower(${users.username}) = ${username.toLowerCase()}`);
+    if (usernameOwner) {
+      const message = 'That username is already taken. Please choose another one.';
+      return res.status(409).json({ error: message, errors: { username: message } });
     }
 
+    const [emailOwner] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(sql`lower(${users.email}) = ${email.toLowerCase()}`);
+    if (emailOwner) {
+      const message = 'An account with this email already exists.';
+      return res.status(409).json({ error: message, errors: { email: message } });
+    }
+  } catch (error: unknown) {
+    // A pre-check failure must not block registration on its own — fall
+    // through and let the insert + constraint decide.
+    console.warn('[auth/register] uniqueness pre-check failed:', describeError(error));
+  }
+
+  try {
     // Hash password outside the transaction (CPU-bound, not DB-bound)
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
@@ -204,36 +387,58 @@ router.post('/register', async (req, res) => {
       const [newUser] = await tx.insert(users).values({
         email,
         username,
-        fullname: fullName || '',
-        preferences: { targetLanguage },
+        fullname: fullName,
+        preferences: { targetLanguage: primaryLanguage },
         password_hash: hashedPassword,
       }).returning({ id: users.id });
 
-      await tx.insert(userLanguages).values({
+      // One row per enrolled language, so stats, streaks and the library
+      // continue to key off a single language_code as they always have.
+      await tx.insert(userLanguages).values(selectedLanguages.map((code) => ({
         user_id: newUser!.id,
-        language_code: targetLanguage,
+        language_code: code,
         daily_goal_tier: dailyGoalTier || 'calm',
         total_known_words: 0,
         total_lingqs: 0,
-      });
+      })));
 
-      await tx.insert(streaks).values({
+      await tx.insert(streaks).values(selectedLanguages.map((code) => ({
         user_id: newUser!.id,
-        language_code: targetLanguage,
+        language_code: code,
         current_streak: 0,
-      });
+      })));
     });
 
     res.json({ success: true, message: 'Account created! Please log in.' });
   } catch (error: unknown) {
-    const err = error as { message?: string };
-    if (err.message?.includes('UNIQUE')) {
-      return res.status(409).json({ error: 'Email or username already taken.' });
+    const message = describeError(error);
+
+    if (USERNAME_TAKEN.test(message)) {
+      return res.status(409).json({
+        error: 'That username is already taken. Please choose another one.',
+        errors: { username: 'That username is already taken. Please choose another one.' },
+      });
     }
-    if (err.message?.includes('FOREIGN KEY')) {
-      return res.status(400).json({ error: `Language "${req.body.targetLanguage}" is not supported. Please choose a different one.` });
+    if (EMAIL_TAKEN.test(message)) {
+      return res.status(409).json({
+        error: 'An account with this email already exists.',
+        errors: { email: 'An account with this email already exists.' },
+      });
     }
-    res.status(400).json({ error: err.message || "Internal Error" });
+    if (FOREIGN_KEY_VIOLATION.test(message)) {
+      // The message never says which value tripped the constraint, so name the
+      // set rather than guessing at one.
+      return res.status(400).json({
+        error: `One of the selected languages (${selectedLanguages.join(', ')}) is not supported. Please choose a different one.`,
+        errors: { targetLanguage: 'That language is not supported. Please choose a different one.' },
+      });
+    }
+
+    // Log the real cause for the operator; return something the user can act on.
+    console.error('[auth/register] unexpected failure:', error);
+    res.status(500).json({
+      error: 'We could not create your account. Please try again in a moment.',
+    });
   }
 });
 
@@ -266,27 +471,93 @@ router.patch('/goal-tier', authenticate, async (req: AuthRequest, res) => {
 
 
 
+/**
+ * Report this caller's current lockout state.
+ *
+ * Lets the login page show the countdown on load, and while the user types,
+ * instead of waiting for a doomed attempt to reveal it. Reports only on the
+ * caller's own IP bucket, so it exposes nothing about other accounts.
+ */
+router.get('/login-lockout', (req, res) => {
+  const email = typeof req.query.email === 'string' ? req.query.email : '';
+  res.json(getLockoutStatus(email, req.ip));
+});
+
 router.post('/login', async (req, res) => {
+  const { email, password } = req.body ?? {};
+  const key = attemptKey(email, req.ip);
+
+  // Both helpers are functions, not captured responses: `res.json()` writes
+  // immediately, so building a payload eagerly would send the reply before the
+  // checks had run.
+  //
+  // The 401 is deliberately identical for "no such user" and "wrong password"
+  // so the endpoint cannot be used to enumerate registered emails.
+  const invalidCredentials = () => res.status(401).json({
+    error: 'Invalid email or password.',
+    code: 'INVALID_CREDENTIALS',
+  });
+
+  const lockedOut = () => {
+    const remaining = getLockoutMs(key);
+    return res.status(429).json({
+      error: `Too many failed login attempts. Please try again in ${Math.max(1, Math.ceil(remaining / 60_000))} minute(s).`,
+      code: 'LOCKED_OUT',
+      retryAfter: Math.ceil(remaining / 1000),
+    });
+  };
+
+  /**
+   * Record a failure and answer. When this attempt is the one that crosses the
+   * threshold we answer 429 rather than a plain 401, so the user learns the
+   * account just locked instead of being surprised by it on the next click.
+   */
+  const failAttempt = () => {
+    registerFailure(key);
+    return isLockedOut(key) ? lockedOut() : invalidCredentials();
+  };
+
+  // Lockout gate runs before any credential work, so a locked-out pair cannot
+  // use this endpoint to probe or to burn CPU on bcrypt.
+  if (getLockoutMs(key) > 0) return lockedOut();
+
   try {
-    const { email, password } = req.body;
+    const emailError = validateEmail(email);
+    const passwordError = validatePassword(password);
+    if (emailError || passwordError) return failAttempt();
 
-    // Find user
-    const userResult = await db.select().from(users).where(eq(users.email, email));
-    if (userResult.length === 0) return res.status(404).json({ error: 'User not found' });
+    const normalisedEmail = String(email).trim().toLowerCase();
 
+    // Find user. Compared case-insensitively so it matches how /register checks
+    // uniqueness — the column's UNIQUE index is case-sensitive, so an exact
+    // match would miss addresses stored with different casing.
+    const userResult = await db.select().from(users).where(sql`lower(${users.email}) = ${normalisedEmail}`);
     const user = userResult[0];
+    if (!user) return failAttempt();
 
-    // Verify password (assuming you added password_hash to schema)
-    if (user) {
-      const validPassword = await bcrypt.compare(password, user.password_hash);
-      if (!validPassword) return res.status(400).json({ error: 'Invalid password' });
+    // Verify password
+    const validPassword = await bcrypt.compare(String(password), user.password_hash);
+    if (!validPassword) return failAttempt();
 
-      // Generate Token
-      const token = jwt.sign({ id: user?.id }, process.env.JWT_SECRET!, { expiresIn: '7d' });
-      res.json({ token, user: { id: user?.id, username: user?.username, email: user?.email, fullName: user?.fullname, preferences: user?.preferences } });
-    }
+    clearFailures(key);
+
+    // Generate Token
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET!, { expiresIn: '7d' });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        fullName: user.fullname,
+        preferences: user.preferences,
+      },
+    });
   } catch (error: unknown) {
-    res.status(500).json({ error: (error as { message?: string }).message || "Internal Error" });
+    // A database or hasher fault must not count against the user, and must
+    // not leak driver internals.
+    console.error('[auth/login] unexpected failure:', error);
+    res.status(500).json({ error: 'We could not sign you in right now. Please try again.' });
   }
 });
 

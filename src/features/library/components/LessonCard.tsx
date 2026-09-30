@@ -13,7 +13,9 @@ interface LessonCardProps {
     onBookmark?: (id: string) => void;
 }
 
-export default function LessonCard({ lesson, isInsideCourse = false, onBookmark: _onBookmark }: LessonCardProps) {
+// `onBookmark` stays on LessonCardProps and may still be passed by callers, but
+// the card renders no bookmark control, so it is deliberately not destructured.
+export default function LessonCard({ lesson, isInsideCourse = false }: LessonCardProps) {
     const navigate = useNavigate();
     const { languageCode, deleteLesson } = useReaderStore();
     const { user } = useAuthStore();

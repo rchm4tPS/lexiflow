@@ -29,7 +29,7 @@ export default function VocabToolbar({
     searchInput, setSearchInput,
     page, setPage, totalPages,
     selectedCount, onDelete,
-    total: _total, wordsTotal = 0, phrasesTotal = 0, activeTab, onTabChange,
+    wordsTotal = 0, phrasesTotal = 0, activeTab, onTabChange,
     onClearSelection
 }: VocabToolbarProps) {
     const [showFilters, setShowFilters] = useState(false);

@@ -23,7 +23,7 @@ function ScrollToTop() {
 }
 
 export default function App() {
-  const { isAuthenticated, user, initializeAuth } = useAuthStore();
+  const { isAuthenticated, status, user, initializeAuth, sessionEndedReason } = useAuthStore();
   const { languageCode, initializeUserState } = useReaderStore();
 
   useEffect(() => {
@@ -35,13 +35,18 @@ export default function App() {
       // Peek at URL to see if we have a language prefix like /me/fa
       const match = window.location.pathname.match(/\/me\/([^/]+)/);
       const urlLang = match ? match[1] : undefined;
-      
+
       initializeUserState(user.id, urlLang);
     }
   }, [isAuthenticated, user?.id, languageCode, initializeUserState]);
 
   const isSyncing = isAuthenticated && !languageCode;
 
+  // NOTE: every hook above must stay above every early return below. An early
+  // return placed before a hook makes the hook count depend on render state,
+  // and React throws "Rendered more hooks than during the previous render" the
+  // first time that state flips — which is exactly what a page refresh with a
+  // stored token does (loading -> authenticated).
   useEffect(() => {
     if (isSyncing) {
       document.documentElement.style.overflow = 'hidden';
@@ -64,6 +69,18 @@ export default function App() {
       document.body.style.touchAction = '';
     };
   }, [isSyncing]);
+
+  // While the stored token is still being checked we know nothing about the
+  // session. Rendering routes here is what produced the half-authenticated
+  // shell behind a dead token, so hold the splash until the server answers.
+  if (status === 'loading') {
+    return (
+      <div className="min-h-dvh flex flex-col items-center justify-center gap-4 bg-[#F5F7F9] text-center p-6">
+        <div className="w-12 h-12 border-4 border-[#3890fc] border-t-transparent rounded-full animate-spin" />
+        <p className="text-gray-400 text-sm font-bold">Checking your session…</p>
+      </div>
+    );
+  }
 
   if (isSyncing) {
       return (
@@ -95,9 +112,11 @@ export default function App() {
         element={!isAuthenticated ? <SignUpView /> : <Navigate to={`/me/${languageCode || 'en'}`} />} 
       />
 
-      <Route 
-        path="/me/:lang" 
-        element={isAuthenticated ? <MainLayout /> : <Navigate to="/login" />}
+      <Route
+        path="/me/:lang"
+        element={isAuthenticated
+          ? <MainLayout />
+          : <Navigate to="/login" replace state={{ reason: sessionEndedReason }} />}
       >
          <Route index element={<Navigate to="library" replace />} />
          <Route path="library/*" element={<LibraryView />} />

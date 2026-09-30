@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, client } from '../db/index.js';
-import { userPhrases, users, userLanguages, userDailyStats } from '../db/schema.js';
+import { userPhrases, userLanguages, userDailyStats } from '../db/schema.js';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';

@@ -93,8 +93,6 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       };
     });
 
-    const [userRecord] = await db.select().from(users).where(eq(users.id, userId));
-
     // --- SIBLING NAVIGATION LOGIC ---
     // Fetch all siblings in this course to find prev/next
     const courseLessons = await db.select({ id: lessons.id })

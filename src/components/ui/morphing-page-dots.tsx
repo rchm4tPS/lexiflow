@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 export default function MorphingPageDots({
     total,
@@ -13,10 +13,14 @@ export default function MorphingPageDots({
 }) {
     const [inputVal, setInputVal] = useState((activeIndex + 1).toString());
 
-    useEffect(() => {
-        const validPage = Math.max(1, Math.min(total, activeIndex + 1));
-        setInputVal(validPage.toString());
-    }, [activeIndex, total]);
+    // Adjust state during render (React's documented alternative to
+    // setState-in-effect) so a change to `activeIndex`/`total` still resets the
+    // field, but without a second render pass and a frame of stale value.
+    const [lastSync, setLastSync] = useState({ activeIndex, total });
+    if (activeIndex !== lastSync.activeIndex || total !== lastSync.total) {
+        setLastSync({ activeIndex, total });
+        setInputVal(Math.max(1, Math.min(total, activeIndex + 1)).toString());
+    }
 
     const handleInputSubmit = () => {
         let val = parseInt(inputVal);

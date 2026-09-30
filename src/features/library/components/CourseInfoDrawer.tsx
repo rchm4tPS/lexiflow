@@ -71,6 +71,9 @@ export default function CourseInfoDrawer({ course, isOpen, onClose }: CourseInfo
       window.removeEventListener('touchmove', handlePointerMove);
       window.removeEventListener('touchend', handlePointerUp);
     };
+    // `handleClose` is recreated on every render, so listing it would tear down
+    // and re-register the drag listeners on every render of an open drawer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, dragY]);
 
   const handleDeleteCourse = async () => {

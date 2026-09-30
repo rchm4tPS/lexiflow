@@ -5,6 +5,14 @@ import { apiClient } from '../../../../api/client';
 import { LeftArrow, RightArrow } from '../../../../components/common/Icons';
 import { getTier } from '../../../../constants/tiers';
 
+/** The subset of recharts' dot renderer props this chart actually reads. */
+interface SummaryDotProps {
+  cx?: number;
+  cy?: number;
+  value?: number;
+  index?: number;
+}
+
 export default function SummaryView() {
     const { 
         totalKnownWords, totalCoins, setShowSummary, isRTL, languageCode, availableLanguages, 
@@ -168,7 +176,7 @@ export default function SummaryView() {
                                 animationDuration={600}
                                 animationEasing="ease-out"
                                 activeDot={{ r: 8, fill: '#ef4444' }}
-                                dot={(props: any) => {
+                                dot={(props: SummaryDotProps) => {
                                     const { cx, cy, value, index } = props;
                                     if (cx === undefined || cy === undefined) return null;
                                     return (

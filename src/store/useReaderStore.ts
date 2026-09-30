@@ -8,11 +8,15 @@ import { assignSentencePageIndexToTokens } from '../utils/sentenceUtils';
 import { isNoSpaceLanguage } from '../utils/languageUtils';
 import { getTier } from '../constants/tiers';
 import { LEVELS } from '../constants/levels';
-import type { Token, Phrase, DbPhrase, Lesson, Course, CourseDetail, UpdatePayload, WordHint, UserStats } from '../types/reader';
+import type {
+  Token, Phrase, DbPhrase, Lesson, Course, CourseDetail, UpdatePayload, WordHint, UserStats,
+  LingqCourse, LingqLessonsResponse, SelectedLingqLesson,
+} from '../types/reader';
 
 let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-interface SupportedLanguage {
+// Exported so components can type callbacks that iterate `availableLanguages`.
+export interface SupportedLanguage {
   code: string;
   name: string;
   isRTL: boolean;
@@ -139,10 +143,10 @@ interface ReaderState {
   createCourse: (title: string, level: string, description?: string, imageUrl?: string, isPublic?: boolean) => Promise<Course | undefined>;
   importLesson: (courseId: string, title: string, rawText: string, imageUrl?: string, description?: string, audioUrl?: string, isPublic?: boolean, audioDuration?: number, originalUrl?: string) => Promise<string | null>;
 
-  fetchLingqRecommendedCourses: (apiKey?: string) => Promise<any[]>;
-  fetchLingqCourseLessons: (courseId: string, apiKey?: string) => Promise<any>;
+  fetchLingqRecommendedCourses: (apiKey?: string) => Promise<LingqCourse[]>;
+  fetchLingqCourseLessons: (courseId: string, apiKey?: string) => Promise<LingqLessonsResponse>;
   fetchLingqImportedIds: () => Promise<{ importedIds: number[], importedToday: number, maxQuota: number }>;
-  importFromLingq: (apiKey: string, selectedLessons: any[]) => Promise<{ success: boolean; count: number }>;
+  importFromLingq: (apiKey: string, selectedLessons: SelectedLingqLesson[]) => Promise<{ success: boolean; count: number }>;
 
 
   fetchHints: (word: string) => Promise<void>;
@@ -169,6 +173,7 @@ interface ReaderState {
   setShowSummary: (show: boolean) => void;
   resetCompletion: () => void;
   clearLessonSession: () => void;
+  resetSession: () => void;
 
   syncLessonProgress: (lessonId: string, isCompleted?: boolean, incrementReadTime?: boolean, triggerRecalculateStats?: boolean) => Promise<void>;
 
@@ -907,6 +912,82 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   clearLessonSession: () => {
     set({ activeLessonId: null });
+  },
+
+  /**
+   * Wipe every user-scoped value. Called when the session ends so protected
+   * data (lessons, stats, wallet) is not left sitting in memory behind the
+   * login screen after an expiry or a forced sign-out.
+   */
+  resetSession: () => {
+    set({
+      currentUsername: '',
+      languageCode: '',
+      enrolledLanguages: [],
+      availableLanguages: [],
+      userTags: [],
+
+      // Course / lesson shell
+      courseId: null,
+      courseTitle: '',
+      courseLevel: null,
+      lessonTitle: '',
+      lessonImg: null,
+      lessonAudio: null,
+      lessonDuration: 0,
+      authorName: '',
+      readTimes: 0,
+      totalListenedSec: 0,
+      lessonIndex: 0,
+      courseLessonsCount: 0,
+      activeLessonId: null,
+      activeCourseDetails: null,
+      activeLessonOwnerId: null,
+      prevLessonId: null,
+      nextLessonId: null,
+      originalText: '',
+      guidedCourses: [],
+      myCourses: [],
+      myCoursesDropdown: [],
+      myLessons: [],
+      completedLessons: [],
+      continueStudying: [],
+
+      // Reader content
+      tokens: [],
+      tokenMap: {},
+      tokensByText: {},
+      dbPhrases: [],
+      phrases: [],
+      phraseMap: {},
+      activeWordHints: [],
+      isLoadingHints: false,
+      isLoadingLesson: false,
+      currentPage: 0,
+      totalPages: 0,
+      columnMapping: {},
+      selectedId: null,
+      draftPhraseRange: null,
+
+      // Profile / stats / wallet
+      totalCoins: 0,
+      totalKnownWords: 0,
+      totalStreaks: 0,
+      totalDailyLingqs: 0,
+      totalDailyLingqsLearned: 0,
+      totalDailyListeningSec: 0,
+      totalDailyWordsRead: 0,
+      last7DaysStats: [],
+      last30DaysStats: [],
+      dailyGoalTier: 'calm',
+      isRTL: false,
+      hasFulfilledToday: false,
+      hasImportedFromLingq: false,
+      isStatsLoading: false,
+      showSummary: false,
+      showModal: false,
+      showLessonInfoModal: false,
+    });
   },
 
   fetchLesson: async (lessonId: string) => {
@@ -1798,7 +1879,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
       if (!response.ok) throw new Error("Failed to fetch LingQ recommended courses");
 
-      const data = await response.json();
+      const data = (await response.json()) as { results?: LingqCourse[] };
       return data.results || [];
     } catch (err: unknown) {
       console.error("fetchLingqRecommendedCourses Error:", err);
@@ -1823,7 +1904,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
       if (!response.ok) throw new Error("Failed to fetch LingQ course lessons");
 
-      const data = await response.json();
+      const data = (await response.json()) as LingqLessonsResponse;
       return data;
     } catch (err: unknown) {
       console.error("fetchLingqCourseLessons Error:", err);

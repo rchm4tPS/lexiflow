@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/index.js';
 import { courses, lessons, userCourses, userLessonProgress, lessonContent, userVocabRelation, masterVocab, userLanguages, users } from '../db/schema.js';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
-import { eq, and, sql, notInArray, inArray, like, isNotNull, isNull, or } from 'drizzle-orm';
+import { eq, and, sql, inArray, like, isNotNull, isNull, or } from 'drizzle-orm';
 import { LingqImportService } from '../services/lingq.service.js';
 import { LEVELS } from '../constants/levels.js';
 
@@ -690,9 +690,9 @@ router.get('/lingq-imported-ids', authenticate, async (req: AuthRequest, res) =>
     }
 
     res.json({ importedIds: ids, importedToday, maxQuota: 10 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching imported LingQ IDs:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal Error' });
   }
 });
 
@@ -717,9 +717,9 @@ router.get('/lingq-courses', authenticate, async (req: AuthRequest, res) => {
 
     const courses = await LingqImportService.fetchRecommendedCourses(lingqApiKey, languageCode);
     res.json(courses);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching LingQ courses:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal Error' });
   }
 });
 
@@ -778,7 +778,7 @@ router.post('/lingq-import-selected', authenticate, async (req: AuthRequest, res
       let langName = targetLang;
       try {
         langName = new Intl.DisplayNames(['en'], { type: 'language' }).of(targetLang) || targetLang;
-      } catch (e) {
+      } catch {
         // Fallback
       }
 

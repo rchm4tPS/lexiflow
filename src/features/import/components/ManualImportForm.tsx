@@ -176,7 +176,11 @@ export default function ManualImportForm({ languageCode, allCourses, onShowCours
                     onShowCourseModal={onShowCourseModal}
                 />
                 
-                <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-gray-100">
+                {/* shrink-0 is load-bearing: this row is the only flex child here
+                    without intrinsic size protection (LessonForm sets min-h-520px),
+                    so under a constrained height it absorbed all of the shrink and
+                    collapsed to nothing, leaving Save / Save & Open invisible. */}
+                <div className="flex shrink-0 items-center justify-between gap-3 px-6 py-4 border-t border-gray-100">
                     <button onClick={() => navigate(-1)} className="text-gray-400 font-bold px-4 py-1.5 rounded-lg text-sm hover:bg-gray-100 transition-colors">Cancel</button>
                     <div className="flex items-center gap-3">
                         <button onClick={() => handleSave(false)} disabled={isSaving} className="border border-[#3890fc] text-[#3890fc] font-bold px-6 py-1.5 rounded-lg text-sm hover:bg-blue-50 transition-colors disabled:opacity-50">Save</button>

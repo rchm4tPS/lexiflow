@@ -113,7 +113,8 @@ const WordToken = React.memo(function WordToken({ tokenId, onClick, isCJK }: Wor
 
   // 1. WORD LEVEL LOGIC (Blue / Yellow / Transparent)
   const wordStage = token.stage ?? 0;
-  let wordBgStyle: React.CSSProperties = { ...marginStyle };
+  // const, not let: only its properties are mutated below, never rebound.
+  const wordBgStyle: React.CSSProperties = { ...marginStyle };
 
   if (wordStage === 0) {
     wordBgStyle.backgroundColor = '#AEE0F4'; // Blue for New
