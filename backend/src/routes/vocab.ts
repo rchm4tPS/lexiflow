@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, client } from '../db/index.js';
-import { userVocabRelation, masterVocab, users, userLanguages, userPhrases, vocabTransitions } from '../db/schema.js';
+import { userVocabRelation, masterVocab, userLanguages, userPhrases, vocabTransitions } from '../db/schema.js';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
 import { eq, and, sql, inArray, gte, lt } from 'drizzle-orm';
 import axios from 'axios';
@@ -8,6 +8,15 @@ import { externalHintsCache, userDailyStats } from '../db/schema.js';
 import { updateDailyStatsAndStreak } from '../utils/statsEngine.js';
 import { getUserMidnight } from '../utils/timezone.js';
 import { VocabHistoryService } from '../services/vocabHistory.service.js';
+
+/**
+ * One entry from the LingQ hints endpoint. Mirrors the client-side `WordHint`
+ * so the cached JSON round-trips into the UI without reshaping.
+ */
+interface ExternalHint {
+  text: string;
+  popularity: number;
+}
 
 
 const router = Router();
@@ -417,17 +426,21 @@ router.get('/hints', authenticate, async (req: AuthRequest, res) => {
       return res.status(500).json({ error: "Missing LingQ Token" });
     }
 
-    let hints: any[] = [];
+    let hints: ExternalHint[] = [];
     let isSuccess = false;
     try {
       const response = await axios.get(`https://www.lingq.com/api/languages/${lang}/hints/`, {
         params: { word },
         headers: { 'Authorization': `Token ${LINGQ_API_KEY}` }
       });
-      hints = response.data[String(word)] || [];
+      const data = response.data as Record<string, ExternalHint[]>;
+      hints = data[String(word)] || [];
       isSuccess = true;
-    } catch (axiosError: any) {
-      console.warn(`LingQ API fetch failed for word '${word}':`, axiosError.message);
+    } catch (axiosError: unknown) {
+      console.warn(
+        `LingQ API fetch failed for word '${word}':`,
+        axiosError instanceof Error ? axiosError.message : axiosError,
+      );
     }
 
     // 3. Save to Cache ONLY if API call succeeded

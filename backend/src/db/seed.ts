@@ -1,6 +1,12 @@
 import { db } from './index.js';
 import { languages } from './schema.js';
 
+/** Shape of one entry from the LingQ languages endpoint. */
+interface LingqApiLanguage {
+  code: string;
+  title: string;
+}
+
 async function seed() {
   console.log('🌱 Seeding database...');
   try {
@@ -13,10 +19,10 @@ async function seed() {
       throw new Error(`Failed to fetch LingQ API: ${response.statusText}`);
     }
 
-    const apiLanguages = await response.json();
-    
+    const apiLanguages = (await response.json()) as LingqApiLanguage[];
+
     // Map API data to our schema format
-    const languagesToInsert = apiLanguages.map((lang: any) => ({
+    const languagesToInsert = apiLanguages.map((lang) => ({
       code: lang.code,
       name: lang.title,
       is_RTL: rtlCodes.has(lang.code)

@@ -68,6 +68,9 @@ export default function SettingsDrawer() {
       window.removeEventListener('touchmove', handlePointerMove);
       window.removeEventListener('touchend', handlePointerUp);
     };
+    // `handleClose` is recreated on every render; depending on it would
+    // re-register the drag listeners on every render while the drawer is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSettingsDrawer, isDesktop, dragY]);
 
   if (!showSettingsDrawer || isDesktop) return null;

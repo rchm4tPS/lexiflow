@@ -101,6 +101,9 @@ export default function ReaderView() {
             window.removeEventListener('touchmove', handlePointerMove);
             window.removeEventListener('touchend', handlePointerUp);
         };
+    // `handleCloseTranslation` is recreated on every render; depending on it
+    // would re-register the drag listeners on every render while open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showTranslation, dragY]);
 
     useEffect(() => {

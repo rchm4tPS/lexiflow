@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useReaderStore } from '../../store/useReaderStore';
+import { useReaderStore, type SupportedLanguage } from '../../store/useReaderStore';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { LANG_MAP } from '../../constants/languages';
 
@@ -32,7 +32,7 @@ export default function Header() {
         setIsImportOpen(!isImportOpen);
     };
 
-    const renderLanguageItem = (l: any) => (
+    const renderLanguageItem = (l: SupportedLanguage) => (
         <div 
             key={l.code}
             onClick={async () => {

@@ -33,6 +33,10 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
         }))
     );
 
+    // Extracted so the dependency array below holds a plain identifier and can
+    // be statically checked, instead of an inline ternary.
+    const wordRange = 'range' in word ? word.range : undefined;
+
     const contextWords = useMemo(() => {
         if (!word || !word.id) return [];
         const words = useReaderStore.getState().tokens;
@@ -51,7 +55,11 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
         const idx = words.findIndex(w => w.id === word.id);
         if (idx === -1) return [];
         return words.slice(Math.max(0, idx - 3), idx + 4);
-    }, [word.id, 'range' in word ? word.range : undefined, isPhrase]);
+        // Deliberately keyed on word.id + wordRange rather than the whole `word`
+        // object: the slice is rebuilt only when the word actually changes
+        // position, not on every stage/tag edit that changes its identity.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [word.id, wordRange, isPhrase]);
 
     const bgTheme = isPhrase ? 'bg-orange-50 border-orange-100' : 'bg-[#fdfaf2] border-yellow-100';
     const highlightTheme = isPhrase ? 'bg-orange-500' : 'bg-[#fde05f]';
@@ -155,7 +163,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
     };
 
     // Blur handler for additional meaning inputs
-    const handleAdditionalMeaningBlur = (_index: number) => {
+    const handleAdditionalMeaningBlur = () => {
         if (!word.id) return;
         const trimmed = meanings.filter(m => m !== undefined);
         const nonEmpty = trimmed.filter(m => m.trim() !== "");
@@ -355,7 +363,7 @@ const YellowWordView = ({ word, onUpdateStage }: YellowWordViewProps) => {
                             type="text"
                             value={m}
                             onChange={(e) => handleAdditionalMeaningChange(actualIdx, e.target.value)}
-                            onBlur={() => handleAdditionalMeaningBlur(actualIdx)}
+                            onBlur={() => handleAdditionalMeaningBlur()}
                             onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                             disabled={isIgnored}
                             className="flex-1 outline-none text-gray-700 font-medium text-[15px]"

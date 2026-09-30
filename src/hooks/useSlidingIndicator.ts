@@ -134,8 +134,13 @@ export function useSlidingIndicator({
     }
   }, [activeIndex, orientation]);
 
-  // Re-measure when activeIndex changes
+  // Re-measure when activeIndex changes.
+  // `measure` reads getBoundingClientRect and pushes the result into state, so
+  // it genuinely belongs in an effect — DOM layout cannot be read during render.
+  // The rule flags the synchronous setState; deferring it into a rAF or moving
+  // it to render would change when the indicator lands, so it stays put.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     measure();
   }, [measure]);
 

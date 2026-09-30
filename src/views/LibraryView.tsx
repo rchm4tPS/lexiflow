@@ -125,6 +125,10 @@ export default function LibraryView() {
             }
         };
         loadView();
+    // guidedCourses/myCourses lengths are read to decide whether to show the
+    // skeleton, not to trigger a fetch. Depending on them would make each
+    // fetch's own result re-trigger the effect — an endless refetch loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, currentFeed, languageCode, librarySearch, minLevelIndex, maxLevelIndex, fetchGuidedCourses, fetchLibrary, fetchMyLessons, checkAndUpdateCompletions, fetchContinueStudying, view]);
 
     useEffect(() => {

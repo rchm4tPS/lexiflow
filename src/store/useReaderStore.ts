@@ -8,11 +8,15 @@ import { assignSentencePageIndexToTokens } from '../utils/sentenceUtils';
 import { isNoSpaceLanguage } from '../utils/languageUtils';
 import { getTier } from '../constants/tiers';
 import { LEVELS } from '../constants/levels';
-import type { Token, Phrase, DbPhrase, Lesson, Course, CourseDetail, UpdatePayload, WordHint, UserStats } from '../types/reader';
+import type {
+  Token, Phrase, DbPhrase, Lesson, Course, CourseDetail, UpdatePayload, WordHint, UserStats,
+  LingqCourse, LingqLessonsResponse, SelectedLingqLesson,
+} from '../types/reader';
 
 let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-interface SupportedLanguage {
+// Exported so components can type callbacks that iterate `availableLanguages`.
+export interface SupportedLanguage {
   code: string;
   name: string;
   isRTL: boolean;
@@ -139,10 +143,10 @@ interface ReaderState {
   createCourse: (title: string, level: string, description?: string, imageUrl?: string, isPublic?: boolean) => Promise<Course | undefined>;
   importLesson: (courseId: string, title: string, rawText: string, imageUrl?: string, description?: string, audioUrl?: string, isPublic?: boolean, audioDuration?: number, originalUrl?: string) => Promise<string | null>;
 
-  fetchLingqRecommendedCourses: (apiKey?: string) => Promise<any[]>;
-  fetchLingqCourseLessons: (courseId: string, apiKey?: string) => Promise<any>;
+  fetchLingqRecommendedCourses: (apiKey?: string) => Promise<LingqCourse[]>;
+  fetchLingqCourseLessons: (courseId: string, apiKey?: string) => Promise<LingqLessonsResponse>;
   fetchLingqImportedIds: () => Promise<{ importedIds: number[], importedToday: number, maxQuota: number }>;
-  importFromLingq: (apiKey: string, selectedLessons: any[]) => Promise<{ success: boolean; count: number }>;
+  importFromLingq: (apiKey: string, selectedLessons: SelectedLingqLesson[]) => Promise<{ success: boolean; count: number }>;
 
 
   fetchHints: (word: string) => Promise<void>;
@@ -1875,7 +1879,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
       if (!response.ok) throw new Error("Failed to fetch LingQ recommended courses");
 
-      const data = await response.json();
+      const data = (await response.json()) as { results?: LingqCourse[] };
       return data.results || [];
     } catch (err: unknown) {
       console.error("fetchLingqRecommendedCourses Error:", err);
@@ -1900,7 +1904,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
       if (!response.ok) throw new Error("Failed to fetch LingQ course lessons");
 
-      const data = await response.json();
+      const data = (await response.json()) as LingqLessonsResponse;
       return data;
     } catch (err: unknown) {
       console.error("fetchLingqCourseLessons Error:", err);

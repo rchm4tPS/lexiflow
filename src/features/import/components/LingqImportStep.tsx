@@ -5,21 +5,28 @@ import { useReaderStore } from '../../../store/useReaderStore';
 import { Icons } from '../../../constants/icons';
 import { Loader, ChevronDown, ChevronRight, Trash2, Check } from 'lucide-react';
 import { useEffect } from 'react';
+import type {
+    LingqCourse, LingqLesson, LingqLessonsResponse, SelectedLingqLesson,
+} from '../../../types/reader';
 
 interface LingqImportStepProps {
-    importFromLingq: (apiKey: string, selectedLessons: any[]) => Promise<{ success: boolean; count: number }>;
+    importFromLingq: (apiKey: string, selectedLessons: SelectedLingqLesson[]) => Promise<{ success: boolean; count: number }>;
     onSuccess: () => void;
 }
+
+/** Reads a message off an unknown throw, for the Swal text fields. */
+const messageOf = (err: unknown): string =>
+    err instanceof Error ? err.message : 'Unknown error occurred.';
 
 export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImportStepProps) {
     const { fetchLingqRecommendedCourses, fetchLingqCourseLessons, fetchLingqImportedIds } = useReaderStore();
     const [lingqApiKey, setLingqApiKey] = useState('');
-    const [courses, setCourses] = useState<any[]>([]);
+    const [courses, setCourses] = useState<LingqCourse[]>([]);
     const [coursePage, setCoursePage] = useState(1);
-    const [lessonsByCourse, setLessonsByCourse] = useState<Record<string, any[]>>({});
+    const [lessonsByCourse, setLessonsByCourse] = useState<Record<string, LingqLesson[]>>({});
     const [pagesByCourse, setPagesByCourse] = useState<Record<string, number>>({});
     const [expandedCourseId, setExpandedCourseId] = useState<string | null>(null);
-    const [selectedLessons, setSelectedLessons] = useState<any[]>([]);
+    const [selectedLessons, setSelectedLessons] = useState<SelectedLingqLesson[]>([]);
     
     const [isLoadingCourses, setIsLoadingCourses] = useState(false);
     const [isLoadingLessons, setIsLoadingLessons] = useState<string | null>(null);
@@ -55,21 +62,23 @@ export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImp
         setIsLoadingCourses(true);
         try {
             const data = await fetchLingqRecommendedCourses(apiKey || lingqApiKey);
-            const newCourses = Array.isArray(data) ? data : ((data as any).results || []);
+            // The store already unwraps `{ results }`, so this stays an array;
+            // the guard only covers a malformed payload.
+            const newCourses: LingqCourse[] = Array.isArray(data) ? data : [];
             setCourses(newCourses);
             setCoursePage(1);
-        } catch (error: any) {
+        } catch (error: unknown) {
             Swal.fire({
                 icon: 'error',
                 title: 'Failed to load courses',
-                text: error.message || 'Unknown error occurred.',
+                text: messageOf(error),
             });
         } finally {
             setIsLoadingCourses(false);
         }
     };
 
-    const toggleCourse = async (course: any) => {
+    const toggleCourse = async (course: LingqCourse) => {
         const id = course.id;
         if (expandedCourseId === id) {
             setExpandedCourseId(null);
@@ -83,22 +92,23 @@ export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImp
         }
     };
 
-    const loadLessons = async (course: any) => {
+    const loadLessons = async (course: LingqCourse) => {
         setIsLoadingLessons(course.id);
         try {
-            const data = await fetchLingqCourseLessons(course.id, lingqApiKey);
-            const newLessons = Array.isArray(data) ? data : ((data as any).results || []);
-            
+            const data: LingqLessonsResponse = await fetchLingqCourseLessons(course.id, lingqApiKey);
+            // This endpoint answers either a bare array or `{ results }`.
+            const newLessons: LingqLesson[] = Array.isArray(data) ? data : (data.results || []);
+
             setLessonsByCourse(prev => ({
                 ...prev,
                 [course.id]: newLessons
             }));
             setPagesByCourse(prev => ({ ...prev, [course.id]: 1 }));
-        } catch (error: any) {
+        } catch (error: unknown) {
              Swal.fire({
                 icon: 'error',
                 title: 'Failed to load lessons',
-                text: error.message || 'Unknown error occurred.',
+                text: messageOf(error),
             });
         } finally {
             setIsLoadingLessons(null);
@@ -110,7 +120,7 @@ export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImp
         setPagesByCourse(prev => ({ ...prev, [courseId]: (prev[courseId] || 1) + 1 }));
     };
 
-    const handleLessonToggle = (course: any, lesson: any) => {
+    const handleLessonToggle = (course: LingqCourse, lesson: LingqLesson) => {
         if (importedToday + selectedLessons.length >= 10 && !selectedLessons.some(l => l.lessonId === lesson.id)) {
             Swal.fire({
                 icon: 'warning',
@@ -169,11 +179,11 @@ export default function LingqImportStep({ importFromLingq, onSuccess }: LingqImp
                     setExistingLingqIds(prev => new Set([...prev, lesson.lessonId]));
                     setImportedToday(prev => prev + 1);
                 }
-            } catch (err: any) {
+            } catch (err: unknown) {
                 Swal.fire({
                     icon: 'error',
                     title: 'Import Interrupted',
-                    text: `Failed at lesson "${lesson.lessonTitle}": ${err.message}`,
+                    text: `Failed at lesson "${lesson.lessonTitle}": ${messageOf(err)}`,
                     confirmButtonColor: '#3890fc',
                 });
                 setIsImporting(false);

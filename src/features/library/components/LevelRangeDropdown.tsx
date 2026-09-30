@@ -15,14 +15,6 @@ export default function LevelRangeDropdown() {
     const dropdownRef = useRef<HTMLDivElement>(null);
     const trackRef = useRef<HTMLDivElement>(null);
 
-    // Sync draft with store state when opening
-    useEffect(() => {
-        if (isOpen) {
-            setDraftMin(minLevelIndex);
-            setDraftMax(maxLevelIndex);
-        }
-    }, [isOpen, minLevelIndex, maxLevelIndex]);
-
     // Close popover on click outside
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -35,6 +27,17 @@ export default function LevelRangeDropdown() {
         }
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isOpen]);
+
+    // The applied range can only change through handleSearch, which closes this
+    // popover first — so seeding the drafts as it opens is equivalent to syncing
+    // them from an effect, without the extra render pass.
+    const handleToggleOpen = () => {
+        if (!isOpen) {
+            setDraftMin(minLevelIndex);
+            setDraftMax(maxLevelIndex);
+        }
+        setIsOpen(prev => !prev);
+    };
 
     const handleSearch = () => {
         setLevelRange(draftMin, draftMax);
@@ -116,7 +119,7 @@ export default function LevelRangeDropdown() {
             {/* Trigger Button */}
             <button
                 type="button"
-                onClick={() => setIsOpen(prev => !prev)}
+                onClick={handleToggleOpen}
                 className="border border-yellow-400 rounded-lg w-fit h-[38px] px-3 py-2 leading-[18px] text-sm font-bold text-gray-700 bg-white shadow-sm cursor-pointer hover:bg-yellow-50/60 transition-colors flex items-center gap-2 whitespace-nowrap"
             >
                 <span>{LEVELS[minLevelIndex]} - {LEVELS[maxLevelIndex]}</span>

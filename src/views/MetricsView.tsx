@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useReaderStore } from '../store/useReaderStore';
+import { useReaderStore, type SupportedLanguage } from '../store/useReaderStore';
 import DailyGoalWidget from '../features/library/components/DailyGoalWidget';
 import { LANG_MAP } from '../constants/languages';
 import { useNavigate } from 'react-router-dom';
@@ -41,7 +41,7 @@ export default function MetricsView() {
         setIsLangMenuOpen(!isLangMenuOpen);
     };
 
-    const renderLanguageItem = (l: any) => (
+    const renderLanguageItem = (l: SupportedLanguage) => (
         <div 
             key={l.code}
             onClick={async () => {

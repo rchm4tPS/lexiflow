@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { db } from '../db/index.js';
-import { courses, lessons, userLanguages, lessonContent, lingqTranslationCache } from '../db/schema.js';
+import { courses, lessons, lessonContent, lingqTranslationCache } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { parseAndSaveLessonContent } from '../utils/lessonParser.js';
 import { parseLingqTranslationXml, type ParsedTranslation } from '../utils/translationParser.js';
