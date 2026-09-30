@@ -125,7 +125,14 @@ export default function LevelRangeDropdown() {
 
             {/* Popover Dropdown */}
             {isOpen && (
-                <div className="absolute right-0 top-full mt-2 w-80 sm:w-84 max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-xl shadow-xl p-4 sm:p-5 z-50 animate-in fade-in zoom-in duration-100 font-nunito">
+                /* Anchoring flips at xl, matching where the trigger moves.
+                   Below xl the trigger sits at the right of the mobile control bar,
+                   so `right-0` keeps the panel inside the viewport. At xl+ the
+                   trigger moves to the LEFT of the content column, where `right-0`
+                   would extend the panel leftward into the 22% sidebar and get
+                   clipped by the `overflow-hidden` on the content wrapper — so
+                   anchor to the left edge instead and open rightward. */
+                <div className="absolute right-0 xl:left-0 xl:right-auto top-full mt-2 w-80 sm:w-84 max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-xl shadow-xl p-4 sm:p-5 z-50 animate-in fade-in zoom-in duration-100 font-nunito">
                     <div className="flex justify-between items-center mb-1">
                         <span className="text-xs font-black text-gray-400 uppercase tracking-wider">Level Range Filter</span>
                         <button 
