@@ -27,8 +27,15 @@ export default function ImportLessonView() {
     }, [fetchMyCoursesDropdown]);
 
     return (
-        <div className="flex justify-center w-full h-[calc(100vh-64px)] bg-[#f3f4f6] font-nunito p-6 overflow-hidden">
-            <div className="flex flex-col max-w-280 w-full h-full">
+        /* min-h, not h: the card should be at least a viewport tall, but when the
+           form grows taller than that it must be allowed to expand so the whole
+           page scrolls in <main> instead of the footer being clipped away by the
+           overflow-hidden below. */
+        <div className="flex justify-center w-full min-h-[calc(100vh-64px)] bg-[#f3f4f6] font-nunito p-6 overflow-hidden">
+            {/* h-full removed: the parent is a flex row, so this child already
+                stretches to its height. Keeping a percentage height here would
+                resolve against an auto-height parent once min-h lets it grow. */}
+            <div className="flex flex-col max-w-280 w-full">
 
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col grow overflow-hidden animate-in fade-in zoom-in duration-300">
                     {/* Top header row */}
