@@ -94,13 +94,11 @@ export default function SignUpView() {
   const handleNext = () => {
     setFormError('');
     const nextErrors = validateStep1Fields({ fullName, username, email, password, confirmPw });
-    // A lookup still in flight must not be raced past: settle it before
-    // deciding, so a name found to be taken cannot slip through to step 2.
-    const pending = (['username', 'email'] as const).some(f => availability[f].status === 'checking');
-    if (pending) {
-      setFormError('Still checking your details — one moment.');
-      return;
-    }
+    // Deliberately does NOT block on an in-flight availability lookup. Doing so
+    // made Continue a timing race — the form refused to advance whenever the
+    // debounce happened to have fired — and bought nothing: /register is the
+    // authority and answers 409 with a per-field message that lands back on
+    // step 1. A lookup still in 'checking' simply has nothing to report yet.
     for (const field of ['username', 'email'] as const) {
       if (availability[field].status === 'taken') {
         nextErrors[field] = 'Already registered. Please choose another one.';

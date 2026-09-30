@@ -7,7 +7,10 @@ test.describe('Authentication Flow', () => {
   const timestamp = Date.now();
   const testUser = {
     fullName: 'Test User',
-    username: `testuser_${timestamp}`,
+    // Usernames are capped at 20 characters (letters, digits, underscore, and
+    // at least one letter). `t${Date.now()}` is 14 chars — `testuser_${ts}`
+    // would be 22 and get rejected by step 1.
+    username: `t${timestamp}`,
     email: `test_${timestamp}@example.com`,
     password: 'Password123'
   };
@@ -64,12 +67,19 @@ test.describe('Authentication Flow', () => {
       // Only full name
       await page.fill('input#fullName', 'Edge Case');
       await page.click('button:has-text("Continue →")');
-      await expect(page.locator('text=Username must be at least 3 characters.')).toBeVisible();
+      // An empty username is reported as missing, distinct from "too short".
+      await expect(page.locator('text=Username is required.')).toBeVisible();
 
-      // Missing confirmPw
+      // Missing confirmPw — an empty field is reported as missing, which is
+      // distinct from typing a genuinely different password.
       await page.fill('input#username', 'edgecase');
       await page.fill('input#email', 'edge@test.com');
       await page.fill('input#password', 'password123');
+      await page.click('button:has-text("Continue →")');
+      await expect(page.locator('text=Please confirm your password.')).toBeVisible();
+
+      // Now a real mismatch rather than an empty field.
+      await page.fill('input#confirmPw', 'somethingelse');
       await page.click('button:has-text("Continue →")');
       await expect(page.locator('text=Passwords do not match.')).toBeVisible();
     });
@@ -150,23 +160,37 @@ test.describe('Authentication Flow', () => {
 
       await expect(page.locator('text=Select at least one')).toBeVisible();
 
-      await page.click('button:has-text("SPANISH")');
-      await expect(page.locator('text=1 selected')).toBeVisible();
-      // Adding a second must keep the first.
-      await page.click('button:has-text("FRENCH")');
-      await expect(page.locator('text=2 selected')).toBeVisible();
+      const spanish = page.locator('button:has-text("SPANISH")');
+      const french = page.locator('button:has-text("FRENCH")');
 
-      // The last remaining selection cannot be removed.
-      await page.click('button:has-text("SPANISH")');
+      // First selection.
+      await spanish.click();
       await expect(page.locator('text=1 selected')).toBeVisible();
-      await page.click('button:has-text("SPANISH")');
-      await expect(page.locator('text=1 selected')).toBeVisible();
-      // ...and it can be swapped for another language.
-      await page.click('button:has-text("SPANISH")');
+      await expect(spanish).toHaveAttribute('aria-pressed', 'true');
+
+      // Adding a second must keep the first.
+      await french.click();
       await expect(page.locator('text=2 selected')).toBeVisible();
-      await page.click('button:has-text("FRENCH")');
-      await page.click('button:has-text("SPANISH")');
+      await expect(spanish).toHaveAttribute('aria-pressed', 'true');
+      await expect(french).toHaveAttribute('aria-pressed', 'true');
+
+      // Removing one leaves the other selected.
+      await spanish.click();
       await expect(page.locator('text=1 selected')).toBeVisible();
+      await expect(spanish).toHaveAttribute('aria-pressed', 'false');
+      await expect(french).toHaveAttribute('aria-pressed', 'true');
+
+      // The single remaining selection cannot be deselected — clicking it again
+      // is a deliberate no-op, so the form can never be emptied.
+      await french.click();
+      await expect(french).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.locator('text=1 selected')).toBeVisible();
+
+      // ...and another language can still be added alongside it.
+      await spanish.click();
+      await expect(page.locator('text=2 selected')).toBeVisible();
+      await expect(spanish).toHaveAttribute('aria-pressed', 'true');
+      await expect(french).toHaveAttribute('aria-pressed', 'true');
     });
 
     test('should keep the visibility toggle visible after blur', async ({ page }) => {
@@ -254,7 +278,9 @@ test.describe('Authentication Flow', () => {
       await page.fill('input#email', 'not-an-email');
       await page.fill('input#password', 'Password123');
       await page.click('button[type="submit"]');
-      await expect(page.locator('#email-error')).toHaveText('Enter a valid email.');
+      // Matched as a substring: the field also renders a decorative "⚠" glyph
+      // (aria-hidden, so screen readers skip it, but present in textContent).
+      await expect(page.locator('#email-error')).toHaveText(/Enter a valid email\./);
       // The password was fine, so it must not be blamed.
       await expect(page.locator('#password-error')).toHaveCount(0);
     });
