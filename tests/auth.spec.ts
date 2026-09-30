@@ -95,12 +95,105 @@ test.describe('Authentication Flow', () => {
 
       // Click Create without selecting anything
       await page.click('button:has-text("Create Account")');
-      await expect(page.locator('text=Please select a target language.')).toBeVisible();
+      await expect(page.locator('text=Please select at least one target language.')).toBeVisible();
 
       // Select language but no goal
       await page.click('button:has-text("SPANISH")');
       await page.click('button:has-text("Create Account")');
       await expect(page.locator('text=Please choose a daily goal.')).toBeVisible();
+    });
+
+    test('should require at least 2 characters for full name', async ({ page }) => {
+      await page.fill('input#fullName', 'A');
+      await page.fill('input#username', 'ab');
+      await page.fill('input#email', 'min@test.com');
+      await page.fill('input#password', 'password123');
+      await page.fill('input#confirmPw', 'password123');
+      await page.click('button:has-text("Continue →")');
+      await expect(page.locator('#fullName-error')).toHaveText(/at least 2 characters/);
+      // The username is also too short — each message must sit on its own field.
+      await expect(page.locator('#username-error')).toHaveText(/at least 3 characters/);
+    });
+
+    test('should reject digits and stray punctuation in full name', async ({ page }) => {
+      for (const bad of ['Ada2', 'Agent 007', 'Ada_Lovelace', 'Ada=Hacker']) {
+        await page.fill('input#fullName', bad);
+        await page.fill('input#username', 'punc');
+        await page.fill('input#email', 'punc@test.com');
+        await page.fill('input#password', 'password123');
+        await page.fill('input#confirmPw', 'password123');
+        await page.click('button:has-text("Continue →")');
+        await expect(page.locator('#fullName-error')).toHaveText(/no digits or other symbols/);
+      }
+    });
+
+    test('should accept apostrophes and umlauts in full name', async ({ page }) => {
+      for (const good of ["Seamus O'Brien", 'Jörg Müller']) {
+        await page.fill('input#fullName', good);
+        await page.fill('input#username', 'gute');
+        await page.fill('input#email', 'gute@test.com');
+        await page.fill('input#password', 'password123');
+        await page.fill('input#confirmPw', 'password123');
+        await page.click('button:has-text("Continue →")');
+        await expect(page.locator('text=Step 2 · Your Preferences')).toBeVisible();
+        await page.click('button:has-text("← Back")');
+      }
+    });
+
+    test('should allow selecting several target languages', async ({ page }) => {
+      await page.fill('input#fullName', 'Multi Lang');
+      await page.fill('input#username', 'multi');
+      await page.fill('input#email', 'multi@test.com');
+      await page.fill('input#password', 'password123');
+      await page.fill('input#confirmPw', 'password123');
+      await page.click('button:has-text("Continue →")');
+
+      await expect(page.locator('text=Select at least one')).toBeVisible();
+
+      await page.click('button:has-text("SPANISH")');
+      await expect(page.locator('text=1 selected')).toBeVisible();
+      // Adding a second must keep the first.
+      await page.click('button:has-text("FRENCH")');
+      await expect(page.locator('text=2 selected')).toBeVisible();
+
+      // The last remaining selection cannot be removed.
+      await page.click('button:has-text("SPANISH")');
+      await expect(page.locator('text=1 selected')).toBeVisible();
+      await page.click('button:has-text("SPANISH")');
+      await expect(page.locator('text=1 selected')).toBeVisible();
+      // ...and it can be swapped for another language.
+      await page.click('button:has-text("SPANISH")');
+      await expect(page.locator('text=2 selected')).toBeVisible();
+      await page.click('button:has-text("FRENCH")');
+      await page.click('button:has-text("SPANISH")');
+      await expect(page.locator('text=1 selected')).toBeVisible();
+    });
+
+    test('should keep the visibility toggle visible after blur', async ({ page }) => {
+      await page.fill('input#password', 'password123');
+      await page.fill('input#confirmPw', 'password123');
+      await page.fill('input#username', 'toggle');
+      await page.fill('input#email', 'toggle@test.com');
+
+      for (const field of ['password', 'confirmPw']) {
+        const toggle = page.locator(`#${field}-visibility`);
+        await expect(toggle).toBeVisible();
+        // Blur must not remove it.
+        await page.locator(`input#${field}`).blur();
+        await expect(toggle).toBeVisible();
+        // Neither must emptying the field.
+        await page.fill(`input#${field}`, '');
+        await expect(toggle).toBeVisible();
+      }
+
+      // Toggling switches the type without changing the value.
+      await page.fill('input#password', 'password123');
+      await page.locator('input#password').click();
+      await page.locator('#password-visibility').click();
+      await expect(page.locator('input#password')).toHaveAttribute('type', 'text');
+      await page.locator('input#password').blur();
+      await expect(page.locator('input#password')).toHaveAttribute('type', 'text');
+      await expect(page.locator('input#password')).toHaveValue('password123');
     });
   });
 
@@ -131,28 +224,54 @@ test.describe('Authentication Flow', () => {
       await page.fill('input#email', testUser.email);
       await page.fill('input#password', 'wrong_pass');
       await page.click('button[type="submit"]');
-      await expect(page.locator('text=Login failed. Check your credentials.')).toBeVisible();
+      await expect(page.locator('text=Invalid email or password.')).toBeVisible();
     });
 
     test('should show error for correct password but wrong email', async ({ page }) => {
       await page.fill('input#email', 'nobody@test.com');
       await page.fill('input#password', testUser.password);
       await page.click('button[type="submit"]');
-      await expect(page.locator('text=Login failed. Check your credentials.')).toBeVisible();
+      // Deliberately the same string as a wrong password, so the endpoint
+      // cannot be used to discover which emails are registered.
+      await expect(page.locator('text=Invalid email or password.')).toBeVisible();
     });
 
     test('should show error for both wrong', async ({ page }) => {
       await page.fill('input#email', 'wrong@test.com');
       await page.fill('input#password', 'wrong_pass');
       await page.click('button[type="submit"]');
-      await expect(page.locator('text=Login failed. Check your credentials.')).toBeVisible();
+      await expect(page.locator('text=Invalid email or password.')).toBeVisible();
     });
 
-    test('should handle empty login', async ({ page }) => {
+    test('should report empty fields against the field itself', async ({ page }) => {
       await page.click('button[type="submit"]');
-      // The frontend might show browser validation or the app error
-      // Given your LoginView.tsx, it attempts to login with empty strings
-      await expect(page.locator('text=Login failed. Check your credentials.')).toBeVisible();
+      // Both fields are flagged in place; no request is dispatched.
+      await expect(page.locator('#email-error')).toHaveText(/Email is required/);
+      await expect(page.locator('#password-error')).toHaveText(/Password is required/);
+    });
+
+    test('should report a malformed email against the email field', async ({ page }) => {
+      await page.fill('input#email', 'not-an-email');
+      await page.fill('input#password', 'Password123');
+      await page.click('button[type="submit"]');
+      await expect(page.locator('#email-error')).toHaveText('Enter a valid email.');
+      // The password was fine, so it must not be blamed.
+      await expect(page.locator('#password-error')).toHaveCount(0);
+    });
+
+    test('should report a short password against the password field', async ({ page }) => {
+      await page.fill('input#email', 'someone@example.com');
+      await page.fill('input#password', 'abc');
+      await page.click('button[type="submit"]');
+      await expect(page.locator('#password-error')).toHaveText(/at least 6 characters/);
+      await expect(page.locator('#email-error')).toHaveCount(0);
+    });
+
+    test('should clear a field error once the field is edited', async ({ page }) => {
+      await page.click('button[type="submit"]');
+      await expect(page.locator('#email-error')).toBeVisible();
+      await page.fill('input#email', testUser.email);
+      await expect(page.locator('#email-error')).toHaveCount(0);
     });
   });
 

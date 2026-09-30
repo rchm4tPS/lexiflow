@@ -67,6 +67,10 @@
   text-align: right;
 }
 
+input::-ms-reveal {
+  display: none;
+}
+
 /* Base styles to ensure full-screen layout */
 @layer base {
 

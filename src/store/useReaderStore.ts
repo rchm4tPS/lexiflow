@@ -169,6 +169,7 @@ interface ReaderState {
   setShowSummary: (show: boolean) => void;
   resetCompletion: () => void;
   clearLessonSession: () => void;
+  resetSession: () => void;
 
   syncLessonProgress: (lessonId: string, isCompleted?: boolean, incrementReadTime?: boolean, triggerRecalculateStats?: boolean) => Promise<void>;
 
@@ -907,6 +908,82 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   clearLessonSession: () => {
     set({ activeLessonId: null });
+  },
+
+  /**
+   * Wipe every user-scoped value. Called when the session ends so protected
+   * data (lessons, stats, wallet) is not left sitting in memory behind the
+   * login screen after an expiry or a forced sign-out.
+   */
+  resetSession: () => {
+    set({
+      currentUsername: '',
+      languageCode: '',
+      enrolledLanguages: [],
+      availableLanguages: [],
+      userTags: [],
+
+      // Course / lesson shell
+      courseId: null,
+      courseTitle: '',
+      courseLevel: null,
+      lessonTitle: '',
+      lessonImg: null,
+      lessonAudio: null,
+      lessonDuration: 0,
+      authorName: '',
+      readTimes: 0,
+      totalListenedSec: 0,
+      lessonIndex: 0,
+      courseLessonsCount: 0,
+      activeLessonId: null,
+      activeCourseDetails: null,
+      activeLessonOwnerId: null,
+      prevLessonId: null,
+      nextLessonId: null,
+      originalText: '',
+      guidedCourses: [],
+      myCourses: [],
+      myCoursesDropdown: [],
+      myLessons: [],
+      completedLessons: [],
+      continueStudying: [],
+
+      // Reader content
+      tokens: [],
+      tokenMap: {},
+      tokensByText: {},
+      dbPhrases: [],
+      phrases: [],
+      phraseMap: {},
+      activeWordHints: [],
+      isLoadingHints: false,
+      isLoadingLesson: false,
+      currentPage: 0,
+      totalPages: 0,
+      columnMapping: {},
+      selectedId: null,
+      draftPhraseRange: null,
+
+      // Profile / stats / wallet
+      totalCoins: 0,
+      totalKnownWords: 0,
+      totalStreaks: 0,
+      totalDailyLingqs: 0,
+      totalDailyLingqsLearned: 0,
+      totalDailyListeningSec: 0,
+      totalDailyWordsRead: 0,
+      last7DaysStats: [],
+      last30DaysStats: [],
+      dailyGoalTier: 'calm',
+      isRTL: false,
+      hasFulfilledToday: false,
+      hasImportedFromLingq: false,
+      isStatsLoading: false,
+      showSummary: false,
+      showModal: false,
+      showLessonInfoModal: false,
+    });
   },
 
   fetchLesson: async (lessonId: string) => {
