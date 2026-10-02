@@ -15,6 +15,7 @@ import {
 import { eq, and, sql, gte, inArray } from 'drizzle-orm';
 import { authenticate, type AuthRequest } from '../middleware/auth.js';
 import { hit } from '../middleware/ipRateLimit.js';
+import { AVAILABILITY_RATE_LIMIT, AVAILABILITY_RATE_WINDOW_MS } from '../constants/rateLimits.js';
 import {
   attemptKey, clearFailures, getLockoutMs, getLockoutStatus, isLockedOut, registerFailure,
 } from '../middleware/loginRateLimit.js';
@@ -36,12 +37,6 @@ const router = Router();
 const USERNAME_TAKEN = /unique constraint failed:\s*users\.username/i;
 const EMAIL_TAKEN = /unique constraint failed:\s*users\.email/i;
 const FOREIGN_KEY_VIOLATION = /FOREIGN KEY/i;
-
-// Bounds for the anonymous availability lookup. Generous enough for a user
-// typing a username (a debounced check per pause), tight enough that the
-// endpoint cannot be walked to harvest registered usernames or emails.
-const AVAILABILITY_LIMIT = 30;
-const AVAILABILITY_WINDOW_MS = 60_000;
 
 /**
  * Collect every message and code along an error's `cause` chain.
@@ -248,7 +243,7 @@ router.get('/info/:userId', async (req: AuthRequest, res) => {
  */
 router.post('/check-availability', async (req, res) => {
   const key = `availability|${req.ip}`;
-  const blockedFor = hit(key, AVAILABILITY_LIMIT, AVAILABILITY_WINDOW_MS);
+  const blockedFor = hit(key, AVAILABILITY_RATE_LIMIT(), AVAILABILITY_RATE_WINDOW_MS());
   if (blockedFor > 0) {
     return res.status(429).json({
       error: 'Too many checks. Please wait a moment and try again.',

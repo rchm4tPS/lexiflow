@@ -15,6 +15,8 @@
  * same way — the exported API would not change.
  */
 
+import { MAX_LOGIN_ATTEMPTS, LOGIN_LOCKOUT_MS, MAX_LOGIN_ATTEMPTS_PER_IP } from '../constants/rateLimits.js';
+
 interface AttemptRecord {
   failures: number;
   lockoutUntil: number;
@@ -25,29 +27,12 @@ type Store = Map<string, AttemptRecord>;
 const attempts: Store = new Map();
 const ipAttempts: Store = new Map();
 
-function intFromEnv(name: string, fallback: number): number {
-  const parsed = Number(process.env[name]);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-// Read from env on every access so dotenv ordering (and tests) cannot leave a
-// stale value baked in at module load.
-function maxAttempts(): number {
-  return intFromEnv('MAX_LOGIN_ATTEMPTS', 5);
-}
-
-function lockoutMs(): number {
-  return intFromEnv('LOGIN_LOCKOUT_MINUTES', 15) * 60 * 1000;
-}
-
-/**
- * Threshold for the IP-wide bucket. Intentionally several times the per-account
- * limit — it exists to stop address-rotation, not to punish one person who
- * mistypes their password a few times on a shared connection.
- */
-function ipMaxAttempts(): number {
-  return intFromEnv('MAX_LOGIN_ATTEMPTS_PER_IP', Math.max(maxAttempts() * 4, 20));
-}
+// Limits live in constants/rateLimits so every rate-limited endpoint in the
+// API is configured the same way. Read per call, not at module load, so
+// dotenv ordering and tests cannot leave a stale value baked in.
+const maxAttempts = MAX_LOGIN_ATTEMPTS;
+const lockoutMs = LOGIN_LOCKOUT_MS;
+const ipMaxAttempts = MAX_LOGIN_ATTEMPTS_PER_IP;
 
 /** Drop entries whose lockout has lapsed and that have no failures left. */
 function prune(store: Store, now: number): void {
