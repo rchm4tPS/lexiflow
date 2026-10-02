@@ -42,17 +42,20 @@ export default defineConfig({
     // },
   ],
 
-  /* Run your local dev server before starting the tests */
+  /* Run your local dev server before starting the tests.
+     reuseExistingServer is true so that an app already started by CI's explicit
+     "Start App" step (or left running locally) is reused rather than causing a
+     port conflict. If nothing is listening, Playwright still starts it. */
   webServer: [
     {
       command: 'npm run dev',
       url: 'http://localhost:5173',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: true,
     },
     {
       command: 'cd backend && npm run dev',
       port: 3000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: true,
     }
   ],
 });

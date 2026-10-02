@@ -10,12 +10,23 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   JWT_SECRET: ci-test-secret-key-123
+  # Local SQLite for CI. Declared explicitly so the pipeline never depends on a
+  # developer's .env, and so a run can never touch a shared database.
+  DATABASE_URL: file:./ci.db
+  DATABASE_AUTH_TOKEN: ''
+  # Proxy target for the dev server. Must be the bare origin — the proxy
+  # prepends the target's path, so an /api/v1 suffix would double up.
+  VITE_API_URL: http://localhost:3000
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
     - uses: actions/checkout@v4
@@ -48,12 +59,41 @@ jobs:
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
 
+    # Explicit start step. Playwright would start the servers itself, but doing
+    # it here means an app that will not boot fails as "could not start" rather
+    # than as a wall of confusing test errors.
+    - name: Start App
+      run: |
+        npm run dev > /tmp/vite.log 2>&1 &
+        (cd backend && npm run dev) > /tmp/backend.log 2>&1 &
+        for i in $(seq 1 60); do
+          if curl -fsS http://localhost:3000/api/v1/health > /dev/null; then
+            echo "Backend healthy after ${i}s"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::error::Backend did not become healthy in 60s"
+        echo "--- backend.log ---"; tail -40 /tmp/backend.log || true
+        exit 1
+
     - name: Run Playwright tests
       run: npm test
 
-    - uses: actions/upload-artifact@v4
+    - name: Upload test report
       if: always()
+      uses: actions/upload-artifact@v4
       with:
         name: playwright-report
         path: playwright-report/
         retention-days: 30
+
+    # Traces and screenshots for failed attempts — otherwise a red build leaves
+    # no evidence behind once the job finishes.
+    - name: Upload failure artifacts
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-traces
+        path: test-results/
+        retention-days: 14
