@@ -110,7 +110,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // drop the orphan so stale identity does not leak into the next render.
       if (get().user) useReaderStore.getState().resetSession();
       localStorage.removeItem('lingq_user');
-      invalidateInFlightRequests();
+      // Deliberately does NOT invalidate in-flight requests here. This path
+      // runs on every anonymous boot, including the login and sign-up screens,
+      // and bumping the epoch raced the lockout/availability checks those pages
+      // fire on mount — orphaning them and replacing their real error with
+      // "Your session has ended". There is no session to protect here anyway.
       set({ user: null, status: 'anonymous', isAuthenticated: false });
       return;
     }

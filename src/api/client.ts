@@ -44,6 +44,32 @@ export class ApiFieldError extends Error {
   }
 }
 
+/** Shown when the request never reached a server at all. */
+const NETWORK_ERROR_MESSAGE =
+  "Can't reach the server. Check your connection and try again.";
+
+/**
+ * User-facing text for a response that never became JSON, or that was a gateway
+ * error. A dev proxy answering "502 Bad Gateway" means the backend was not
+ * running; telling the user "unexpected response" makes that sound like an
+ * application fault, which it is not.
+ */
+function unparsedResponseMessage(status: number): string {
+  if (status === 502 || status === 503 || status === 504) {
+    return 'The server is temporarily unavailable. Please try again in a moment.';
+  }
+  if (status >= 500) {
+    return 'Something went wrong on our side. Please try again in a moment.';
+  }
+  return 'Server returned an unexpected response. Please try again.';
+}
+
+/** Truncated so a stray HTML error page cannot flood the console. */
+function bodyPreview(body: string, limit = 300): string {
+  const trimmed = body.trim();
+  return trimmed.length > limit ? `${trimmed.slice(0, limit)}…` : trimmed;
+}
+
 export const apiClient = async (endpoint: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('lingq_token');
 
@@ -57,10 +83,21 @@ export const apiClient = async (endpoint: string, options: RequestInit = {}) => 
   };
 
   const epoch = sessionEpoch;
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  const method = options.method ?? 'GET';
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+    });
+  } catch (cause) {
+    // The request never reached a server: backend down mid-flight, CORS
+    // rejection, offline. Without this the raw "Failed to fetch" TypeError
+    // reached the user.
+    console.error(`[api] ${method} ${endpoint} → network failure`, cause);
+    throw new ApiFieldError(NETWORK_ERROR_MESSAGE, {}, 'NETWORK_ERROR');
+  }
 
   // The session ended while this was in flight. Throwing keeps the response
   // from reaching any caller that would write it into a store.
@@ -86,13 +123,34 @@ export const apiClient = async (endpoint: string, options: RequestInit = {}) => 
       }
 
       throw new ApiFieldError(message, fieldErrors, code, retryAfter);
-    } else {
-      const text = await response.text();
-      console.error("Non-JSON response:", text);
-      if (response.status === 401) emitAuthFailure('invalid');
-      throw new ApiFieldError('Server returned an unexpected response. Please try again.');
     }
+
+    // Not JSON. A dev proxy's "502 Bad Gateway" lands here with an empty or
+    // HTML body — log enough to tell that apart from an application fault.
+    const body = await response.text();
+    console.error(
+      `[api] ${method} ${endpoint} → ${response.status} ${response.statusText}` +
+      ` (content-type: ${response.headers.get('content-type') ?? 'none'})` +
+      ` body: ${JSON.stringify(bodyPreview(body))}`,
+    );
+    if (response.status === 401) emitAuthFailure('invalid');
+    throw new ApiFieldError(
+      unparsedResponseMessage(response.status),
+      {},
+      `HTTP_${response.status}`,
+    );
   }
 
-  return response.json();
+  try {
+    return await response.json();
+  } catch (cause) {
+    // A 200 whose body is not JSON. Left unhandled this surfaces as a raw
+    // "Unexpected token < in JSON" at the call site.
+    console.error(`[api] ${method} ${endpoint} → 200 but body was not JSON`, cause);
+    throw new ApiFieldError(
+      'Server returned an unexpected response. Please try again.',
+      {},
+      'BAD_RESPONSE',
+    );
+  }
 };
