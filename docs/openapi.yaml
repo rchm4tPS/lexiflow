@@ -5,9 +5,25 @@ info:
     REST API for the LingQ Clone language-learning app: authentication, library/courses,
     lesson reader, vocabulary, phrases, uploads, and optional LingQ integration.
 
-    **Authentication:** Most routes require a JWT in the `Authorization` header as `Bearer <token>`.
-    Obtain a token from `POST /auth/login` or `POST /auth/register` (register does not return a token; log in after sign-up).
-  version: 1.0.0
+    **Authentication:** Most routes require a JWT in the `Authorization` header as
+    `Bearer <token>`. Obtain a token from `POST /auth/login`; `POST /auth/register`
+    creates the account but returns no token, so sign in afterwards. Tokens are
+    valid for 7 days and every rejection — missing, expired, malformed or
+    tampered — is a `401` carrying a `code` of `NO_TOKEN`, `TOKEN_EXPIRED` or
+    `TOKEN_INVALID`.
+
+    **Logout is client-side.** `POST /auth/logout` performs no server-side
+    invalidation; the web client discards the token locally.
+
+    **Error shapes:** `400`/`409` validation and conflict responses include an
+    `errors` map keyed by field name, so a client can place each message beside
+    its input. `429` responses carry `retryAfter` in seconds. `500` responses are
+    always a generic message — the cause is logged server-side, never returned.
+
+    **Rate limits:** login is throttled per `(email, ip)` and per IP;
+    `POST /auth/check-availability` and `GET /auth/login-lockout` are throttled per
+    IP. All are configurable through the environment.
+  version: 1.1.0
   license:
     name: ISC
     identifier: ISC
@@ -24,9 +40,20 @@ tags:
   - name: Auth
     description: Registration, login, profile, preferences, insights
   - name: Library
-    description: Courses, feeds, lesson discovery, LingQ import
+    description: |
+      Courses, feeds, lesson discovery, and LingQ import.
+
+      **Two ways to bring content in, with no overlap:**
+
+      - *Manual import* — the user writes or pastes their own text. Create the
+        destination course with `POST /library/courses`, then submit the text to
+        `POST /lessons/parse`, which creates the lesson and tokenizes it.
+      - *LingQ import* — the user supplies a LingQ API key and content is pulled
+        from LingQ. Discover with `GET /library/lingq-courses` and
+        `GET /library/lingq-lessons`, then import the chosen batch with
+        `POST /library/lingq-import-selected`.
   - name: Lessons
-    description: Lesson content, parsing, progress, editing
+    description: Lesson content, manual-import entry point, progress, editing
   - name: Vocabulary
     description: Word list, upsert, hints, analytics
   - name: Phrases
@@ -61,6 +88,77 @@ components:
       properties:
         error:
           type: string
+    FieldErrors:
+      type: object
+      description: |
+        Validation or conflict failure, reported per field so a client can place
+        each message beside the input it belongs to. `error` always carries the
+        first message for callers that only need a single string.
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: First failure message, for display in a generic banner.
+        errors:
+          type: object
+          description: Field name to message.
+          additionalProperties:
+            type: string
+      example:
+        error: "Username must be 20 characters or fewer."
+        errors:
+          username: "Username must be 20 characters or fewer."
+    RateLimited:
+      type: object
+      description: |
+        Returned when a request exceeds a rate limit. `retryAfter` is the number
+        of seconds until the request may be retried, so a client can resume a
+        countdown after a reload.
+      required: [error, code, retryAfter]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          enum: [LOCKED_OUT, RATE_LIMITED]
+        retryAfter:
+          type: integer
+          description: Seconds to wait before retrying.
+          example: 900
+    AvailabilityResult:
+      type: object
+      description: |
+        Which of the submitted identifiers are free. A field is omitted entirely
+        when its value was absent or failed format validation — the endpoint
+        declines to answer about a value that could not be registered anyway.
+      properties:
+        username:
+          type: object
+          properties:
+            available:
+              type: boolean
+        email:
+          type: object
+          properties:
+            available:
+              type: boolean
+      example:
+        username: { available: false }
+        email: { available: true }
+    LockoutStatus:
+      type: object
+      description: Current brute-force lockout state for the calling client.
+      required: [lockedOut, retryAfterMs, attemptsRemaining]
+      properties:
+        lockedOut:
+          type: boolean
+        retryAfterMs:
+          type: integer
+          description: Milliseconds of lockout remaining; 0 when not locked.
+        attemptsRemaining:
+          type: integer
+          description: Failed logins left before this account locks.
+          example: 3
     HealthResponse:
       type: object
       properties:
@@ -132,6 +230,16 @@ paths:
     post:
       tags: [Auth]
       summary: Register a new user
+      description: |
+        Creates the account and enrols it in one or more languages. Returns a
+        success message only — **no token is issued**; sign in afterwards to
+        authenticate.
+
+        Outer whitespace on `username`, `fullName` and `email` is trimmed before
+        validation and before storage. `password` is never trimmed.
+
+        Validation failures come back as `400` with a per-field `errors` map, and
+        duplicates as `409`, so a client can place each message beside its input.
       operationId: register
       requestBody:
         required: true
@@ -139,24 +247,51 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email, username, password, targetLanguage]
+              required: [email, username, password, targetLanguages]
               properties:
                 email:
                   type: string
                   format: email
+                  description: |
+                    Dotted domain with an alphabetic TLD. Rejects `=`, `}`, `"`,
+                    `|` and similar — permitted by RFC 5322 but issued by no mail
+                    provider. Max 254 total, 64 in the local part.
+                  example: ada@example.com
                 username:
                   type: string
+                  description: |
+                    3-20 characters; ASCII letters, digits and underscore only;
+                    must contain at least one letter. Compared case-insensitively
+                    for uniqueness.
+                  example: ada_learns
                 fullName:
                   type: string
+                  description: |
+                    2-100 characters. Letters from any script (accents and
+                    umlauts included), spaces, apostrophes and hyphens. Digits
+                    and other symbols are rejected.
+                  example: "O'Connor-Müller"
                 password:
                   type: string
                   format: password
-                targetLanguage:
-                  type: string
-                  description: Language code (must exist in `languages` table)
+                  minLength: 6
+                  maxLength: 128
+                targetLanguages:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  description: |
+                    Language codes, all of which must exist. The **first entry
+                    becomes the user's primary language** and is stored in
+                    `preferences.targetLanguage`; a `user_languages` and a
+                    `streaks` row are written per language.
+                  items:
+                    type: string
+                  example: [es, en]
                 dailyGoalTier:
                   type: string
-                  description: e.g. calm (default)
+                  description: Daily goal tier id.
+                  example: calm
       responses:
         '200':
           description: Account created
@@ -170,14 +305,33 @@ paths:
                   message:
                     type: string
         '400':
-          description: Validation or unsupported language
+          description: Validation failed, or an unsupported language was requested
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldErrors'
         '409':
-          description: Email or username already taken
+          description: Username or email already taken (matched case-insensitively)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldErrors'
+              example:
+                error: "That username is already taken. Please choose another one."
+                errors:
+                  username: "That username is already taken. Please choose another one."
 
   /auth/login:
     post:
       tags: [Auth]
       summary: Log in
+      description: |
+        Rate limited per `(email, ip)` and per IP. Once the threshold is reached
+        the endpoint short-circuits with `429` **before** verifying the password,
+        so a locked-out caller cannot use it as a CPU amplifier.
+
+        Bad email and bad password return the same `401` with the same message,
+        so the endpoint cannot be used to discover which addresses are registered.
       operationId: login
       requestBody:
         required: true
@@ -189,12 +343,13 @@ paths:
               properties:
                 email:
                   type: string
+                  format: email
                 password:
                   type: string
                   format: password
       responses:
         '200':
-          description: JWT and user payload
+          description: JWT and user payload (token valid for 7 days)
           content:
             application/json:
               schema:
@@ -205,23 +360,55 @@ paths:
                     type: string
                   user:
                     $ref: '#/components/schemas/UserSession'
-        '400':
-          description: Invalid password
-        '404':
-          description: User not found
+        '401':
+          description: Invalid email or password — identical for both failure cases
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Invalid email or password.
+                  code:
+                    type: string
+                    enum: [INVALID_CREDENTIALS]
+        '429':
+          description: Account or IP is locked out after repeated failures
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimited'
 
   /auth/logout:
     post:
       tags: [Auth]
-      summary: Log out (client should discard token)
+      summary: Log out
+      description: |
+        **Performs no server-side invalidation.** The endpoint requires a valid
+        token and returns an acknowledgement, but there is no revocation list and
+        no token version on the user record — the JWT remains valid until it
+        expires (7 days from issue).
+
+        The web client does not call this at all; it discards the token from
+        local storage. Treat this endpoint as advisory until server-side
+        revocation is implemented.
       operationId: logout
       security:
         - bearerAuth: []
       responses:
         '200':
           description: Acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
-          description: Missing or invalid token
+          description: Missing, expired or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /auth/verify:
     get:
@@ -257,9 +444,14 @@ paths:
       tags: [Auth]
       summary: Aggregated profile and stats for a user
       description: |
-        Public route (no JWT). Supports optional `lang` query to override target language.
-        Returns streaks, daily totals, 7d/30d charts, RTL flag, etc.
-        Respects `x-timezone-offset` header for accurate local-midnight daily stat boundaries.
+        **Public route — no JWT required, and ownership of `userId` is not
+        verified.** Anyone who knows an id can read that user's streak, daily
+        totals, coin balance and 7d/30d activity charts. Treat this as a known
+        hardening gap and do not expose it further without adding an access
+        check.
+
+        Supports an optional `lang` query to override the target language, and
+        respects `x-timezone-offset` for accurate local-midnight stat boundaries.
       operationId: getUserInfo
       parameters:
         - name: userId
@@ -280,7 +472,11 @@ paths:
               schema:
                 type: object
         '400':
-          description: Invalid user id or error
+          description: Invalid user id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /auth/goal-tier:
     patch:
@@ -369,6 +565,90 @@ paths:
                 items:
                   type: object
 
+  /auth/check-availability:
+    post:
+      tags: [Auth]
+      summary: Check whether a username and/or email are still free
+      description: |
+        Advisory availability check used by the sign-up form while the user is
+        still typing. `POST /auth/register` re-checks and owns the authoritative
+        answer, because two people can pick the same name between this call and
+        the submission.
+
+        A field is omitted from the response when it is absent or fails format
+        validation — the endpoint will not answer about a value that could not
+        be registered regardless.
+
+        **Unauthenticated, and it reveals whether an identity is registered.**
+        Rate limited per IP; see the 429 response.
+      operationId: checkAvailability
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  description: 3-20 chars, ASCII letters/digits/underscore, must contain a letter.
+                  example: ada
+                email:
+                  type: string
+                  format: email
+                  example: ada@example.com
+      responses:
+        '200':
+          description: Availability of each well-formed field supplied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailabilityResult'
+        '429':
+          description: Too many availability checks from this IP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimited'
+
+  /auth/login-lockout:
+    get:
+      tags: [Auth]
+      summary: Current login lockout state for the caller
+      description: |
+        Lets the login page restore its countdown after a reload during a
+        lockout, instead of showing a normal form and letting the user discover
+        the lockout by failing a request that was never going to be checked.
+
+        The lockout is keyed on `(email, ip)`; the account-wide bucket also
+        applies, and the stricter of the two is returned. `email` is optional —
+        omit it when the form is still empty and the answer reflects the
+        IP-wide bucket alone.
+
+        **Unauthenticated.** Rate limited per IP.
+      operationId: getLoginLockout
+      parameters:
+        - name: email
+          in: query
+          required: false
+          schema:
+            type: string
+          description: The address being signed in to, if known.
+          example: ada@example.com
+      responses:
+        '200':
+          description: Current lockout state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LockoutStatus'
+        '429':
+          description: Too many lockout lookups from this IP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimited'
+
   /auth/profile/insights/{userId}:
     get:
       tags: [Auth]
@@ -437,6 +717,9 @@ paths:
     post:
       tags: [Library]
       summary: Create a course
+      description: |
+        Creates a course owned by the caller. Required before a manual import —
+        `POST /lessons/parse` needs a `courseId` to attach the new lesson to.
       operationId: createCourse
       security:
         - bearerAuth: []
@@ -653,18 +936,126 @@ paths:
         '200':
           description: 'JSON body with a `bookmarked` boolean property.'
 
-  /library/lingq-import:
+  /library/lingq-imported-ids:
+    get:
+      tags: [Library]
+      summary: LingQ lesson IDs already imported by this user
+      description: |
+        Lets the import UI mark lessons that have already been brought across,
+        and enforces the daily quota counter.
+      operationId: lingqImportedIds
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TimezoneOffset'
+        - name: lang
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Imported IDs, today's count, and the quota
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  importedIds:
+                    type: array
+                    items:
+                      type: integer
+                  importedToday:
+                    type: integer
+                  maxQuota:
+                    type: integer
+                    example: 10
+        '401':
+          description: Unauthorized
+
+  /library/lingq-courses:
+    get:
+      tags: [Library]
+      summary: Recommended LingQ courses for the active language
+      description: |
+        Proxies LingQ's recommended-course list. A key may be supplied per
+        request via the `x-lingq-apikey` header.
+      operationId: lingqCourses
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: x-lingq-apikey
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Caller-supplied LingQ API key.
+      responses:
+        '200':
+          description: Course list from LingQ
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Unauthorized
+
+  /library/lingq-lessons:
+    get:
+      tags: [Library]
+      summary: Lessons within one LingQ course
+      operationId: lingqLessons
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lang
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: courseId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: apiKey
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Caller-supplied LingQ API key.
+      responses:
+        '200':
+          description: Lesson list, either a bare array or a `{ results }` envelope.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Missing language or course ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+
+  /library/lingq-import-selected:
     post:
       tags: [Library]
-      summary: One-time import from LingQ API (per user language)
+      summary: Import a specific batch of selected LingQ lessons
       description: |
-        Streams progress logs via chunked transfer encoding (`text/plain`).
-        Each line is either a human-readable log message or the final JSON result object
-        `{ success: boolean, count: number }`. The client should read the stream line-by-line.
-      operationId: lingqImport
+        Imports the exact lessons the user ticked, rather than a whole language.
+        At most 10 lessons per call, which is also the daily quota; the client
+        calls this repeatedly and merges progress as it goes.
+
+        Replaces an older bulk-import endpoint that streamed progress logs — this
+        one returns a single JSON result.
+      operationId: lingqImportSelected
       security:
         - bearerAuth: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -674,36 +1065,95 @@ paths:
                   type: string
                 languageCode:
                   type: string
-                courseCount:
-                  type: integer
-                lessonsPerCourse:
-                  type: integer
+                selectedLessons:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    type: object
+                    description: A lesson chosen in the UI; forwarded to the importer verbatim.
       responses:
         '200':
-          description: Streamed import progress + final JSON result
+          description: Import result
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-                description: Newline-delimited stream of log lines, ending with a JSON result object.
-        '403':
-          description: Already imported for this language
-        '500':
-          description: Import failed
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  count:
+                    type: integer
+        '400':
+          description: No lessons selected, or more than 10
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Daily import quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+
+  /library/lingq-translation/{lessonId}:
+    get:
+      tags: [Library]
+      summary: Fetch and cache a lesson translation from LingQ
+      operationId: lingqTranslation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lessonId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Translation for the lesson
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: No translation available for this lesson
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
 
   /lessons/parse:
     post:
       tags: [Lessons]
-      summary: Create lesson from raw text and tokenize content
+      summary: Manual import — create a lesson from user-supplied text and tokenize it
+      description: |
+        **Entry point for manual import**, where the user writes or pastes their own
+        content. Despite the name, this does two things: it inserts the lesson row
+        *and* tokenizes `rawText` into LingQ tokens/phrases.
+
+        `courseId` must reference a course the caller already owns — create one
+        with `POST /library/courses` first. This is the counterpart to the LingQ
+        import flow under `/library/lingq-*`; the two never overlap.
       operationId: parseLesson
       security:
         - bearerAuth: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               type: object
+              required: [courseId, title, rawText]
               properties:
+                courseId:
+                  type: string
+                  description: Destination course; must be owned by the caller.
                 title:
                   type: string
                 description:
@@ -716,15 +1166,30 @@ paths:
                   type: number
                 isPublic:
                   type: boolean
+                originalUrl:
+                  type: string
+                  description: Where the user sourced the text, kept as provenance.
                 rawText:
                   type: string
-                courseId:
-                  type: string
+                  description: The lesson body typed or pasted by the user.
                 languageCode:
                   type: string
       responses:
         '200':
-          description: Response includes lessonId and tokens.
+          description: Lesson created; includes `lessonId` and the generated tokens.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lessonId:
+                    type: string
+                  tokens:
+                    type: array
+                    items:
+                      type: object
+        '401':
+          description: Unauthorized
 
   /lessons/{id}:
     get:
